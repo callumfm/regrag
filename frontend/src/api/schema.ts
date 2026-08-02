@@ -27,12 +27,20 @@ export interface components {
     schemas: {
         /** HealthResponse */
         HealthResponse: {
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "degraded";
             /** Version */
             version: string;
             /** Corpus Version */
             corpus_version: string | null;
+            /**
+             * Database
+             * @enum {string}
+             */
+            database: "ok" | "error";
         };
     };
     responses: never;
