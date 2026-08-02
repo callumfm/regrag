@@ -35,5 +35,6 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec biome ci .
+      - run: pnpm knip
       - run: pnpm test:run
       - run: pnpm build

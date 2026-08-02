@@ -11,6 +11,7 @@
 		"check": "biome check --write .",
 		"test": "vitest",
 		"test:run": "vitest run",
+		"knip": "knip",
 		"generate-api": "openapi-typescript openapi.json -o src/api/schema.ts"
 	},
 	"dependencies": {
@@ -35,6 +36,7 @@
 		"@types/react-dom": "^19.2.3",
 		"@vitejs/plugin-react": "^6.0.4",
 		"jsdom": "^30.0.1",
+		"knip": "^6.31.0",
 		"openapi-typescript": "^7.13.0",
 		"shadcn": "3.8.5",
 		"tailwindcss": "^4.3.3",
