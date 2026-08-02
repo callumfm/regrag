@@ -1,3 +1,6 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,10 +21,20 @@ from app.core.exceptions import (
     validation_error_handler,
 )
 from app.core.middleware import add_process_time_header, request_id_middleware
+from app.db.session import async_engine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Manage application lifecycle - teardown of shared resources."""
+    try:
+        yield
+    finally:
+        await async_engine.dispose()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=config.PROJECT_NAME, version=__version__)
+    app = FastAPI(title=config.PROJECT_NAME, version=__version__, lifespan=lifespan)
 
     # Exception handlers — ty doesn't model Starlette's async handler variance;
     # register via a loop so we only need one suppression.
