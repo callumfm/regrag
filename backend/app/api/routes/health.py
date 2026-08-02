@@ -1,11 +1,17 @@
 from fastapi import APIRouter
+from sqlalchemy import text
 
-from app import __version__
-from app.api.models.health import HealthResponse
+from app.api.deps import SessionDep
+from app.api.models.health import HealthResponse, ServiceStatus
 
 router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-def get_health() -> HealthResponse:
-    return HealthResponse(status="ok", version=__version__, corpus_version=None)
+async def get_health(db: SessionDep) -> HealthResponse:
+    try:
+        await db.execute(text("SELECT 1"))
+        database = ServiceStatus.OK
+    except Exception:
+        database = ServiceStatus.ERROR
+    return HealthResponse(database=database)

@@ -1,11 +1,91 @@
+"""Application configuration loaded from environment variables."""
+
+import os
+from typing import Any
+
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.enums import Environment
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
-    environment: str = "local"
-    cors_origins: list[str] = ["http://localhost:5173"]
+ENVIRONMENT: Environment = Environment(os.environ.get("ENVIRONMENT", "dev"))
 
 
-settings = Settings()
+def get_env_file(env: Environment = ENVIRONMENT) -> str:
+    if env == Environment.TEST:
+        return ".env.example"
+    return f".env.{env.value}"
+
+
+MODEL_CONFIG = SettingsConfigDict(
+    env_file=get_env_file(),
+    env_ignore_empty=True,
+    extra="ignore",
+)
+
+
+class AppConfig(BaseSettings):
+    """Application configuration."""
+
+    model_config = MODEL_CONFIG
+
+    ENVIRONMENT: Environment = ENVIRONMENT
+    PROJECT_NAME: str = "RegRag"
+    CORS_ORIGINS: list[str] = ["http://localhost:5173"]
+
+
+class PostgresConfig(BaseSettings):
+    """PostgreSQL database configuration."""
+
+    model_config = MODEL_CONFIG
+
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
+    DB_USER: str = "postgres"
+    DB_PASS: str = "postgres"
+    DB_NAME: str = "regrag"
+
+    DB_POOL_SIZE: int = 3
+    DB_MAX_OVERFLOW: int = 3
+    DB_POOL_PRE_PING: bool = True
+    DB_POOL_RECYCLE: int = 300
+    DB_POOL_TIMEOUT: int = 30
+    DB_CONNECT_TIMEOUT: int = 10
+    DB_COMMAND_TIMEOUT: int = 30
+
+    @computed_field
+    @property
+    def SQLALCHEMY_DATABASE_URI(self) -> str:
+        """Build SQLAlchemy database URI."""
+        return (
+            f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASS}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        )
+
+    @computed_field
+    @property
+    def SQLALCHEMY_ENGINE_ARGS(self) -> dict[str, Any]:
+        """Get SQLAlchemy engine arguments."""
+        return {
+            "pool_size": self.DB_POOL_SIZE,
+            "max_overflow": self.DB_MAX_OVERFLOW,
+            "pool_pre_ping": self.DB_POOL_PRE_PING,
+            "pool_recycle": self.DB_POOL_RECYCLE,
+            "pool_timeout": self.DB_POOL_TIMEOUT,
+            "connect_args": {
+                "timeout": self.DB_CONNECT_TIMEOUT,
+                "command_timeout": self.DB_COMMAND_TIMEOUT,
+            },
+        }
+
+
+class Config(AppConfig, PostgresConfig):
+    """Combined configuration class for core app functionality."""
+
+
+def load_config() -> Config:
+    """Load the configuration."""
+    return Config()
+
+
+config = load_config()
