@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "RegRag backend — API, agent, ingestion, evals"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.16",
     "asyncpg>=0.30",
     "fastapi[standard]>=0.139",
     "pydantic>=2.13",
