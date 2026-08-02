@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import ConflictError, NotFoundError, require
-from app.main import create_app
+from app.main import app
 
 
 class _Payload(BaseModel):
@@ -19,7 +19,6 @@ class _Payload(BaseModel):
 
 
 def _build_client() -> TestClient:
-    app = create_app()
     router = APIRouter()
 
     @router.get("/boom-domain")

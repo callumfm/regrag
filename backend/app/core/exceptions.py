@@ -18,12 +18,9 @@ logger = get_logger(__name__)
 
 
 class DomainError(Exception):
-    """Base for application errors that map to HTTP responses.
+    """Base for application errors that map to HTTP responses via one handler."""
 
-    Subclasses set ``status_code``; one handler dispatches all of them.
-    """
-
-    status_code: int = 500
+    status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
 
     def __init__(self, message: str):
         self.message = message
@@ -33,7 +30,7 @@ class DomainError(Exception):
 class NotFoundError(DomainError):
     """Raised when a resource is not found."""
 
-    status_code = 404
+    status_code = status.HTTP_404_NOT_FOUND
 
     def __init__(self, resource: str, identifier: str | int):
         super().__init__(f"{resource} '{identifier}' not found")
@@ -44,7 +41,7 @@ class NotFoundError(DomainError):
 class ConflictError(DomainError):
     """Raised when a request conflicts with the current state of a resource."""
 
-    status_code = 409
+    status_code = status.HTTP_409_CONFLICT
 
 
 def require[T](obj: T | None, *, resource: str, identifier: str | int) -> T:
@@ -131,13 +128,8 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
 
 
 async def catch_unhandled_exceptions(request: Request, call_next):
-    """Convert unhandled exceptions to the shared 500 shape.
-
-    Runs as the innermost HTTP middleware instead of a registered Exception
-    handler: Starlette invokes Exception handlers outside the middleware
-    stack, after the request-ID contextvar is reset, which would leave the
-    500 response without a request ID in header or body.
-    """
+    """Convert unhandled exceptions to the shared 500 shape. Runs as innermost
+    middleware (not an exception handler) so the request-ID contextvar is still bound."""
     try:
         return await call_next(request)
     except Exception:

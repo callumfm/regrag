@@ -6,9 +6,9 @@ import uuid
 from fastapi.testclient import TestClient
 
 from app.core import middleware
-from app.main import create_app
+from app.main import app
 
-client = TestClient(create_app())
+client = TestClient(app)
 
 
 def test_every_response_carries_request_id() -> None:
@@ -49,8 +49,6 @@ def test_access_log_skips_options(monkeypatch) -> None:
 
 
 def test_gzip_compresses_large_responses() -> None:
-    app = create_app()
-
     @app.get("/big")
     def big() -> dict[str, str]:
         return {"payload": "x" * 5000}

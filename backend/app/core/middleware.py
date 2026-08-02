@@ -15,10 +15,7 @@ REQUEST_ID_HEADER = "X-Request-ID"
 
 async def request_id_middleware(request: Request, call_next):
     """Bind a server-generated request ID to the request context.
-
-    Incoming X-Request-ID headers are ignored: this is a public API, and
-    attacker-chosen IDs must not land in log fields.
-    """
+    Incoming X-Request-ID headers are untrusted (public API) and ignored."""
     request_id = uuid.uuid4().hex
     token = request_id_var.set(request_id)
     try:

@@ -1,3 +1,5 @@
+"""FastAPI application entrypoint."""
+
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -33,40 +35,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await async_engine.dispose()
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(title=config.PROJECT_NAME, version=__version__, lifespan=lifespan)
+app = FastAPI(title=config.PROJECT_NAME, version=__version__, lifespan=lifespan)
 
-    # Exception handlers — ty doesn't model Starlette's async handler variance;
-    # register via a loop so we only need one suppression.
-    exception_handlers = [
-        (RequestValidationError, validation_error_handler),
-        (HTTPException, http_exception_handler),
-        (DomainError, domain_error_handler),
-        (IntegrityError, integrity_error_handler),
-    ]
-    for exc_type, handler in exception_handlers:
-        app.add_exception_handler(exc_type, handler)  # ty: ignore[invalid-argument-type]
+# Exception Handlers — ty doesn't model Starlette's async handler variance;
+# register via a loop so we only need one suppression.
+exception_handlers = [
+    (RequestValidationError, validation_error_handler),
+    (HTTPException, http_exception_handler),
+    (DomainError, domain_error_handler),
+    (IntegrityError, integrity_error_handler),
+]
+for exc_type, handler in exception_handlers:
+    app.add_exception_handler(exc_type, handler)  # ty: ignore[invalid-argument-type]
 
-    # Middleware. Registration order matters: later registrations wrap earlier
-    # ones, so request-ID is outermost of the two functions and the process-time
-    # log line runs with the request ID already bound. catch_unhandled_exceptions
-    # is registered first so it is innermost: it must see raw exceptions before
-    # Starlette's registered handlers run outside the middleware stack (after the
-    # request-ID contextvar is reset), while its response still flows back out
-    # through process-time and request-ID.
-    app.middleware("http")(catch_unhandled_exceptions)
-    app.middleware("http")(add_process_time_header)
-    app.middleware("http")(request_id_middleware)
-    app.add_middleware(GZipMiddleware, minimum_size=GZIP_MINIMUM_SIZE)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=config.CORS_ORIGINS,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# Middleware — later registrations wrap earlier ones; catch_unhandled_exceptions
+# must stay innermost so 500s still carry the request ID.
+app.middleware("http")(catch_unhandled_exceptions)
+app.middleware("http")(add_process_time_header)
+app.middleware("http")(request_id_middleware)
+app.add_middleware(GZipMiddleware, minimum_size=GZIP_MINIMUM_SIZE)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.CORS_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    app.include_router(health_router)
-    return app
-
-
-app = create_app()
+app.include_router(health_router)

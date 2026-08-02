@@ -4,9 +4,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.session import get_db
-from app.main import create_app
+from app.main import app
 
-client = TestClient(create_app())
+client = TestClient(app)
 
 
 def test_health_returns_ok() -> None:
@@ -28,9 +28,11 @@ def test_health_degraded_when_db_unreachable() -> None:
         async with bad_factory() as session:
             yield session
 
-    app = create_app()
     app.dependency_overrides[get_db] = bad_db
-    response = TestClient(app).get("/health")
+    try:
+        response = client.get("/health")
+    finally:
+        app.dependency_overrides.clear()
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "degraded"
