@@ -1,15 +1,9 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
 
 from app import __version__
+from app.api.models.health import HealthResponse
 
 router = APIRouter(tags=["health"])
-
-
-class HealthResponse(BaseModel):
-    status: str
-    version: str
-    corpus_version: str | None
 
 
 @router.get("/health")
