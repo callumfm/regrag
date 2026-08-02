@@ -1,0 +1,31 @@
+[project]
+name = "regrag-backend"
+version = "0.1.0"
+description = "RegRag backend — API, agent, ingestion, evals"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.139",
+    "pydantic>=2.13",
+    "pydantic-settings>=2.14",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "httpx>=0.28",
+    "ruff>=0.16",
+    "ty>=0.0.1a24",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ty.src]
+include = ["app", "tests"]

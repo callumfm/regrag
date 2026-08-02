@@ -1,0 +1,44 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-toml
+      - id: check-yaml
+        args:
+          - --unsafe
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.0
+    hooks:
+      - id: ruff-check
+        args:
+          - --fix
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty check
+        entry: bash -c 'cd backend && uv run ty check'
+        language: system
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+        require_serial: true
+
+      - id: biome-check
+        name: biome check
+        entry: bash -c 'cd frontend && pnpm exec biome check --write --no-errors-on-unmatched .'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx|json|css)$
+        pass_filenames: false
+
+      - id: generate-frontend-sdk
+        name: Generate frontend SDK
+        entry: bash scripts/generate-client.sh
+        language: system
+        files: ^backend/.*\.py$|^scripts/generate-client\.sh$
+        pass_filenames: false
