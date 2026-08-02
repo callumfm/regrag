@@ -14,6 +14,7 @@ declare module '@tanstack/react-router' {
 	}
 }
 
+// biome-ignore lint/style/noNonNullAssertion: #root is static in index.html — fail fast if missing
 createRoot(document.getElementById('root')!).render(
 	<StrictMode>
 		<QueryClientProvider client={queryClient}>
