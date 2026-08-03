@@ -2,20 +2,14 @@
 
 import logging
 import sys
+from contextvars import ContextVar
 
 from pythonjsonlogger.json import JsonFormatter
 
 from app.core.config import config
-from app.core.context import request_id_var
 from app.core.enums import Environment
 
-logger = logging.getLogger("app")
-logger.propagate = False
-
-
-def get_logger(name: str) -> logging.Logger:
-    """Get a module-scoped logger with shared handlers."""
-    return logging.getLogger(name)
+request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 
 class _ContextFilter(logging.Filter):
@@ -27,12 +21,17 @@ class _ContextFilter(logging.Filter):
 
 
 class _AppFormatter(logging.Formatter):
-    """Prepend request ID to dev-mode log lines when available."""
+    """Dev formatter: time, level, and a short request-ID prefix when available."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            fmt="%(asctime)s %(levelname)-7s %(request_id_prefix)s%(message)s",
+            datefmt="%H:%M:%S",
+        )
 
     def format(self, record: logging.LogRecord) -> str:
         request_id = getattr(record, "request_id", None)
-        if request_id:
-            record.msg = f"[{request_id[:8]}] {record.msg}"
+        record.request_id_prefix = f"[{request_id[:8]}] " if request_id else ""
         return super().format(record)
 
 
@@ -43,19 +42,20 @@ def _build_formatter() -> logging.Formatter:
             rename_fields={"levelname": "level", "name": "logger"},
             timestamp=True,
         )
-    return _AppFormatter(fmt="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
+    return _AppFormatter()
 
 
-if not logger.handlers:
-    _handler = logging.StreamHandler(sys.stdout)
-    _handler.setFormatter(_build_formatter())
-    _handler.addFilter(_ContextFilter())
-    logger.addHandler(_handler)
-    logger.setLevel(logging.INFO)
+def setup_logging() -> None:
+    """Configure the app logger and route uvicorn's logs through the same handler."""
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(_build_formatter())
+    handler.addFilter(_ContextFilter())
 
-uvicorn_logger = logging.getLogger("uvicorn")
-for _existing in logger.handlers:
-    if _existing not in uvicorn_logger.handlers:
-        uvicorn_logger.addHandler(_existing)
+    app_logger = logging.getLogger("app")
+    app_logger.addHandler(handler)
+    app_logger.setLevel(logging.INFO)
+    app_logger.propagate = False
 
-logging.getLogger("uvicorn.access").disabled = True
+    # Replace (not append to) uvicorn's own handler, or every line is emitted twice.
+    logging.getLogger("uvicorn").handlers = [handler]
+    logging.getLogger("uvicorn.access").disabled = True

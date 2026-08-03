@@ -1,48 +1,56 @@
 """HTTP middleware for the FastAPI application."""
 
+import logging
 import time
 import uuid
 
-from fastapi import Request
+from fastapi import Request, status
 
-from app.core.context import request_id_var
-from app.core.logger import get_logger
+from app.core.exceptions import error_response
+from app.core.logger import request_id_var
 
-logger = get_logger(__name__)
-
-REQUEST_ID_HEADER = "X-Request-ID"
+logger = logging.getLogger(__name__)
 
 
-async def request_id_middleware(request: Request, call_next):
-    """Bind a server-generated request ID to the request context.
-    Incoming X-Request-ID headers are untrusted (public API) and ignored."""
+async def request_middleware(request: Request, call_next):
+    """Bind a server-generated request ID (incoming X-Request-ID headers are
+    untrusted and ignored), time the request, emit one access-log line, and
+    convert unhandled exceptions into the shared 500 error shape.
+
+    CORS preflights never reach this middleware — CORSMiddleware sits outside
+    it and answers them directly — so they are absent from the access log."""
     request_id = uuid.uuid4().hex
     token = request_id_var.set(request_id)
-    try:
-        response = await call_next(request)
-        response.headers[REQUEST_ID_HEADER] = request_id
-        return response
-    finally:
-        request_id_var.reset(token)
-
-
-async def add_process_time_header(request: Request, call_next):
-    """Add X-Process-Time header and log one access-log line per request."""
     start_time = time.perf_counter()
-    response = await call_next(request)
-    duration_ms = int((time.perf_counter() - start_time) * 1000)
-    response.headers["X-Process-Time"] = f"{duration_ms}ms"
-    if request.method != "OPTIONS":
-        route = request.scope.get("route")
+    method, path = request.method, request.scope["path"]
+    try:
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("Unhandled error on %s %s", method, path)
+            response = error_response(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error="InternalServerError",
+                message="An unexpected error occurred",
+            )
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Process-Time"] = f"{duration_ms}ms"
         logger.info(
-            f"{request.method} {request.url.path} {response.status_code} - {duration_ms}ms",
+            "%s %s %s - %sms",
+            method,
+            path,
+            response.status_code,
+            duration_ms,
             extra={
-                "method": request.method,
-                "path": request.url.path,
-                "route": getattr(route, "path", None),
+                "method": method,
+                "path": path,
+                "route": getattr(request.scope.get("route"), "path", None),
                 "status": response.status_code,
                 "duration_ms": duration_ms,
                 "client_ip": request.client.host if request.client else None,
             },
         )
-    return response
+        return response
+    finally:
+        request_id_var.reset(token)

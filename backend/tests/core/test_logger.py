@@ -5,9 +5,8 @@ import logging
 from typing import Any, cast
 
 from app.core import logger as logger_module
-from app.core.context import request_id_var
 from app.core.enums import Environment
-from app.core.logger import _AppFormatter, _build_formatter, _ContextFilter
+from app.core.logger import _AppFormatter, _build_formatter, _ContextFilter, request_id_var
 
 
 def _record(msg: str = "hello") -> logging.LogRecord:
@@ -41,13 +40,13 @@ def test_context_filter_binds_none_outside_request() -> None:
 def test_dev_formatter_prefixes_short_request_id() -> None:
     record = _record()
     cast(Any, record).request_id = "abc123def456"
-    assert _AppFormatter(fmt="%(message)s").format(record) == "[abc123de] hello"
+    assert _AppFormatter().format(record).endswith("INFO    [abc123de] hello")
 
 
 def test_dev_formatter_without_request_id() -> None:
     record = _record()
     cast(Any, record).request_id = None
-    assert _AppFormatter(fmt="%(message)s").format(record) == "hello"
+    assert _AppFormatter().format(record).endswith("INFO    hello")
 
 
 def test_prod_formatter_emits_json(monkeypatch) -> None:

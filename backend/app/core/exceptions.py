@@ -1,20 +1,21 @@
 """Domain errors and exception handlers returning one consistent JSON shape."""
 
+import logging
 from collections.abc import Mapping, Sequence
+from http import HTTPStatus
 from typing import Any
 
-from fastapi import Request, status
+from fastapi import Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException
 
-from app.core.context import request_id_var
-from app.core.logger import get_logger
+from app.core.logger import request_id_var
 from app.core.models import ErrorResponse
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class DomainError(Exception):
@@ -74,8 +75,11 @@ def error_response(
 
 
 def _sanitize_validation_errors(errors: Sequence[Any]) -> list[dict[str, Any]]:
-    """Strip raw input values to avoid leaking request payloads into responses and logs."""
-    return [{k: v for k, v in e.items() if k != "input"} for e in errors]
+    """Strip input and ctx to avoid leaking request payloads into responses and logs.
+
+    ctx goes too: for value_error entries it holds the raw ValueError, whose
+    message usually embeds the offending input value."""
+    return [{k: v for k, v in e.items() if k not in ("input", "ctx")} for e in errors]
 
 
 async def validation_error_handler(
@@ -84,7 +88,7 @@ async def validation_error_handler(
 ) -> JSONResponse:
     """Handle Pydantic validation errors: 422 with sanitized error details."""
     sanitized = _sanitize_validation_errors(exc.errors())
-    logger.error("Validation error on %s %s: %s", request.method, request.url.path, sanitized)
+    logger.warning("ValidationError on %s %s: %s", request.method, request.url.path, sanitized)
     return error_response(
         status.HTTP_422_UNPROCESSABLE_CONTENT,
         error="ValidationError",
@@ -93,7 +97,7 @@ async def validation_error_handler(
     )
 
 
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+async def http_exception_handler(request: Request, exc: HTTPException) -> Response:
     """Handle HTTP exceptions, preserving status and headers."""
     logger.warning(
         "HTTPException on %s %s: %s %s",
@@ -102,10 +106,17 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         exc.status_code,
         exc.detail,
     )
+    if exc.status_code in {status.HTTP_204_NO_CONTENT, status.HTTP_304_NOT_MODIFIED}:
+        return Response(status_code=exc.status_code, headers=exc.headers)
+    if isinstance(exc.detail, str):
+        message, detail = exc.detail, None
+    else:
+        message, detail = HTTPStatus(exc.status_code).phrase, [jsonable_encoder(exc.detail)]
     return error_response(
         exc.status_code,
         error="HTTPException",
-        message=str(exc.detail),
+        message=message,
+        detail=detail,
         headers=exc.headers,
     )
 
@@ -125,17 +136,3 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
         error="IntegrityError",
         message="This conflicts with an existing record",
     )
-
-
-async def catch_unhandled_exceptions(request: Request, call_next):
-    """Convert unhandled exceptions to the shared 500 shape. Runs as innermost
-    middleware (not an exception handler) so the request-ID contextvar is still bound."""
-    try:
-        return await call_next(request)
-    except Exception:
-        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
-        return error_response(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            error="InternalServerError",
-            message="An unexpected error occurred",
-        )
