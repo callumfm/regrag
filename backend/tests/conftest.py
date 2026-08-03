@@ -1,10 +1,32 @@
 """Shared test fixtures."""
 
+from collections.abc import AsyncGenerator
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
+from app.core.config import config
+from app.db.session import async_session_factory
 from app.main import configure_app
+
+
+@pytest.fixture(scope="session")
+def db_engine() -> AsyncEngine:
+    """NullPool so each test's connection lives and dies inside its own event loop."""
+    return create_async_engine(config.SQLALCHEMY_DATABASE_URI, poolclass=NullPool)
+
+
+@pytest.fixture
+async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    """Session bound to a transaction that is always rolled back."""
+    async with db_engine.connect() as conn:
+        trans = await conn.begin()
+        async with async_session_factory(bind=conn) as session:
+            yield session
+        await trans.rollback()
 
 
 @pytest.fixture
