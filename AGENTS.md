@@ -17,3 +17,5 @@
   capability without checking its documentation and types.
 - Make architectural decisions for the long term. Do not accept a stopgap
   that only works for now and is meant to be replaced later.
+- Do not write inline comments. Prefer self-describing code; where
+  explanation is genuinely needed, use a docstring of 1-2 lines max.

@@ -1,0 +1,73 @@
+"""Tests for the request middleware: request IDs, timing, access log, gzip."""
+
+import re
+import uuid
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.core import middleware
+from app.core.config import config
+
+
+@pytest.fixture
+def log_lines(monkeypatch) -> list[str]:
+    """Capture rendered access-log lines emitted by the request middleware."""
+    lines: list[str] = []
+    monkeypatch.setattr(
+        middleware.logger,
+        "info",
+        lambda msg, *args, **kwargs: lines.append(msg % args),
+    )
+    return lines
+
+
+def test_every_response_carries_request_id(client: TestClient) -> None:
+    response = client.get("/health")
+    uuid.UUID(hex=response.headers["X-Request-ID"])
+
+
+def test_requests_get_distinct_ids(client: TestClient) -> None:
+    r1 = client.get("/health")
+    r2 = client.get("/health")
+    assert r1.headers["X-Request-ID"] != r2.headers["X-Request-ID"]
+
+
+def test_incoming_request_id_is_ignored(client: TestClient) -> None:
+    incoming = "attacker-chosen-value"
+    response = client.get("/health", headers={"X-Request-ID": incoming})
+    assert response.headers["X-Request-ID"] != incoming
+
+
+def test_process_time_header(client: TestClient) -> None:
+    response = client.get("/health")
+    assert re.fullmatch(r"\d+ms", response.headers["X-Process-Time"])
+
+
+def test_access_log_line(client: TestClient, log_lines: list[str]) -> None:
+    client.get("/health")
+    assert len(log_lines) == 1
+    assert "GET /health 200" in log_lines[0]
+
+
+def test_access_log_skips_cors_preflight(client: TestClient, log_lines: list[str]) -> None:
+    response = client.options(
+        "/health",
+        headers={
+            "Origin": config.CORS_ORIGINS[0],
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 200
+    assert log_lines == []
+
+
+def test_gzip_compresses_large_responses(app: FastAPI, client: TestClient) -> None:
+    @app.get("/big")
+    def big() -> dict[str, str]:
+        return {"payload": "x" * 5000}
+
+    response = client.get("/big", headers={"Accept-Encoding": "gzip"})
+    assert response.headers["Content-Encoding"] == "gzip"
+    assert response.json()["payload"] == "x" * 5000
