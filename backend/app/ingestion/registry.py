@@ -126,6 +126,6 @@ CORPUS: tuple[DocumentSpec, ...] = (
         name="mrv-cargo-determination",
         source="eurlex",
         ref="32016R1928",
-        note="IR (EU) 2016/1928 (MRV cargo-carried determination)",
+        note="IR (EU) 2016/1928 (MRV cargo-carried determination); consolidated HTML 404s",
     ),
 )
