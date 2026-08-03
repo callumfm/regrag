@@ -12,10 +12,9 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# Import schema modules here so autogenerate sees them (arrives with RRG-7):
-# import app.db.schemas  # noqa: F401
+import app.db.schemas  # noqa: F401  # register models on BaseSchema.metadata for autogenerate
 from app.core.config import config as app_config
-from app.db.session import BaseSchema
+from app.db.schemas.base import BaseSchema
 
 config = context.config
 
