@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 from http import HTTPStatus
 from typing import Any
 
-from fastapi import Request, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -136,3 +136,16 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
         error="IntegrityError",
         message="This conflicts with an existing record",
     )
+
+
+def register_exception_handlers(app: FastAPI) -> None:
+    """Register all handlers via a loop: ty doesn't model Starlette's async
+    handler variance, so this needs one suppression instead of four."""
+    handlers = [
+        (RequestValidationError, validation_error_handler),
+        (HTTPException, http_exception_handler),
+        (DomainError, domain_error_handler),
+        (IntegrityError, integrity_error_handler),
+    ]
+    for exc_type, handler in handlers:
+        app.add_exception_handler(exc_type, handler)  # ty: ignore[invalid-argument-type]

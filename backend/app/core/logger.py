@@ -56,6 +56,5 @@ def setup_logging() -> None:
     app_logger.setLevel(logging.INFO)
     app_logger.propagate = False
 
-    # Replace (not append to) uvicorn's own handler, or every line is emitted twice.
     logging.getLogger("uvicorn").handlers = [handler]
     logging.getLogger("uvicorn.access").disabled = True
