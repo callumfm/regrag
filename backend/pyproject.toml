@@ -14,6 +14,9 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
 ]
 
+[project.scripts]
+ingest = "app.ingestion.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0",
@@ -33,3 +36,13 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ty.src]
 include = ["app", "tests"]
+
+[build-system]
+requires = ["setuptools>=60"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+include = ["app*"]

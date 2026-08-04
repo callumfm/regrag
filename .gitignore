@@ -9,3 +9,6 @@ __pycache__/
 .superpowers/
 .zed/
 frontend/openapi.json
+
+# Local corpus spike data
+data/
