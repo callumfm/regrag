@@ -24,6 +24,7 @@ def make_document(**overrides: Any) -> IngestedDocument:
         "sha256": "a" * 64,
         "size_bytes": 758462,
         "fetched_at": datetime.now(UTC),
+        "topic": "fueleu",
     }
     return IngestedDocument(**{**defaults, **overrides})
 
@@ -59,3 +60,12 @@ async def test_document_name_unique_per_run(db_session: AsyncSession):
     db_session.add(make_document(run=run))
     with pytest.raises(IntegrityError):
         await db_session.flush()
+
+
+async def test_document_carries_topic(db_session: AsyncSession):
+    run = IngestRun(status=IngestRunStatus.RUNNING)
+    doc = make_document(run=run, topic="fueleu")
+    db_session.add(doc)
+    await db_session.flush()
+
+    assert doc.topic == "fueleu"
