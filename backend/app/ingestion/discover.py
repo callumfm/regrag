@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import httpx
 
 SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
-SPARQL_ENDPOINT = "http://publications.europa.eu/webapi/rdf/sparql"
+SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
 
 
 class DiscoveryError(Exception):

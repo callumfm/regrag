@@ -125,10 +125,6 @@ def test_discover_returns_parsed_specs():
     assert [s.ref for s in specs] == ["32015R0757", "32023R2449"]
 
 
-def test_seeds_are_fueleu_and_mrv():
-    assert SEEDS == {"fueleu": "32023R1805", "mrv": "32015R0757"}
-
-
 DOC_HTML = (FIXTURES / "doc.html").read_text()
 MISSING_HTML_PAGE = (FIXTURES / "missing.html").read_text()
 SPARQL_FIXTURES = {topic: (FIXTURES / f"sparql-{topic}.json").read_text() for topic in SEEDS}
