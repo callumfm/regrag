@@ -19,6 +19,8 @@ ANNEX_NUMBER = re.compile(r"ANNEX\s+([IVXLC]+|\d+)", re.IGNORECASE)
 PARAGRAPH_ID = re.compile(r"^\d+\.\d+$")
 LEADING_NUMBER = re.compile(r"^(\d+[a-z]?)\.\s*")
 MARKERS = re.compile(r"[▼►]\s*[A-Z]+\d*|◄")
+EMPTY_PARENS = re.compile(r"\s*\(\s*\)")
+FOOTNOTE_REF = "span.superscript, span.oj-super"
 
 ARTICLE = "div.eli-subdivision[id^=art_]"
 ANNEX = "div[id^=anx_]"
@@ -29,6 +31,9 @@ CONS_PARAGRAPH = "div.norm"
 CONS_PARAGRAPH_NUMBER = "span.no-parag"
 CONS_PARAGRAPH_TEXT = "div.norm.inline-element"
 CONS_ANNEX_HEADING = 'p[class^="title-gr-seq-level-"]'
+GRID_CONTAINER = "grid-container"
+GRID_MARKER = "div.grid-list-column-1"
+GRID_BODY = "div.grid-list-column-2"
 
 
 @dataclass(frozen=True)
@@ -54,8 +59,8 @@ CONS = Selectors(
 
 
 def clean(text: str) -> str:
-    """Normalise whitespace and drop consolidated-text amendment marker glyphs."""
-    return normalise(MARKERS.sub(" ", text))
+    """Normalise whitespace, dropping amendment glyphs and emptied footnote brackets."""
+    return normalise(EMPTY_PARENS.sub("", MARKERS.sub(" ", text)))
 
 
 def detect(tree: HTMLParser) -> Selectors:
@@ -75,7 +80,97 @@ def prepare(html: str) -> HTMLParser:
             image.replace_with(FORMULA_PLACEHOLDER)
     for banner in tree.css("p.modref"):
         banner.decompose()
+    for marker in tree.css(FOOTNOTE_REF):
+        marker.decompose()
     return tree
+
+
+def grid_line(node: Node) -> str:
+    """A consolidated list row: the '(a)' marker column joined to its text column."""
+    columns = (node.css_first(GRID_MARKER), node.css_first(GRID_BODY))
+    return " ".join(clean(c.text()) for c in columns if c is not None and clean(c.text()))
+
+
+def row_line(node: Node) -> str:
+    """A layout table row: its cells joined, so a bullet stays with the text it marks."""
+    return " ".join(text for text in (clean(c.text()) for c in node.css("td, th")) if text)
+
+
+def collect_lines(node: Node, lines: list[str]) -> None:
+    """Walk in document order, emitting one line per block and per flattened list row."""
+    for child in node.iter(include_text=False):
+        if GRID_CONTAINER in (child.attributes.get("class") or ""):
+            line = grid_line(child)
+        elif child.tag == "tr":
+            line = row_line(child)
+        elif child.tag in ("p", "td"):
+            line = clean(child.text())
+        else:
+            collect_lines(child, lines)
+            continue
+        if line and line not in lines[-1:]:
+            lines.append(line)
+
+
+def block_text(node: Node) -> str:
+    """Join a node's text block by block, so flattened list rows stay on separate lines."""
+    lines: list[str] = []
+    collect_lines(node, lines)
+    return "\n".join(lines) if lines else clean(node.text())
+
+
+def oj_paragraphs(node: Node) -> list[Node]:
+    """OJ paragraph containers have ids like 004.001; Node.css matches self, so exclude it."""
+    own_id = node.attributes.get("id")
+    return [
+        child
+        for child in node.css(OJ_PARAGRAPH)
+        if child.attributes.get("id") != own_id
+        and PARAGRAPH_ID.match(child.attributes.get("id") or "")
+    ]
+
+
+def cons_paragraphs(node: Node) -> list[Node]:
+    return [child for child in node.css(CONS_PARAGRAPH) if child.css_first(CONS_PARAGRAPH_NUMBER)]
+
+
+def oj_paragraph(node: Node) -> Section:
+    number, text = None, block_text(node)
+    match = LEADING_NUMBER.match(text)
+    if match:
+        number, text = match.group(1), text[match.end() :]
+    return Section(kind=SectionKind.PARAGRAPH, number=number, text=text)
+
+
+def cons_paragraph(node: Node) -> Section:
+    marker = node.css_first(CONS_PARAGRAPH_NUMBER)
+    body = node.css_first(CONS_PARAGRAPH_TEXT)
+    number = LEADING_NUMBER.match(clean(marker.text()) if marker else "")
+    return Section(
+        kind=SectionKind.PARAGRAPH,
+        number=number.group(1) if number else None,
+        text=block_text(body) if body is not None else "",
+    )
+
+
+def article_body_text(node: Node, selectors: Selectors) -> str:
+    """Article text with its heading and title lines removed, for unnumbered articles."""
+    skip = {clean(n.text()) for n in node.css(selectors.article_heading)}
+    skip |= {clean(n.text()) for n in node.css(ARTICLE_TITLE)}
+    lines = [line for line in block_text(node).split("\n") if line and line not in skip]
+    return "\n".join(lines)
+
+
+def paragraph_sections(node: Node, selectors: Selectors) -> tuple[Section, ...]:
+    """Numbered paragraphs, falling back to one unnumbered paragraph for the whole article."""
+    if selectors is OJ:
+        sections = [oj_paragraph(child) for child in oj_paragraphs(node)]
+    else:
+        sections = [cons_paragraph(child) for child in cons_paragraphs(node)]
+    if sections:
+        return tuple(sections)
+    body = article_body_text(node, selectors)
+    return (Section(kind=SectionKind.PARAGRAPH, text=body),) if body else ()
 
 
 def heading_number(node: Node, selector: str, pattern: re.Pattern[str]) -> str | None:
@@ -92,6 +187,7 @@ def article_section(node: Node, selectors: Selectors) -> Section:
         kind=SectionKind.ARTICLE,
         number=heading_number(node, selectors.article_heading, ARTICLE_NUMBER),
         title=clean(title.text()) if title else None,
+        children=paragraph_sections(node, selectors),
     )
 
 
