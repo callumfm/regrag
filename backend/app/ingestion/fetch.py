@@ -3,8 +3,7 @@
 import hashlib
 import json
 import time
-from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,14 +11,13 @@ from pathlib import Path
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.http import http_client, transient_retry
+from app.core.http import transient_retry
 from app.ingestion.discover import SEEDS, DiscoveryError, DocumentSpec, discover
 from app.ingestion.enums import DocAction, IngestRunStatus
 from app.ingestion.eurlex import ResolutionError, resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run, get_baseline_docs
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "raw"
 PACE_SECONDS = 1.0
 
 
@@ -85,16 +83,6 @@ class RunReport:
 def pace() -> None:
     """Space out requests to the upstream host between documents."""
     time.sleep(PACE_SECONDS)
-
-
-@contextmanager
-def open_client(client: httpx.Client | None) -> Iterator[httpx.Client]:
-    """Yield the caller's client untouched, or an owned one closed on exit."""
-    if client is not None:
-        yield client
-        return
-    with http_client() as owned:
-        yield owned
 
 
 @transient_retry
@@ -164,8 +152,8 @@ def ingest_documents(
 ) -> list[IngestedDocument]:
     """Ingest each spec in turn, recording its outcome (or its error) on the report."""
     documents = []
-    for position, spec in enumerate(specs):
-        if position:
+    for idx, spec in enumerate(specs):
+        if idx > 0:
             pace()
         try:
             document, action = ingest_document(client, spec, baseline.get(spec.ref), run, data_dir)
@@ -179,19 +167,18 @@ def ingest_documents(
 
 async def fetch_topics(
     session: AsyncSession,
+    client: httpx.Client,
     topics: Sequence[str],
     data_dir: Path,
-    client: httpx.Client | None = None,
 ) -> RunReport:
     """Fetch the corpus for topics in one ingest run; blocking HTTP is fine here (CLI-only)."""
     run = await create_ingest_run(session)
     report = RunReport(run_id=run.id)
     try:
-        with open_client(client) as http:
-            specs = discover_topics(http, topics)
-            baseline = await get_baseline_docs(session, topics)
-            report.dropped = dropped_refs(specs, baseline)
-            session.add_all(ingest_documents(http, specs, baseline, run, data_dir, report))
+        specs = discover_topics(client, topics)
+        baseline = await get_baseline_docs(session, topics)
+        report.dropped = dropped_refs(specs, baseline)
+        session.add_all(ingest_documents(client, specs, baseline, run, data_dir, report))
     except (DiscoveryError, httpx.HTTPError):
         await complete_ingest_run(session, run, IngestRunStatus.FAILED)
         raise

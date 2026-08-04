@@ -147,7 +147,7 @@ async def test_first_run_ingests_all_as_new(db_session, tmp_path):
             "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
         },
     )
-    report = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(report.new) == ["32015R0757", "32023R2449"]
     assert report.ok
@@ -166,10 +166,10 @@ async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path
         "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
     }
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     client, calls = corpus_client({"mrv": MRV_SPARQL}, docs)
-    second = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    second = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(second.unchanged) == ["32015R0757", "32023R2449"]
     assert calls.count("32015R0757") == 1  # resolve GET only, no download GET
@@ -183,7 +183,7 @@ async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_pat
         "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
     }
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     consolidated = httpx.Response(
         200,
@@ -197,7 +197,7 @@ async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_pat
         "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
     }
     client, _ = corpus_client({"mrv": consolidated}, docs)
-    report = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     assert report.changed == ["32015R0757"]
     assert (tmp_path / "32015R0757.html").read_bytes() == b"<html>v2</html>"
@@ -211,11 +211,11 @@ async def test_vanished_doc_reported_dropped(db_session, tmp_path):
         "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
     }
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     only_seed = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
     client, _ = corpus_client({"mrv": only_seed}, docs)
-    report = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     assert report.dropped == ["32023R2449"]
     assert "32023R2449" not in await get_baseline_docs(db_session, ["mrv"])
@@ -227,7 +227,7 @@ async def test_per_doc_failure_continues_and_marks_run_failed(db_session, tmp_pa
         "32023R2449": httpx.Response(400, text="bad"),
     }
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    report = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     assert report.new == ["32015R0757"]
     assert "32023R2449" in report.failed
@@ -241,7 +241,7 @@ async def test_per_doc_failure_continues_and_marks_run_failed(db_session, tmp_pa
 async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path):
     client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
     with pytest.raises(httpx.HTTPStatusError):
-        await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+        await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
@@ -251,7 +251,7 @@ async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path):
 async def test_malformed_sparql_payload_raises_discovery_error(db_session, tmp_path):
     client, _ = corpus_client({"mrv": httpx.Response(200, json={"unexpected": True})}, {})
     with pytest.raises(DiscoveryError, match="malformed"):
-        await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+        await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
 
 async def test_duplicate_ref_across_topics_ingested_once(db_session, tmp_path):
@@ -265,7 +265,7 @@ async def test_duplicate_ref_across_topics_ingested_once(db_session, tmp_path):
         "32023R1805": httpx.Response(200, content=b"<html>fueleu</html>"),
     }
     client, _ = corpus_client(sparql, docs)
-    report = await fetch_topics(db_session, ["fueleu", "mrv"], tmp_path, client=client)
+    report = await fetch_topics(db_session, client, ["fueleu", "mrv"], tmp_path)
 
     assert report.ok
     rows = await get_baseline_docs(db_session, ["fueleu", "mrv"])
@@ -278,5 +278,5 @@ async def test_paces_between_documents(db_session, tmp_path, paces):
         "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
     }
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    await fetch_topics(db_session, client, ["mrv"], tmp_path)
     assert paces == [fetch.PACE_SECONDS]  # once, between the two docs

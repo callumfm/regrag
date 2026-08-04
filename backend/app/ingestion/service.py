@@ -13,7 +13,7 @@ from app.ingestion.schemas import IngestedDocument, IngestRun
 
 
 async def create_ingest_run(session: AsyncSession) -> IngestRun:
-    """Open a run in the RUNNING state and flush it so it has an id."""
+    """Open a run in the RUNNING state, committed so it outlives the fetch that follows."""
     return await create_record(session, IngestRun(status=IngestRunStatus.RUNNING))
 
 
@@ -37,9 +37,7 @@ async def get_baseline_docs(
     session: AsyncSession, topics: Sequence[str]
 ) -> dict[str, IngestedDocument]:
     """Rows of the latest run that recorded documents, filtered to topics, keyed by name."""
-    last_run_id = await session.scalar(select(func.max(IngestedDocument.ingest_run_id)))
-    if last_run_id is None:
-        return {}
+    last_run_id = select(func.max(IngestedDocument.ingest_run_id)).scalar_subquery()
     rows = await session.scalars(
         select(IngestedDocument).where(
             IngestedDocument.ingest_run_id == last_run_id,

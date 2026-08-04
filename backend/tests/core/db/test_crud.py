@@ -2,6 +2,7 @@
 
 import pytest
 from pydantic import BaseModel
+from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.crud import create_record, update_record
@@ -27,6 +28,14 @@ async def test_update_record_applies_only_given_fields(db_session: AsyncSession)
     await update_record(db_session, run, {"corpus_version": "2026-08-04-abc1234"})
     assert run.corpus_version == "2026-08-04-abc1234"
     assert run.status is IngestRunStatus.RUNNING
+
+
+async def test_update_record_leaves_updated_at_loaded(db_session: AsyncSession):
+    """The server-side onupdate arrives via RETURNING; lazy-loading it raises MissingGreenlet."""
+    run = await create_record(db_session, IngestRun(status=IngestRunStatus.RUNNING))
+    await update_record(db_session, run, {"corpus_version": "2026-08-04-abc1234"})
+    assert "updated_at" not in inspect(run).unloaded
+    assert run.updated_at is not None
 
 
 async def test_update_record_with_empty_updates_is_a_no_op(db_session: AsyncSession):

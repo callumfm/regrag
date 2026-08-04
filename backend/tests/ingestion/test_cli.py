@@ -6,6 +6,7 @@ import pytest
 from app.ingestion import cli
 from app.ingestion.cli import main
 from app.ingestion.discover import SEEDS, DiscoveryError
+from app.ingestion.enums import DocAction
 from app.ingestion.fetch import RunReport
 
 
@@ -50,7 +51,7 @@ def test_missing_subcommand_rejected():
 
 def test_prints_summary_and_exits_zero_when_clean(fake_fetch, capsys):
     _, report = fake_fetch
-    report.record(cli.DocAction.NEW, "32023R1805")
+    report.record(DocAction.NEW, "32023R1805")
     assert main(["fetch"]) == 0
     assert "1 new" in capsys.readouterr().out
 

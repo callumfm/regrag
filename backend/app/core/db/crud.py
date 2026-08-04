@@ -12,7 +12,7 @@ from app.core.db.schema import BaseSchema
 async def create_record[T: BaseSchema](
     session: AsyncSession, record: T, *, commit: bool = True
 ) -> T:
-    """Persist a new record; commits by default so server-side defaults are populated."""
+    """Persist a new record; commits by default so it outlives the caller's transaction."""
     session.add(record)
     await (session.commit() if commit else session.flush())
     return record
@@ -32,5 +32,4 @@ async def update_record[T: BaseSchema](
         setattr(record, field, value)
     if commit:
         await session.commit()
-        await session.refresh(record, attribute_names=["updated_at"])
     return record

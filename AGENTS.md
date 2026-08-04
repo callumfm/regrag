@@ -21,5 +21,6 @@
   explanation is genuinely needed, use a docstring of 1-2 lines max.
 - Package by capability. Each capability (`ingestion`, `retrieval`, ...) owns
   its `schemas.py`, `enums.py`, `models.py`, `service.py`, and `router.py`
-  where it has HTTP surface. `core/` holds infrastructure only. New ORM
-  schemas must be added to `core/db/registry.py`.
+  where it has HTTP surface. `core/` holds infrastructure only, including its
+  own operational endpoints such as health. New ORM schemas must be added to
+  `core/db/registry.py`.

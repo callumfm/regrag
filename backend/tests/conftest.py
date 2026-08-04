@@ -1,6 +1,8 @@
 """Shared test fixtures."""
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -21,12 +23,23 @@ from app.main import configure_app
 RETRIED = (discover, resolve, download)
 
 
-@pytest.fixture(autouse=True)
-def no_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep tenacity's retry behaviour but drop its waits, so retry tests don't sleep."""
-    for fn in RETRIED:
+@pytest.fixture
+def defuse_retry(monkeypatch: pytest.MonkeyPatch) -> Callable[[Callable], Callable]:
+    """Strip tenacity's waits from a @transient_retry function, keeping its retry behaviour."""
+
+    def _defuse(fn: Callable) -> Callable:
         # ty: ignore[unresolved-attribute] — tenacity sets .retry dynamically, untyped
         monkeypatch.setattr(fn.retry, "wait", wait_none())
+        return fn
+
+    return _defuse
+
+
+@pytest.fixture(autouse=True)
+def no_retry_backoff(defuse_retry: Callable[[Callable], Callable]) -> None:
+    """Defuse every @transient_retry callable in RETRIED, so retry tests don't sleep."""
+    for fn in RETRIED:
+        defuse_retry(fn)
 
 
 @pytest.fixture(scope="session")
@@ -45,6 +58,28 @@ async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, Non
         async with async_session_factory(bind=conn) as session:
             yield session
         await trans.rollback()
+
+
+@pytest.fixture
+def make_document() -> Callable[..., IngestedDocument]:
+    """Build an IngestedDocument whose identity fields derive from ref, overridable per field."""
+
+    def _make(run: IngestRun, ref: str = "32023R1805", **overrides: Any) -> IngestedDocument:
+        defaults: dict[str, Any] = {
+            "run": run,
+            "name": ref,
+            "source": "eurlex",
+            "ref": ref,
+            "resolved_ref": ref,
+            "topic": "fueleu",
+            "url": f"https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}",
+            "sha256": "a" * 64,
+            "size_bytes": 758462,
+            "fetched_at": datetime.now(UTC),
+        }
+        return IngestedDocument(**{**defaults, **overrides})
+
+    return _make
 
 
 @pytest.fixture

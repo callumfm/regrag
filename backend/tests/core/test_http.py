@@ -2,7 +2,6 @@
 
 import httpx
 import pytest
-from tenacity import wait_none
 
 from app.core.http import DEFAULT_HEADERS, http_client, transient_retry
 
@@ -33,7 +32,7 @@ def flaky_client(responses):
 
 
 @pytest.fixture
-def get():
+def get(defuse_retry):
     """The decorated unit under test, with tenacity's waits stripped."""
 
     @transient_retry
@@ -42,9 +41,7 @@ def get():
         response.raise_for_status()
         return response
 
-    # ty: ignore[unresolved-attribute] — tenacity sets .retry dynamically, untyped
-    _get.retry.wait = wait_none()
-    return _get
+    return defuse_retry(_get)
 
 
 def test_retries_retryable_status(get):

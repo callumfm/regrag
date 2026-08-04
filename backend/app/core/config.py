@@ -1,6 +1,7 @@
 """Application configuration loaded from environment variables."""
 
 import os
+from pathlib import Path
 from typing import Any
 
 from pydantic import computed_field
@@ -9,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.enums import Environment
 
 ENVIRONMENT: Environment = Environment(os.environ.get("ENVIRONMENT", "dev"))
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def get_env_file(env: Environment = ENVIRONMENT) -> str:
@@ -32,6 +34,7 @@ class AppConfig(BaseSettings):
     ENVIRONMENT: Environment = ENVIRONMENT
     PROJECT_NAME: str = "RegRag"
     CORS_ORIGINS: list[str] = ["http://localhost:5173"]
+    RAW_DATA_DIR: Path = PROJECT_ROOT / "data" / "raw"
 
 
 class PostgresConfig(BaseSettings):

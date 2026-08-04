@@ -6,12 +6,11 @@ import sys
 
 import httpx
 
+from app.core.config import config
 from app.core.db.session import get_session
+from app.core.http import http_client
 from app.ingestion.discover import SEEDS, DiscoveryError
-from app.ingestion.enums import DocAction
-from app.ingestion.fetch import DATA_DIR, RunReport, fetch_topics
-
-__all__ = ["DocAction", "main"]
+from app.ingestion.fetch import RunReport, fetch_topics
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,8 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _fetch(topics: list[str]) -> RunReport:
-    async with get_session(auto_commit=False) as session:
-        return await fetch_topics(session, topics, DATA_DIR)
+    with http_client() as client:
+        async with get_session(auto_commit=False) as session:
+            return await fetch_topics(session, client, topics, config.RAW_DATA_DIR)
 
 
 def main(argv: list[str] | None = None) -> int:

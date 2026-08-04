@@ -1,13 +1,11 @@
 """Ingestion CRUD: run lifecycle and the baseline document query."""
 
-from datetime import UTC, datetime
-
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.models import IngestRunUpdate
-from app.ingestion.schemas import IngestedDocument, IngestRun
+from app.ingestion.schemas import IngestRun
 from app.ingestion.service import (
     complete_ingest_run,
     create_ingest_run,
@@ -16,21 +14,6 @@ from app.ingestion.service import (
 )
 
 pytestmark = pytest.mark.anyio
-
-
-def make_row(run, ref, topic, resolved_ref=None, sha256="a" * 64):
-    return IngestedDocument(
-        run=run,
-        name=ref,
-        source="eurlex",
-        ref=ref,
-        resolved_ref=resolved_ref or ref,
-        topic=topic,
-        url=f"https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}",
-        sha256=sha256,
-        size_bytes=100,
-        fetched_at=datetime.now(UTC),
-    )
 
 
 async def test_create_run_starts_running_with_an_id(db_session: AsyncSession):
@@ -58,14 +41,16 @@ async def test_baseline_empty_when_no_prior_runs(db_session: AsyncSession):
     assert await get_baseline_docs(db_session, ["mrv"]) == {}
 
 
-async def test_baseline_is_latest_run_with_rows_filtered_to_topics(db_session: AsyncSession):
+async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
+    db_session: AsyncSession, make_document
+):
     old = IngestRun(status=IngestRunStatus.COMPLETED)
     latest = IngestRun(status=IngestRunStatus.FAILED)
     db_session.add_all(
         [
-            make_row(old, "32014R0666", "mrv"),
-            make_row(latest, "32015R0757", "mrv", resolved_ref="02015R0757-20250101"),
-            make_row(latest, "32023R1805", "fueleu"),
+            make_document(old, "32014R0666", topic="mrv"),
+            make_document(latest, "32015R0757", topic="mrv", resolved_ref="02015R0757-20250101"),
+            make_document(latest, "32023R1805", topic="fueleu"),
         ]
     )
     await db_session.flush()
@@ -75,9 +60,9 @@ async def test_baseline_is_latest_run_with_rows_filtered_to_topics(db_session: A
     assert baseline["32015R0757"].resolved_ref == "02015R0757-20250101"
 
 
-async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession):
+async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, make_document):
     with_rows = IngestRun(status=IngestRunStatus.COMPLETED)
-    db_session.add(make_row(with_rows, "32015R0757", "mrv"))
+    db_session.add(make_document(with_rows, "32015R0757", topic="mrv"))
     db_session.add(IngestRun(status=IngestRunStatus.FAILED))
     await db_session.flush()
 
