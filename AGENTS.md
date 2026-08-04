@@ -19,3 +19,7 @@
   that only works for now and is meant to be replaced later.
 - Do not write inline comments. Prefer self-describing code; where
   explanation is genuinely needed, use a docstring of 1-2 lines max.
+- Package by capability. Each capability (`ingestion`, `retrieval`, ...) owns
+  its `schemas.py`, `enums.py`, `models.py`, `service.py`, and `router.py`
+  where it has HTTP surface. `core/` holds infrastructure only. New ORM
+  schemas must be added to `core/db/registry.py`.
