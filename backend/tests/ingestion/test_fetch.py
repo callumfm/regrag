@@ -5,12 +5,13 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import IngestRunStatus
 from app.db.schemas import IngestedDocument, IngestRun
 from app.ingestion import fetch
-from app.ingestion.discover import DocumentSpec
+from app.ingestion.discover import SEEDS, DiscoveryError, DocumentSpec
 from app.ingestion.fetch import (
     DocAction,
     RunReport,
@@ -18,6 +19,7 @@ from app.ingestion.fetch import (
     classify,
     download,
     dropped_refs,
+    fetch_topics,
     store,
     with_retry,
 )
@@ -204,3 +206,185 @@ async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession):
 
     baseline = await baseline_documents(db_session, ["mrv"])
     assert set(baseline) == {"32015R0757"}
+
+
+def binding(celex, force=None, cons=None):
+    b = {"c": {"value": celex}}
+    if force is not None:
+        b["force"] = {"value": force}
+    if cons is not None:
+        b["cons"] = {"value": cons}
+    return b
+
+
+def payload(*bindings):
+    return {"results": {"bindings": list(bindings)}}
+
+
+def corpus_client(sparql, docs, calls=None):
+    """Transport serving SPARQL payloads per topic and HTML responses per celex ref."""
+    calls = calls if calls is not None else []
+
+    def handler(request):
+        if request.url.host == "publications.europa.eu":
+            query = request.url.params["query"]
+            for topic, seed in SEEDS.items():
+                if seed in query:
+                    return sparql[topic]
+            raise AssertionError(f"no seed in query: {query[:80]}")
+        celex = request.url.params["uri"].removeprefix("CELEX:")
+        calls.append(celex)
+        return docs[celex]
+
+    return httpx.Client(transport=httpx.MockTransport(handler)), calls
+
+
+MRV_SPARQL = httpx.Response(
+    200, json=payload(binding("32015R0757", force="1"), binding("32023R2449", force="1"))
+)
+
+
+async def test_first_run_ingests_all_as_new(db_session, tmp_path):
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL},
+        {
+            "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+        },
+    )
+    report = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+    assert sorted(report.new) == ["32015R0757", "32023R2449"]
+    assert report.ok
+    assert (tmp_path / "32015R0757.html").read_bytes() == b"<html>mrv</html>"
+    run = await db_session.get(IngestRun, report.run_id)
+    assert run.status is IngestRunStatus.COMPLETED
+    assert run.completed_at is not None
+    rows = await baseline_documents(db_session, ["mrv"])
+    assert rows["32023R2449"].name == "32023R2449"
+    assert rows["32023R2449"].resolved_ref == "32023R2449"
+
+
+async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path):
+    docs = {
+        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+    }
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+    client, calls = corpus_client({"mrv": MRV_SPARQL}, docs)
+    second = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+    assert sorted(second.unchanged) == ["32015R0757", "32023R2449"]
+    assert calls.count("32015R0757") == 1  # resolve GET only, no download GET
+    firsts = {r.name: r.sha256 for r in (await baseline_documents(db_session, ["mrv"])).values()}
+    assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
+
+
+async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_path):
+    docs = {
+        "32015R0757": httpx.Response(200, content=b"<html>v1</html>"),
+        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+    }
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+    consolidated = httpx.Response(
+        200,
+        json=payload(
+            binding("32015R0757", force="1", cons="02015R0757-20250101"),
+            binding("32023R2449", force="1"),
+        ),
+    )
+    docs = {
+        "02015R0757-20250101": httpx.Response(200, content=b"<html>v2</html>"),
+        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+    }
+    client, _ = corpus_client({"mrv": consolidated}, docs)
+    report = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+    assert report.changed == ["32015R0757"]
+    assert (tmp_path / "32015R0757.html").read_bytes() == b"<html>v2</html>"
+    rows = await baseline_documents(db_session, ["mrv"])
+    assert rows["32015R0757"].resolved_ref == "02015R0757-20250101"
+
+
+async def test_vanished_doc_reported_dropped(db_session, tmp_path):
+    both = httpx.Response(
+        200, json=payload(binding("32015R0757", force="1"), binding("32023R2449", force="1"))
+    )
+    docs = {
+        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+    }
+    client, _ = corpus_client({"mrv": both}, docs)
+    await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+    only_seed = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
+    client, _ = corpus_client({"mrv": only_seed}, docs)
+    report = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+    assert report.dropped == ["32023R2449"]
+    assert "32023R2449" not in await baseline_documents(db_session, ["mrv"])
+
+
+async def test_per_doc_failure_continues_and_marks_run_failed(db_session, tmp_path):
+    docs = {
+        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+        "32023R2449": httpx.Response(400, text="bad"),
+    }
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    report = await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+    assert report.new == ["32015R0757"]
+    assert "32023R2449" in report.failed
+    assert not report.ok
+    run = await db_session.get(IngestRun, report.run_id)
+    assert run.status is IngestRunStatus.FAILED
+    assert run.completed_at is not None
+    assert "32023R2449" not in await baseline_documents(db_session, ["mrv"])
+
+
+async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path):
+    client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
+    with pytest.raises(httpx.HTTPStatusError):
+        await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+    run = (await db_session.scalars(select(IngestRun))).one()
+    assert run.status is IngestRunStatus.FAILED
+    assert run.completed_at is not None
+
+
+async def test_malformed_sparql_payload_raises_discovery_error(db_session, tmp_path):
+    client, _ = corpus_client({"mrv": httpx.Response(200, json={"unexpected": True})}, {})
+    with pytest.raises(DiscoveryError, match="malformed"):
+        await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+
+
+async def test_duplicate_ref_across_topics_ingested_once(db_session, tmp_path):
+    shared = binding("32015R0757", force="1")
+    sparql = {
+        "mrv": httpx.Response(200, json=payload(shared)),
+        "fueleu": httpx.Response(200, json=payload(binding("32023R1805", force="1"), shared)),
+    }
+    docs = {
+        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+        "32023R1805": httpx.Response(200, content=b"<html>fueleu</html>"),
+    }
+    client, _ = corpus_client(sparql, docs)
+    report = await fetch_topics(db_session, ["fueleu", "mrv"], tmp_path, client=client)
+
+    assert report.ok
+    rows = await baseline_documents(db_session, ["fueleu", "mrv"])
+    assert rows["32015R0757"].topic == "fueleu"  # first fetched topic wins
+
+
+async def test_paces_between_documents(db_session, tmp_path, no_sleep):
+    docs = {
+        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+    }
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    await fetch_topics(db_session, ["mrv"], tmp_path, client=client)
+    assert no_sleep.count(fetch.PACE_SECONDS) == 1  # once between the two docs
