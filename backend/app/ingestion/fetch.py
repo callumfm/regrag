@@ -13,10 +13,10 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.http import http_client, transient_retry
-from app.db.schemas import IngestedDocument, IngestRun
 from app.ingestion.discover import SEEDS, DiscoveryError, DocumentSpec, discover
 from app.ingestion.enums import DocAction, IngestRunStatus
 from app.ingestion.eurlex import ResolutionError, resolve
+from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run, get_baseline_docs
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "raw"

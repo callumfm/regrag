@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.schemas import IngestedDocument, IngestRun
 from app.ingestion.enums import IngestRunStatus
+from app.ingestion.schemas import IngestedDocument, IngestRun
 
 pytestmark = pytest.mark.anyio
 

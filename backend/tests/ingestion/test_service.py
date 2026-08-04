@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.schemas import IngestedDocument, IngestRun
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.models import IngestRunUpdate
+from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.ingestion.service import (
     complete_ingest_run,
     create_ingest_run,

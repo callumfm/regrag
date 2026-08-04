@@ -5,8 +5,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.crud import create_record, update_record
-from app.db.schemas import IngestRun
 from app.ingestion.enums import IngestRunStatus
+from app.ingestion.schemas import IngestRun
 
 pytestmark = pytest.mark.anyio
 

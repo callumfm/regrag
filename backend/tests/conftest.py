@@ -11,11 +11,11 @@ from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
 from app.core.config import config
-from app.db.schemas import IngestedDocument, IngestRun
 from app.db.session import async_session_factory
 from app.ingestion.discover import discover
 from app.ingestion.eurlex import resolve
 from app.ingestion.fetch import download
+from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.main import configure_app
 
 RETRIED = (discover, resolve, download)

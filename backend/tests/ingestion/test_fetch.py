@@ -6,11 +6,11 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app.db.schemas import IngestRun
 from app.ingestion import fetch
 from app.ingestion.discover import SEEDS, DiscoveryError, DocumentSpec
 from app.ingestion.enums import DocAction, IngestRunStatus
 from app.ingestion.fetch import RunReport, classify, download, dropped_refs, fetch_topics, store
+from app.ingestion.schemas import IngestRun
 from app.ingestion.service import get_baseline_docs
 
 pytestmark = pytest.mark.anyio

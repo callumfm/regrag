@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.schemas.base import BaseSchema
+from app.db.schema import BaseSchema
 from app.ingestion.enums import IngestRunStatus
 
 
