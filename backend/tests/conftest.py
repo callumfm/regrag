@@ -8,11 +8,25 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+from tenacity import wait_none
 
 from app.core.config import config
 from app.db.schemas import IngestedDocument, IngestRun
 from app.db.session import async_session_factory
+from app.ingestion.discover import discover
+from app.ingestion.eurlex import resolve
+from app.ingestion.fetch import download
 from app.main import configure_app
+
+RETRIED = (discover, resolve, download)
+
+
+@pytest.fixture(autouse=True)
+def no_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tenacity's retry behaviour but drop its waits, so retry tests don't sleep."""
+    for fn in RETRIED:
+        # ty: ignore[unresolved-attribute] — tenacity sets .retry dynamically, untyped
+        monkeypatch.setattr(fn.retry, "wait", wait_none())
 
 
 @pytest.fixture(scope="session")

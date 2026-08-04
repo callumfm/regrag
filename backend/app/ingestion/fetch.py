@@ -3,29 +3,24 @@
 import hashlib
 import json
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
 from pathlib import Path
 
 import httpx
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import IngestRunStatus
-from app.core.http import http_client
+from app.core.http import http_client, transient_retry
 from app.db.schemas import IngestedDocument, IngestRun
 from app.ingestion.discover import SEEDS, DiscoveryError, DocumentSpec, discover
+from app.ingestion.enums import DocAction, IngestRunStatus
 from app.ingestion.eurlex import ResolutionError, resolve
+from app.ingestion.service import complete_ingest_run, create_ingest_run, get_baseline_docs
 
-
-class DocAction(StrEnum):
-    """How a discovered document compares to the previous run."""
-
-    NEW = "new"
-    CHANGED = "changed"
-    UNCHANGED = "unchanged"
+DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "raw"
+PACE_SECONDS = 1.0
 
 
 def classify(prev_resolved_ref: str | None, resolved_ref: str) -> DocAction:
@@ -57,6 +52,10 @@ class RunReport:
     def ok(self) -> bool:
         return not self.failed
 
+    @property
+    def status(self) -> IngestRunStatus:
+        return IngestRunStatus.COMPLETED if self.ok else IngestRunStatus.FAILED
+
     def record(self, action: DocAction, ref: str) -> None:
         bucket = {
             DocAction.NEW: self.new,
@@ -83,31 +82,22 @@ class RunReport:
         return "\n".join(lines)
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "raw"
-RETRY_ATTEMPTS = 3
-RETRY_STATUSES = {429, 500, 502, 503, 504}
-PACE_SECONDS = 1.0
-_sleep = time.sleep
+def pace() -> None:
+    """Space out requests to the upstream host between documents."""
+    time.sleep(PACE_SECONDS)
 
 
-def _retryable(exc: httpx.HTTPError) -> bool:
-    if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code in RETRY_STATUSES
-    return isinstance(exc, httpx.TransportError)
+@contextmanager
+def open_client(client: httpx.Client | None) -> Iterator[httpx.Client]:
+    """Yield the caller's client untouched, or an owned one closed on exit."""
+    if client is not None:
+        yield client
+        return
+    with http_client() as owned:
+        yield owned
 
 
-def with_retry[T](fn: Callable[[], T]) -> T:
-    """Retry fn on transient HTTP failures (5xx/429/transport) with exponential backoff."""
-    for attempt in range(RETRY_ATTEMPTS):
-        try:
-            return fn()
-        except httpx.HTTPError as exc:
-            if attempt == RETRY_ATTEMPTS - 1 or not _retryable(exc):
-                raise
-            _sleep(2**attempt)
-    raise AssertionError("unreachable")
-
-
+@transient_retry
 def download(client: httpx.Client, url: str) -> bytes:
     response = client.get(url)
     response.raise_for_status()
@@ -121,29 +111,12 @@ def store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
     return hashlib.sha256(content).hexdigest(), len(content)
 
 
-async def baseline_documents(
-    session: AsyncSession, topics: Sequence[str]
-) -> dict[str, IngestedDocument]:
-    """Rows of the latest run that recorded documents, filtered to topics, keyed by name."""
-    last_run_id = await session.scalar(select(func.max(IngestedDocument.ingest_run_id)))
-    if last_run_id is None:
-        return {}
-    rows = await session.scalars(
-        select(IngestedDocument).where(
-            IngestedDocument.ingest_run_id == last_run_id,
-            IngestedDocument.topic.in_(topics),
-        )
-    )
-    return {row.name: row for row in rows}
-
-
-def _discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DocumentSpec]:
+def discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DocumentSpec]:
     """Discover all topics, deduped by ref (first topic wins), wrapping parse errors."""
     by_ref: dict[str, DocumentSpec] = {}
     for topic in topics:
-        seed = SEEDS[topic]
         try:
-            specs = with_retry(lambda: discover(client, topic, seed))  # noqa: B023
+            specs = discover(client, topic, SEEDS[topic])
         except (KeyError, json.JSONDecodeError) as exc:
             raise DiscoveryError(f"{topic}: malformed SPARQL response: {exc!r}") from exc
         for spec in specs:
@@ -151,7 +124,7 @@ def _discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[Docume
     return list(by_ref.values())
 
 
-def _ingest_document(
+def ingest_document(
     client: httpx.Client,
     spec: DocumentSpec,
     prev: IngestedDocument | None,
@@ -159,13 +132,12 @@ def _ingest_document(
     data_dir: Path,
 ) -> tuple[IngestedDocument, DocAction]:
     """Resolve one act, download it unless unchanged, and build its row."""
-    resolution = with_retry(lambda: resolve(client, spec))
+    resolution = resolve(client, spec)
     action = classify(prev.resolved_ref if prev else None, resolution.resolved_ref)
     if action is DocAction.UNCHANGED and prev is not None:
         sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at
     else:
-        content = with_retry(lambda: download(client, resolution.url))
-        sha256, size_bytes = store(data_dir, spec.ref, content)
+        sha256, size_bytes = store(data_dir, spec.ref, download(client, resolution.url))
         fetched_at = datetime.now(UTC)
     document = IngestedDocument(
         run=run,
@@ -182,10 +154,27 @@ def _ingest_document(
     return document, action
 
 
-async def _finalize(session: AsyncSession, run: IngestRun, status: IngestRunStatus) -> None:
-    run.status = status
-    run.completed_at = datetime.now(UTC)
-    await session.commit()
+def ingest_documents(
+    client: httpx.Client,
+    specs: Sequence[DocumentSpec],
+    baseline: Mapping[str, IngestedDocument],
+    run: IngestRun,
+    data_dir: Path,
+    report: RunReport,
+) -> list[IngestedDocument]:
+    """Ingest each spec in turn, recording its outcome (or its error) on the report."""
+    documents = []
+    for position, spec in enumerate(specs):
+        if position:
+            pace()
+        try:
+            document, action = ingest_document(client, spec, baseline.get(spec.ref), run, data_dir)
+        except (ResolutionError, httpx.HTTPError) as exc:
+            report.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
+            continue
+        documents.append(document)
+        report.record(action, spec.ref)
+    return documents
 
 
 async def fetch_topics(
@@ -195,35 +184,16 @@ async def fetch_topics(
     client: httpx.Client | None = None,
 ) -> RunReport:
     """Fetch the corpus for topics in one ingest run; blocking HTTP is fine here (CLI-only)."""
-    run = IngestRun(status=IngestRunStatus.RUNNING)
-    session.add(run)
-    await session.commit()
+    run = await create_ingest_run(session)
     report = RunReport(run_id=run.id)
-    own_client = client is None
-    if client is None:
-        client = http_client()
     try:
-        specs = _discover_topics(client, topics)
-        baseline = await baseline_documents(session, topics)
-        report.dropped = dropped_refs(specs, baseline)
-        for position, spec in enumerate(specs):
-            if position:
-                _sleep(PACE_SECONDS)
-            try:
-                document, action = _ingest_document(
-                    client, spec, baseline.get(spec.ref), run, data_dir
-                )
-            except (ResolutionError, httpx.HTTPError) as exc:
-                report.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
-                continue
-            session.add(document)
-            report.record(action, spec.ref)
+        with open_client(client) as http:
+            specs = discover_topics(http, topics)
+            baseline = await get_baseline_docs(session, topics)
+            report.dropped = dropped_refs(specs, baseline)
+            session.add_all(ingest_documents(http, specs, baseline, run, data_dir, report))
     except (DiscoveryError, httpx.HTTPError):
-        await _finalize(session, run, IngestRunStatus.FAILED)
+        await complete_ingest_run(session, run, IngestRunStatus.FAILED)
         raise
-    finally:
-        if own_client:
-            client.close()
-    status = IngestRunStatus.COMPLETED if report.ok else IngestRunStatus.FAILED
-    await _finalize(session, run, status)
+    await complete_ingest_run(session, run, report.status)
     return report

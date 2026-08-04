@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from app.core.http import transient_retry
+
 SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
 SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
 
@@ -74,6 +76,7 @@ def parse_topic_response(topic: str, payload: dict) -> list[DocumentSpec]:
     return specs
 
 
+@transient_retry
 def discover(client: httpx.Client, topic: str, seed_ref: str) -> list[DocumentSpec]:
     """Run the topic query and parse it; a result set without the seed act is an error."""
     response = client.get(
