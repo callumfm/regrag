@@ -11,7 +11,7 @@ from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
 from app.core.config import config
-from app.db.session import async_session_factory
+from app.core.db.session import async_session_factory
 from app.ingestion.discover import discover
 from app.ingestion.eurlex import resolve
 from app.ingestion.fetch import download

@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crud import create_record, update_record
+from app.core.db.crud import create_record, update_record
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.schemas import IngestRun
 

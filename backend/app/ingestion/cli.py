@@ -6,7 +6,7 @@ import sys
 
 import httpx
 
-from app.db.session import get_session
+from app.core.db.session import get_session
 from app.ingestion.discover import SEEDS, DiscoveryError
 from app.ingestion.enums import DocAction
 from app.ingestion.fetch import DATA_DIR, RunReport, fetch_topics

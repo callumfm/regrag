@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crud import create_record, update_record
+from app.core.db.crud import create_record, update_record
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.models import IngestRunUpdate
 from app.ingestion.schemas import IngestedDocument, IngestRun

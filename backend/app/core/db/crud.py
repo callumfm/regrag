@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.schema import BaseSchema
+from app.core.db.schema import BaseSchema
 
 
 async def create_record[T: BaseSchema](
