@@ -1,39 +1,40 @@
-"""EUR-Lex resolver: consolidated-version selection, soft-404 detection, resolve()."""
+"""EUR-Lex resolution: verified candidate loop over graph-fed candidates."""
 
 from pathlib import Path
 
 import httpx
 import pytest
 
+from app.ingestion.discover import DocumentSpec
 from app.ingestion.eurlex import (
     MISSING_MARKER,
+    Resolution,
     ResolutionError,
     is_missing_document,
-    latest_consolidated_ref,
     resolve,
 )
-from app.ingestion.registry import CORPUS, DocumentSpec
 
-ALL_PAGE_SNIPPET = """
-<html><body>
-<a href="./?uri=CELEX:02015R0757-20240101">Consolidated text 01/01/2024</a>
-<a href="./?uri=CELEX:02015R0757-20250101">Consolidated text 01/01/2025</a>
-<a href="./?uri=CELEX:02015R0757-20160701">Consolidated text 01/07/2016</a>
-</body></html>
-"""
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def test_picks_max_consolidation_date():
-    assert latest_consolidated_ref(ALL_PAGE_SNIPPET, "32015R0757") == "02015R0757-20250101"
+def spec(ref="32015R0757", candidate=None):
+    return DocumentSpec(topic="mrv", source="eurlex", ref=ref, candidate_ref=candidate)
 
 
-def test_returns_none_when_no_consolidated_versions():
-    html = '<html><body><a href="./?uri=CELEX:32023R1805">Original act</a></body></html>'
-    assert latest_consolidated_ref(html, "32023R1805") is None
+def transport(responses):
+    def handler(request):
+        celex = request.url.params["uri"].removeprefix("CELEX:")
+        return responses[celex]
+
+    return httpx.MockTransport(handler)
 
 
-def test_ignores_other_acts_consolidated_refs():
-    assert latest_consolidated_ref(ALL_PAGE_SNIPPET, "32023R1805") is None
+def doc_response():
+    return httpx.Response(200, text=(FIXTURES / "doc.html").read_text())
+
+
+def missing_response(status=404):
+    return httpx.Response(status, text=(FIXTURES / "missing.html").read_text())
 
 
 def test_missing_document_page_detected():
@@ -44,70 +45,45 @@ def test_real_document_not_flagged_missing():
     assert not is_missing_document("<html><body>Article 1</body></html>")
 
 
-FIXTURES = Path(__file__).parent / "fixtures"
-
-EXPECTED_RESOLVED = {
-    "fueleu-maritime": "32023R1805",
-    "ets-directive": "02003L0087-20240301",
-    "mrv-regulation": "02015R0757-20250101",
-    "fueleu-verification": "32024R2027",
-    "fueleu-monitoring-plan": "32024R2031",
-    "fueleu-verifier-accreditation": "32025R0192",
-    "fueleu-transhipment-ports": "32025R1127",
-    "fueleu-database": "32026R0394",
-    "ets-company-administration": "32023R2599",
-    "ets-administering-authorities": "02024D0411-20260101",
-    "ets-administering-authorities-correction": "32026D1453",
-    "ets-transhipment-ports": "32023R2297",
-    "ets-derogation-lists": "02023D2895-20250101",
-    "mrv-templates": "32023R2449",
-    "mrv-verification": "32023R2917",
-    "mrv-company-emissions": "32023R2849",
-    "mrv-cargo-determination": "32016R1928",
-}
-
-MISSING_HTML = {
-    "02016R1928-20161105",
-    "02023R1805-20230922",
-    "02024R2027-20240729",
-    "02023R2917-20231229",
-}
+def test_resolves_candidate_when_html_exists():
+    responses = {"02015R0757-20250101": doc_response()}
+    with httpx.Client(transport=transport(responses)) as client:
+        resolution = resolve(client, spec(candidate="02015R0757-20250101"))
+    assert resolution == Resolution(
+        resolved_ref="02015R0757-20250101",
+        url="https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:02015R0757-20250101",
+    )
 
 
-def fixture_transport() -> httpx.MockTransport:
-    def handler(request: httpx.Request) -> httpx.Response:
-        celex = request.url.params["uri"].removeprefix("CELEX:")
-        if "/ALL/" in request.url.path:
-            return httpx.Response(200, text=(FIXTURES / f"{celex}-all.html").read_text())
-        if celex in MISSING_HTML:
-            return httpx.Response(404, text=(FIXTURES / "missing.html").read_text())
-        return httpx.Response(200, text=(FIXTURES / "doc.html").read_text())
-
-    return httpx.MockTransport(handler)
+def test_falls_back_to_ref_on_hard_404():
+    responses = {"02023R2917-20231229": missing_response(404), "32023R2917": doc_response()}
+    with httpx.Client(transport=transport(responses)) as client:
+        resolution = resolve(client, spec(ref="32023R2917", candidate="02023R2917-20231229"))
+    assert resolution.resolved_ref == "32023R2917"
 
 
-@pytest.mark.parametrize("spec", CORPUS, ids=[spec.name for spec in CORPUS])
-def test_every_corpus_entry_resolves(spec: DocumentSpec):
-    with httpx.Client(transport=fixture_transport()) as client:
-        resolution = resolve(client, spec)
-    assert resolution.resolved_ref == EXPECTED_RESOLVED[spec.name]
-    assert resolution.url.endswith(f"CELEX:{resolution.resolved_ref}")
+def test_falls_back_to_ref_on_soft_404():
+    responses = {"02023R2917-20231229": missing_response(200), "32023R2917": doc_response()}
+    with httpx.Client(transport=transport(responses)) as client:
+        resolution = resolve(client, spec(ref="32023R2917", candidate="02023R2917-20231229"))
+    assert resolution.resolved_ref == "32023R2917"
 
 
-def test_falls_back_to_original_when_consolidated_html_missing():
-    spec = next(s for s in CORPUS if s.name == "fueleu-verification")
-    with httpx.Client(transport=fixture_transport()) as client:
-        resolution = resolve(client, spec)
-    assert resolution.resolved_ref == spec.ref
+def test_no_candidate_resolves_ref_directly():
+    responses = {"32023R2449": doc_response()}
+    with httpx.Client(transport=transport(responses)) as client:
+        assert resolve(client, spec(ref="32023R2449")).resolved_ref == "32023R2449"
 
 
-def test_raises_when_original_also_missing():
-    def handler(request: httpx.Request) -> httpx.Response:
-        if "/ALL/" in request.url.path:
-            return httpx.Response(200, text="<html><body>no versions</body></html>")
-        return httpx.Response(200, text=(FIXTURES / "missing.html").read_text())
+def test_raises_when_all_candidates_missing():
+    responses = {"02023R2917-20231229": missing_response(404), "32023R2917": missing_response(200)}
+    with httpx.Client(transport=transport(responses)) as client:
+        with pytest.raises(ResolutionError, match="32023R2917"):
+            resolve(client, spec(ref="32023R2917", candidate="02023R2917-20231229"))
 
-    spec = DocumentSpec(name="ghost", source="eurlex", ref="32099R9999")
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(ResolutionError, match="ghost"):
-            resolve(client, spec)
+
+def test_unexpected_error_status_raises():
+    responses = {"32023R2449": httpx.Response(503, text="maintenance")}
+    with httpx.Client(transport=transport(responses)) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            resolve(client, spec(ref="32023R2449"))

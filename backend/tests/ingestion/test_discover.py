@@ -1,5 +1,7 @@
 """CELLAR discovery: SPARQL response parsing, filters, seed guard."""
 
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -11,6 +13,25 @@ from app.ingestion.discover import (
     parse_topic_response,
     topic_query,
 )
+from app.ingestion.eurlex import resolve
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+EXPECTED_RESOLVED = {
+    "fueleu:32023R1805": "32023R1805",
+    "fueleu:32024R2027": "32024R2027",
+    "fueleu:32024R2031": "32024R2031",
+    "fueleu:32025R0192": "32025R0192",
+    "fueleu:32025R1127": "32025R1127",
+    "fueleu:32026R0394": "32026R0394",
+    "mrv:32015R0757": "02015R0757-20250101",
+    "mrv:32016R1928": "32016R1928",
+    "mrv:32023R2449": "32023R2449",
+    "mrv:32023R2849": "32023R2849",
+    "mrv:32023R2917": "32023R2917",
+}
+
+MISSING_HTML = {"02023R1805-20230922", "02023R2917-20231229", "02024R2027-20240729"}
 
 
 def binding(celex, force=None, cons=None):
@@ -106,3 +127,25 @@ def test_discover_returns_parsed_specs():
 
 def test_seeds_are_fueleu_and_mrv():
     assert SEEDS == {"fueleu": "32023R1805", "mrv": "32015R0757"}
+
+
+def corpus_handler(request: httpx.Request) -> httpx.Response:
+    if request.url.host == "publications.europa.eu":
+        query = request.url.params["query"]
+        for topic, seed in SEEDS.items():
+            if seed in query:
+                return httpx.Response(200, text=(FIXTURES / f"sparql-{topic}.json").read_text())
+        raise AssertionError(f"no seed in query: {query[:120]}")
+    celex = request.url.params["uri"].removeprefix("CELEX:")
+    if celex in MISSING_HTML:
+        return httpx.Response(404, text=(FIXTURES / "missing.html").read_text())
+    return httpx.Response(200, text=(FIXTURES / "doc.html").read_text())
+
+
+@pytest.mark.parametrize("topic", sorted(SEEDS))
+def test_topic_corpus_discovers_and_resolves(topic):
+    with httpx.Client(transport=httpx.MockTransport(corpus_handler)) as client:
+        specs = discover(client, topic, SEEDS[topic])
+        resolved = {f"{topic}:{s.ref}": resolve(client, s).resolved_ref for s in specs}
+    expected = {k: v for k, v in EXPECTED_RESOLVED.items() if k.startswith(f"{topic}:")}
+    assert resolved == expected
