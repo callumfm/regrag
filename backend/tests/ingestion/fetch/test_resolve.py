@@ -5,8 +5,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.ingestion.discover import DocumentSpec
-from app.ingestion.eurlex import (
+from app.ingestion.fetch.discover import DocumentSpec
+from app.ingestion.fetch.resolve import (
     MISSING_MARKER,
     Resolution,
     ResolutionError,
