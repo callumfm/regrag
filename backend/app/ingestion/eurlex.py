@@ -8,12 +8,6 @@ from app.ingestion.registry import DocumentSpec, Resolution
 
 ALL_URL = "https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX:{ref}"
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}"
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-    )
-}
 MISSING_MARKER = "The requested document does not exist."
 
 
@@ -35,13 +29,13 @@ def is_missing_document(html: str) -> bool:
 
 def resolve(client: httpx.Client, spec: DocumentSpec) -> Resolution:
     """Return a verified HTML URL for the latest consolidated version, else the original act."""
-    all_page = client.get(ALL_URL.format(ref=spec.ref), headers=HEADERS, follow_redirects=True)
+    all_page = client.get(ALL_URL.format(ref=spec.ref))
     all_page.raise_for_status()
     consolidated = latest_consolidated_ref(all_page.text, spec.ref)
     candidates = [consolidated, spec.ref] if consolidated else [spec.ref]
     for candidate in candidates:
         url = HTML_URL.format(ref=candidate)
-        response = client.get(url, headers=HEADERS, follow_redirects=True)
+        response = client.get(url)
         if response.status_code == httpx.codes.NOT_FOUND or (
             response.is_success and is_missing_document(response.text)
         ):

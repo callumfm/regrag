@@ -9,9 +9,9 @@ from pathlib import Path
 
 import httpx
 
+from app.core.http import DEFAULT_HEADERS
 from app.ingestion.eurlex import (
     ALL_URL,
-    HEADERS,
     HTML_URL,
     is_missing_document,
     latest_consolidated_ref,
@@ -23,7 +23,7 @@ FIXTURES = Path(__file__).parent
 
 def fetch(client: httpx.Client, url: str) -> str:
     time.sleep(1)
-    response = client.get(url, headers=HEADERS, follow_redirects=True)
+    response = client.get(url, headers=DEFAULT_HEADERS, follow_redirects=True)
     if response.status_code != 404:
         response.raise_for_status()
     return response.text
