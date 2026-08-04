@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.schemas import IngestedDocument, IngestRun
 from app.ingestion.enums import IngestRunStatus
+from app.ingestion.models import IngestRunUpdate
 from app.ingestion.service import (
     complete_ingest_run,
     create_ingest_run,
@@ -41,7 +42,7 @@ async def test_create_run_starts_running_with_an_id(db_session: AsyncSession):
 
 async def test_update_run_leaves_omitted_fields_untouched(db_session: AsyncSession):
     run = await create_ingest_run(db_session)
-    await update_ingest_run(db_session, run, corpus_version="2026-08-04-abc1234")
+    await update_ingest_run(db_session, run, IngestRunUpdate(corpus_version="2026-08-04-abc1234"))
     assert run.corpus_version == "2026-08-04-abc1234"
     assert run.status is IngestRunStatus.RUNNING
 

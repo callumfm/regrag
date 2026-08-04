@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.schemas.base import BaseSchema
@@ -18,11 +19,18 @@ async def create_record[T: BaseSchema](
 
 
 async def update_record[T: BaseSchema](
-    session: AsyncSession, record: T, updates: Mapping[str, Any], *, commit: bool = True
+    session: AsyncSession,
+    record: T,
+    updates: BaseModel | Mapping[str, Any],
+    *,
+    commit: bool = True,
 ) -> T:
-    """Apply field updates to a record, committing by default."""
+    """Apply field updates to a record; Pydantic models contribute only their set fields."""
+    if isinstance(updates, BaseModel):
+        updates = updates.model_dump(exclude_unset=True)
     for field, value in updates.items():
         setattr(record, field, value)
     if commit:
         await session.commit()
+        await session.refresh(record, attribute_names=["updated_at"])
     return record
