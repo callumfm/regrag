@@ -1,8 +1,13 @@
 """Corpus fetch: version-diff against the previous run, download only what changed."""
 
-from collections.abc import Iterable, Sequence
+import hashlib
+import time
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
+
+import httpx
 
 from app.ingestion.discover import DocumentSpec
 
@@ -68,3 +73,41 @@ class RunReport:
         for ref, error in sorted(self.failed.items()):
             lines.append(f"  failed: {ref} ({error})")
         return "\n".join(lines)
+
+
+DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "raw"
+RETRY_ATTEMPTS = 3
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+PACE_SECONDS = 1.0
+_sleep = time.sleep
+
+
+def _retryable(exc: httpx.HTTPError) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in RETRY_STATUSES
+    return isinstance(exc, httpx.TransportError)
+
+
+def with_retry[T](fn: Callable[[], T]) -> T:
+    """Retry fn on transient HTTP failures (5xx/429/transport) with exponential backoff."""
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            return fn()
+        except httpx.HTTPError as exc:
+            if attempt == RETRY_ATTEMPTS - 1 or not _retryable(exc):
+                raise
+            _sleep(2**attempt)
+    raise AssertionError("unreachable")
+
+
+def download(client: httpx.Client, url: str) -> bytes:
+    response = client.get(url)
+    response.raise_for_status()
+    return response.content
+
+
+def store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
+    """Write {ref}.html and return its (sha256, size_bytes)."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / f"{ref}.html").write_bytes(content)
+    return hashlib.sha256(content).hexdigest(), len(content)

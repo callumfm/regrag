@@ -1,7 +1,21 @@
 """Fetch decision logic: version-ref classification, drop detection, run report."""
 
+import hashlib
+
+import httpx
+import pytest
+
+from app.ingestion import fetch
 from app.ingestion.discover import DocumentSpec
-from app.ingestion.fetch import DocAction, RunReport, classify, dropped_refs
+from app.ingestion.fetch import (
+    DocAction,
+    RunReport,
+    classify,
+    download,
+    dropped_refs,
+    store,
+    with_retry,
+)
 
 
 def spec(ref, topic="mrv"):
@@ -57,3 +71,81 @@ def test_summary_counts_and_lists_non_empty_buckets():
     assert "dropped: 32014R0666" in text
     assert "failed: 32023R2917 (ResolutionError: no fetchable HTML)" in text
     assert "changed:" not in text
+
+
+@pytest.fixture(autouse=True)
+def no_sleep(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(fetch, "_sleep", sleeps.append)
+    return sleeps
+
+
+def flaky_client(responses):
+    """Client whose handler pops one queued response per request."""
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        return responses.pop(0)
+
+    return httpx.Client(transport=httpx.MockTransport(handler)), calls
+
+
+def _get(client, url="https://example.eu/doc"):
+    response = client.get(url)
+    response.raise_for_status()
+    return response
+
+
+def test_with_retry_recovers_from_retryable_status(no_sleep):
+    client, calls = flaky_client([httpx.Response(503), httpx.Response(200, text="ok")])
+    assert with_retry(lambda: _get(client)).text == "ok"
+    assert len(calls) == 2
+    assert no_sleep == [1]
+
+
+def test_with_retry_gives_up_after_three_attempts(no_sleep):
+    client, calls = flaky_client([httpx.Response(503)] * 3)
+    with pytest.raises(httpx.HTTPStatusError):
+        with_retry(lambda: _get(client))
+    assert len(calls) == 3
+    assert no_sleep == [1, 2]
+
+
+def test_with_retry_does_not_retry_client_errors():
+    client, calls = flaky_client([httpx.Response(404)])
+    with pytest.raises(httpx.HTTPStatusError):
+        with_retry(lambda: _get(client))
+    assert len(calls) == 1
+
+
+def test_with_retry_recovers_from_transport_error(no_sleep):
+    responses = [httpx.ConnectError("refused"), httpx.Response(200, text="ok")]
+
+    def handler(request):
+        item = responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert with_retry(lambda: _get(client)).text == "ok"
+
+
+def test_download_returns_content_bytes():
+    client, _ = flaky_client([httpx.Response(200, content=b"<html>act</html>")])
+    assert download(client, "https://example.eu/doc") == b"<html>act</html>"
+
+
+def test_download_raises_on_error_status():
+    client, _ = flaky_client([httpx.Response(500)])
+    with pytest.raises(httpx.HTTPStatusError):
+        download(client, "https://example.eu/doc")
+
+
+def test_store_writes_file_and_returns_sha_and_size(tmp_path):
+    content = b"<html>act</html>"
+    sha256, size = store(tmp_path / "raw", "32023R1805", content)
+    assert (tmp_path / "raw" / "32023R1805.html").read_bytes() == content
+    assert sha256 == hashlib.sha256(content).hexdigest()
+    assert size == len(content)
