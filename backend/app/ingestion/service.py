@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.db.crud import create_record, update_record
 from app.ingestion.enums import IngestRunStatus
@@ -36,12 +37,22 @@ async def complete_ingest_run(
 async def get_baseline_docs(
     session: AsyncSession, topics: Sequence[str]
 ) -> dict[str, IngestedDocument]:
-    """Rows of the latest run that recorded documents, filtered to topics, keyed by name."""
-    last_run_id = select(func.max(IngestedDocument.ingest_run_id)).scalar_subquery()
+    """Rows from each topic's own latest recorded run, keyed by name.
+
+    The latest run is resolved per topic, so fetching topics separately still diffs.
+    """
+    other = aliased(IngestedDocument)
+    latest_for_topic = (
+        select(func.max(other.ingest_run_id))
+        .where(other.topic == IngestedDocument.topic)
+        .scalar_subquery()
+    )
     rows = await session.scalars(
-        select(IngestedDocument).where(
-            IngestedDocument.ingest_run_id == last_run_id,
+        select(IngestedDocument)
+        .where(
             IngestedDocument.topic.in_(topics),
+            IngestedDocument.ingest_run_id == latest_for_topic,
         )
+        .order_by(IngestedDocument.ingest_run_id)
     )
     return {row.name: row for row in rows}

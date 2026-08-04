@@ -172,7 +172,7 @@ async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path
     second = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(second.unchanged) == ["32015R0757", "32023R2449"]
-    assert calls.count("32015R0757") == 1  # resolve GET only, no download GET
+    assert calls.count("32015R0757") == 1
     firsts = {r.name: r.sha256 for r in (await get_baseline_docs(db_session, ["mrv"])).values()}
     assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
 
@@ -269,7 +269,7 @@ async def test_duplicate_ref_across_topics_ingested_once(db_session, tmp_path):
 
     assert report.ok
     rows = await get_baseline_docs(db_session, ["fueleu", "mrv"])
-    assert rows["32015R0757"].topic == "fueleu"  # first fetched topic wins
+    assert rows["32015R0757"].topic == "fueleu"
 
 
 async def test_paces_between_documents(db_session, tmp_path, paces):
@@ -279,4 +279,4 @@ async def test_paces_between_documents(db_session, tmp_path, paces):
     }
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch_topics(db_session, client, ["mrv"], tmp_path)
-    assert paces == [fetch.PACE_SECONDS]  # once, between the two docs
+    assert paces == [fetch.PACE_SECONDS]
