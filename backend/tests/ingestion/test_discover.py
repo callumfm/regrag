@@ -129,17 +129,22 @@ def test_seeds_are_fueleu_and_mrv():
     assert SEEDS == {"fueleu": "32023R1805", "mrv": "32015R0757"}
 
 
+DOC_HTML = (FIXTURES / "doc.html").read_text()
+MISSING_HTML_PAGE = (FIXTURES / "missing.html").read_text()
+SPARQL_FIXTURES = {topic: (FIXTURES / f"sparql-{topic}.json").read_text() for topic in SEEDS}
+
+
 def corpus_handler(request: httpx.Request) -> httpx.Response:
     if request.url.host == "publications.europa.eu":
         query = request.url.params["query"]
         for topic, seed in SEEDS.items():
             if seed in query:
-                return httpx.Response(200, text=(FIXTURES / f"sparql-{topic}.json").read_text())
+                return httpx.Response(200, text=SPARQL_FIXTURES[topic])
         raise AssertionError(f"no seed in query: {query[:120]}")
     celex = request.url.params["uri"].removeprefix("CELEX:")
     if celex in MISSING_HTML:
-        return httpx.Response(404, text=(FIXTURES / "missing.html").read_text())
-    return httpx.Response(200, text=(FIXTURES / "doc.html").read_text())
+        return httpx.Response(404, text=MISSING_HTML_PAGE)
+    return httpx.Response(200, text=DOC_HTML)
 
 
 @pytest.mark.parametrize("topic", sorted(SEEDS))

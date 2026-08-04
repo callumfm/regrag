@@ -15,6 +15,8 @@ from app.ingestion.eurlex import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+DOC_HTML = (FIXTURES / "doc.html").read_text()
+MISSING_HTML_PAGE = (FIXTURES / "missing.html").read_text()
 
 
 def spec(ref="32015R0757", candidate=None):
@@ -30,11 +32,11 @@ def transport(responses):
 
 
 def doc_response():
-    return httpx.Response(200, text=(FIXTURES / "doc.html").read_text())
+    return httpx.Response(200, text=DOC_HTML)
 
 
 def missing_response(status=404):
-    return httpx.Response(status, text=(FIXTURES / "missing.html").read_text())
+    return httpx.Response(status, text=MISSING_HTML_PAGE)
 
 
 def test_missing_document_page_detected():

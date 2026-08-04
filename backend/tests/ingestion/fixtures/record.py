@@ -9,7 +9,7 @@ from pathlib import Path
 
 from app.core.http import http_client
 from app.ingestion.discover import SEEDS, SPARQL_ENDPOINT, parse_topic_response, topic_query
-from app.ingestion.eurlex import HTML_URL, is_missing_document
+from app.ingestion.eurlex import resolve
 
 FIXTURES = Path(__file__).parent
 
@@ -27,15 +27,11 @@ def main() -> None:
             payload = response.json()
             (FIXTURES / f"sparql-{topic}.json").write_text(json.dumps(payload, indent=2) + "\n")
             for spec in parse_topic_response(topic, payload):
-                resolved = spec.ref
-                if spec.candidate_ref:
-                    time.sleep(1)
-                    doc = client.get(HTML_URL.format(ref=spec.candidate_ref))
-                    if doc.status_code == 404 or (doc.is_success and is_missing_document(doc.text)):
-                        missing.add(spec.candidate_ref)
-                    else:
-                        resolved = spec.candidate_ref
-                expected[f"{topic}:{spec.ref}"] = resolved
+                time.sleep(1)
+                resolution = resolve(client, spec)
+                if spec.candidate_ref and resolution.resolved_ref == spec.ref:
+                    missing.add(spec.candidate_ref)
+                expected[f"{topic}:{spec.ref}"] = resolution.resolved_ref
     for key, value in sorted(expected.items()):
         print(f'    "{key}": "{value}",')
     print(f"MISSING_HTML = {sorted(missing)!r}")
