@@ -1,21 +1,28 @@
 """Fetch decision logic: version-ref classification, drop detection, run report."""
 
 import hashlib
+from datetime import UTC, datetime
 
 import httpx
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.enums import IngestRunStatus
+from app.db.schemas import IngestedDocument, IngestRun
 from app.ingestion import fetch
 from app.ingestion.discover import DocumentSpec
 from app.ingestion.fetch import (
     DocAction,
     RunReport,
+    baseline_documents,
     classify,
     download,
     dropped_refs,
     store,
     with_retry,
 )
+
+pytestmark = pytest.mark.anyio
 
 
 def spec(ref, topic="mrv"):
@@ -149,3 +156,51 @@ def test_store_writes_file_and_returns_sha_and_size(tmp_path):
     assert (tmp_path / "raw" / "32023R1805.html").read_bytes() == content
     assert sha256 == hashlib.sha256(content).hexdigest()
     assert size == len(content)
+
+
+def make_row(run, ref, topic, resolved_ref=None, sha256="a" * 64):
+    return IngestedDocument(
+        run=run,
+        name=ref,
+        source="eurlex",
+        ref=ref,
+        resolved_ref=resolved_ref or ref,
+        topic=topic,
+        url=f"https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}",
+        sha256=sha256,
+        size_bytes=100,
+        fetched_at=datetime.now(UTC),
+    )
+
+
+async def test_baseline_empty_when_no_prior_runs(db_session: AsyncSession):
+    assert await baseline_documents(db_session, ["mrv"]) == {}
+
+
+async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
+    db_session: AsyncSession,
+):
+    old = IngestRun(status=IngestRunStatus.COMPLETED)
+    latest = IngestRun(status=IngestRunStatus.FAILED)
+    db_session.add_all(
+        [
+            make_row(old, "32014R0666", "mrv"),
+            make_row(latest, "32015R0757", "mrv", resolved_ref="02015R0757-20250101"),
+            make_row(latest, "32023R1805", "fueleu"),
+        ]
+    )
+    await db_session.flush()
+
+    baseline = await baseline_documents(db_session, ["mrv"])
+    assert set(baseline) == {"32015R0757"}
+    assert baseline["32015R0757"].resolved_ref == "02015R0757-20250101"
+
+
+async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession):
+    with_rows = IngestRun(status=IngestRunStatus.COMPLETED)
+    db_session.add(make_row(with_rows, "32015R0757", "mrv"))
+    db_session.add(IngestRun(status=IngestRunStatus.FAILED))
+    await db_session.flush()
+
+    baseline = await baseline_documents(db_session, ["mrv"])
+    assert set(baseline) == {"32015R0757"}

@@ -8,7 +8,10 @@ from enum import StrEnum
 from pathlib import Path
 
 import httpx
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.schemas import IngestedDocument
 from app.ingestion.discover import DocumentSpec
 
 
@@ -111,3 +114,19 @@ def store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / f"{ref}.html").write_bytes(content)
     return hashlib.sha256(content).hexdigest(), len(content)
+
+
+async def baseline_documents(
+    session: AsyncSession, topics: Sequence[str]
+) -> dict[str, IngestedDocument]:
+    """Rows of the latest run that recorded documents, filtered to topics, keyed by name."""
+    last_run_id = await session.scalar(select(func.max(IngestedDocument.ingest_run_id)))
+    if last_run_id is None:
+        return {}
+    rows = await session.scalars(
+        select(IngestedDocument).where(
+            IngestedDocument.ingest_run_id == last_run_id,
+            IngestedDocument.topic.in_(topics),
+        )
+    )
+    return {row.name: row for row in rows}
