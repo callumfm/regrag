@@ -1,0 +1,304 @@
+{
+  "head": {
+    "link": [],
+    "vars": [
+      "c",
+      "force",
+      "cons"
+    ]
+  },
+  "results": {
+    "distinct": false,
+    "ordered": true,
+    "bindings": [
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32016R2071"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02015R0757-20161216"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32016R2072"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "0"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02016R2072-20161126"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32023R2776"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02015R0757-20240101"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32023R2917"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02023R2917-20231229"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32024R3214"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02015R0757-20250101"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32016R1927"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "0"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32016R1928"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32023R2849"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32023R2449"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52017IP0503"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52018IP0004"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52025DC0109"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52024DC0151"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52024SC0087"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52025DC0039"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52025SC0038"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52026DC0173"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52026SC0119"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "52026DC0409"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32015R0757"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02015R0757-20161216"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32015R0757"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02009L0016-20150701"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32015R0757"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02015R0757-20230605"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32015R0757"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02015R0757-20240101"
+        }
+      },
+      {
+        "c": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "32015R0757"
+        },
+        "force": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+          "value": "1"
+        },
+        "cons": {
+          "type": "literal",
+          "datatype": "http://www.w3.org/2001/XMLSchema#string",
+          "value": "02015R0757-20250101"
+        }
+      }
+    ]
+  }
+}

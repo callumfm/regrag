@@ -30,6 +30,7 @@ class IngestedDocument(BaseSchema):
     source: Mapped[str]
     ref: Mapped[str]
     resolved_ref: Mapped[str]
+    topic: Mapped[str]
     url: Mapped[str]
     sha256: Mapped[str]
     size_bytes: Mapped[int]

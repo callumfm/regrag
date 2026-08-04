@@ -806,6 +806,7 @@ dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "fastapi", extra = ["standard"] },
+    { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-json-logger" },
@@ -814,7 +815,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "ruff" },
     { name = "ty" },
@@ -825,6 +825,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.16" },
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.139" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "pydantic", specifier = ">=2.13" },
     { name = "pydantic-settings", specifier = ">=2.14" },
     { name = "python-json-logger", specifier = ">=3.3" },
@@ -833,7 +834,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28" },
     { name = "pytest", specifier = ">=9.0" },
     { name = "ruff", specifier = ">=0.16" },
     { name = "ty", specifier = ">=0.0.1a24" },
