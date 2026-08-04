@@ -12,7 +12,10 @@ class BaseSchema(DeclarativeBase):
 
     Alembic autogenerate targets its metadata. Timestamps are timezone-aware and
     enums are stored as their string values, without native Postgres enum types.
+    Server-side defaults come back via RETURNING, so writes need no follow-up SELECT.
     """
+
+    __mapper_args__ = {"eager_defaults": True}
 
     type_annotation_map = {
         datetime: DateTime(timezone=True),

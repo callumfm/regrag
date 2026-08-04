@@ -12,9 +12,9 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-import app.db.schemas  # noqa: F401  # register models on BaseSchema.metadata for autogenerate
+import app.core.db.registry  # noqa: F401  # register models on BaseSchema.metadata for autogenerate
 from app.core.config import config as app_config
-from app.db.schemas.base import BaseSchema
+from app.core.db.schema import BaseSchema
 
 config = context.config
 

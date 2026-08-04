@@ -1,8 +1,13 @@
+"""Health endpoint and its response model."""
+
 from enum import StrEnum
 
+from fastapi import APIRouter
 from pydantic import BaseModel, computed_field
+from sqlalchemy import text
 
 from app import __version__
+from app.core.dependencies import SessionDep
 
 
 class ServiceStatus(StrEnum):
@@ -32,3 +37,16 @@ class HealthResponse(BaseModel):
         if all(service is ServiceStatus.OK for service in services):
             return HealthStatus.OK
         return HealthStatus.DEGRADED
+
+
+router = APIRouter(tags=["health"])
+
+
+@router.get("/health")
+async def get_health(db: SessionDep) -> HealthResponse:
+    try:
+        await db.execute(text("SELECT 1"))
+        database = ServiceStatus.OK
+    except Exception:
+        database = ServiceStatus.ERROR
+    return HealthResponse(database=database)

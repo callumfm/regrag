@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.db.session import get_db
+from app.core.db.session import get_db
 
 
 def test_health_returns_ok(client: TestClient) -> None:

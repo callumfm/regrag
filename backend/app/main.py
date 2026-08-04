@@ -6,12 +6,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import __version__
-from app.api.routes.health import router as health_router
 from app.core.config import config
+from app.core.db.session import async_engine
 from app.core.exceptions import register_exception_handlers
+from app.core.health import router as health_router
 from app.core.logger import setup_logging
 from app.core.middleware import register_middleware
-from app.db.session import async_engine
 
 setup_logging()
 

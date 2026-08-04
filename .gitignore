@@ -6,6 +6,10 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+*.egg-info/
 .superpowers/
 .zed/
 frontend/openapi.json
+
+# Local corpus spike data
+data/

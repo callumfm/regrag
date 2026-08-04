@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from app.core.http import transient_retry
 from app.ingestion.discover import DocumentSpec
 
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}"
@@ -26,6 +27,7 @@ def is_missing_document(html: str) -> bool:
     return MISSING_MARKER in html
 
 
+@transient_retry
 def resolve(client: httpx.Client, spec: DocumentSpec) -> Resolution:
     """Return a verified Resolution for the latest consolidated version, else the original act."""
     candidates = [spec.candidate_ref, spec.ref] if spec.candidate_ref else [spec.ref]
