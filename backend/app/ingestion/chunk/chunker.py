@@ -2,7 +2,6 @@
 
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass, replace
 
 from app.core.models import FrozenModel
 from app.ingestion.chunk.references import Reference, extract_references
@@ -14,8 +13,7 @@ MAX_CHARS = 2000
 SENTENCE = re.compile(r"(?<=[.;:])\s+")
 
 
-@dataclass(frozen=True)
-class Locator:
+class Locator(FrozenModel):
     """Where a chunk sits in the document, accumulated on the way down the tree."""
 
     article: str | None = None
@@ -55,11 +53,11 @@ def citation(locator: Locator, paragraph: str | None) -> str:
 def descend(section: Section, locator: Locator) -> Locator:
     """Fold a section's identity into the locator its children inherit."""
     if section.kind is SectionKind.ARTICLE:
-        return replace(locator, article=section.number, title=section.title)
+        return locator.model_copy(update={"article": section.number, "title": section.title})
     if section.kind is SectionKind.ANNEX:
-        return replace(locator, annex=section.number, title=section.title)
+        return locator.model_copy(update={"annex": section.number, "title": section.title})
     if section.kind is SectionKind.HEADING and section.title:
-        return replace(locator, heading_path=locator.heading_path + (section.title,))
+        return locator.model_copy(update={"heading_path": (*locator.heading_path, section.title)})
     return locator
 
 

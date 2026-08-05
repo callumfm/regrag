@@ -1,18 +1,16 @@
 """Corpus discovery from the CELLAR graph: one SPARQL query per topic seed."""
 
-from dataclasses import dataclass
-
 import httpx
 
 from app.core.http import transient_retry
+from app.core.models import FrozenModel
 from app.ingestion.exceptions import DiscoveryError
 
 SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
 SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
 
 
-@dataclass(frozen=True)
-class DocumentSpec:
+class DocumentSpec(FrozenModel):
     """One discovered corpus document; transient wire data between discover and fetch."""
 
     topic: str
