@@ -1,6 +1,7 @@
 """Fetch decision logic, run report, and end-to-end corpus fetch."""
 
 import hashlib
+import re
 
 import httpx
 import pytest
@@ -254,6 +255,80 @@ async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path):
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
     assert run.completed_at is not None
+
+
+async def test_completed_run_is_stamped_with_a_dated_corpus_version(db_session, tmp_path):
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL},
+        {
+            "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+        },
+    )
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    run = await db_session.get(IngestRun, report.run_id)
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{7}", run.corpus_version)
+
+
+async def test_unchanged_corpus_keeps_the_previous_corpus_version(db_session, tmp_path):
+    docs = {
+        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+    }
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    first = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    second = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    versions = [(await db_session.get(IngestRun, r.run_id)).corpus_version for r in (first, second)]
+    assert versions[0] is not None
+    assert versions[0] == versions[1]
+
+
+async def test_changed_document_produces_a_new_corpus_version(db_session, tmp_path):
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL},
+        {
+            "32015R0757": httpx.Response(200, content=b"<html>v1</html>"),
+            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+        },
+    )
+    first = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    consolidated = httpx.Response(
+        200,
+        json=payload(
+            binding("32015R0757", force="1", cons="02015R0757-20250101"),
+            binding("32023R2449", force="1"),
+        ),
+    )
+    client, _ = corpus_client(
+        {"mrv": consolidated},
+        {
+            "02015R0757-20250101": httpx.Response(200, content=b"<html>v2</html>"),
+            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+        },
+    )
+    second = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    versions = [(await db_session.get(IngestRun, r.run_id)).corpus_version for r in (first, second)]
+    assert versions[0] != versions[1]
+
+
+async def test_failed_run_is_not_stamped_with_a_corpus_version(db_session, tmp_path):
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL},
+        {
+            "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+            "32023R2449": httpx.Response(400, text="bad"),
+        },
+    )
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    run = await db_session.get(IngestRun, report.run_id)
+    assert run.status is IngestRunStatus.FAILED
+    assert run.corpus_version is None
 
 
 async def test_any_ingestion_error_is_recorded_per_document(db_session, tmp_path, monkeypatch):

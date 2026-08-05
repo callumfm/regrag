@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,11 +27,25 @@ async def update_ingest_run(
 
 
 async def complete_ingest_run(
-    session: AsyncSession, run: IngestRun, status: IngestRunStatus
+    session: AsyncSession,
+    run: IngestRun,
+    status: IngestRunStatus,
+    corpus_version: str | None = None,
 ) -> IngestRun:
-    """Close out a run with its terminal status and completion timestamp."""
-    return await update_ingest_run(
-        session, run, IngestRunUpdate(status=status, completed_at=datetime.now(UTC))
+    """Close out a run with its terminal status, completion time and corpus version."""
+    fields: dict[str, Any] = {"status": status, "completed_at": datetime.now(UTC)}
+    if corpus_version is not None:
+        fields["corpus_version"] = corpus_version
+    return await update_ingest_run(session, run, IngestRunUpdate(**fields))
+
+
+async def get_latest_corpus_version(session: AsyncSession) -> str | None:
+    """The corpus version of the most recent run that was stamped with one."""
+    return await session.scalar(
+        select(IngestRun.corpus_version)
+        .where(IngestRun.corpus_version.is_not(None))
+        .order_by(IngestRun.id.desc())
+        .limit(1)
     )
 
 

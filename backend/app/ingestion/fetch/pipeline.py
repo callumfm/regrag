@@ -17,7 +17,12 @@ from app.ingestion.exceptions import DiscoveryError, IngestionError
 from app.ingestion.fetch.discover import SEEDS, DocumentSpec, discover
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun
-from app.ingestion.service import complete_ingest_run, create_ingest_run, get_baseline_docs
+from app.ingestion.service import (
+    complete_ingest_run,
+    create_ingest_run,
+    get_baseline_docs,
+    get_latest_corpus_version,
+)
 
 PACE_SECONDS = 1.0
 
@@ -79,6 +84,19 @@ class RunReport:
         for ref, error in sorted(self.failed.items()):
             lines.append(f"  failed: {ref} ({error})")
         return "\n".join(lines)
+
+
+def corpus_fingerprint(documents: Iterable[IngestedDocument]) -> str:
+    """Content hash of a run's documents; an identical corpus fingerprints identically."""
+    content = sorted((doc.ref, doc.resolved_ref, doc.sha256) for doc in documents)
+    return hashlib.sha256(json.dumps(content).encode()).hexdigest()[:7]
+
+
+def corpus_version(fingerprint: str, previous: str | None) -> str:
+    """Date the corpus last changed plus its fingerprint; unchanged corpora keep their version."""
+    if previous is not None and previous.endswith(f"-{fingerprint}"):
+        return previous
+    return f"{datetime.now(UTC).date()}-{fingerprint}"
 
 
 def pace() -> None:
@@ -179,9 +197,15 @@ async def fetch_topics(
         specs = discover_topics(client, topics)
         baseline = await get_baseline_docs(session, topics)
         report.dropped = dropped_refs(specs, baseline)
-        session.add_all(ingest_documents(client, specs, baseline, run, data_dir, report))
+        documents = ingest_documents(client, specs, baseline, run, data_dir, report)
+        session.add_all(documents)
     except (DiscoveryError, httpx.HTTPError):
         await complete_ingest_run(session, run, IngestRunStatus.FAILED)
         raise
-    await complete_ingest_run(session, run, report.status)
+    version = (
+        corpus_version(corpus_fingerprint(documents), await get_latest_corpus_version(session))
+        if report.ok
+        else None
+    )
+    await complete_ingest_run(session, run, report.status, version)
     return report
