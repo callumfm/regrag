@@ -1,4 +1,5 @@
 .env
+.env.prod
 .claude/
 docs/superpowers/
 __pycache__/

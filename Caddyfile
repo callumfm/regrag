@@ -1,0 +1,12 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		respond 404
+	}
+}

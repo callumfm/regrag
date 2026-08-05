@@ -1,0 +1,50 @@
+services:
+  db:
+    ports: !reset null
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASS:?DB_PASS must be set}
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/callumfm/regrag-api:${TAG:-latest}
+    build:
+      context: ./backend
+    env_file: .env.prod
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - raw-data:/data/raw
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://localhost:8000/health")
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN must be set}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  raw-data:
+  caddy-data:
+  caddy-config:
