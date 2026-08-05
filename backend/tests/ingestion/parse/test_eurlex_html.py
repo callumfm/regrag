@@ -172,3 +172,52 @@ def test_layout_tables_are_not_extracted_as_data_tables():
     article = subdivision(FUELEU, "art_4")
     assert article.css("table")
     assert extract_tables(article) == ()
+
+
+def all_sections(sections):
+    for section in sections:
+        yield section
+        yield from all_sections(section.children)
+
+
+def annexes(document):
+    return [s for s in document.sections if s.kind is SectionKind.ANNEX]
+
+
+def test_oj_annex_label_and_title():
+    annex = annexes(fueleu())[0]
+    assert annex.number == "II"
+    assert annex.title == "Default emission factors"
+
+
+def test_consolidated_annex_label_and_title():
+    annex = annexes(mrv())[0]
+    assert annex.number == "I"
+    assert annex.title == "Methods for monitoring greenhouse gas emissions"
+
+
+def test_consolidated_annex_headings_nest_by_level():
+    annex = annexes(mrv())[0]
+    top = [c for c in annex.children if c.kind is SectionKind.HEADING]
+    assert top
+    assert top[0].title.startswith("A.")
+    nested = [c for c in top[0].children if c.kind is SectionKind.HEADING]
+    assert nested
+    assert nested[0].title.startswith("1.")
+
+
+def test_oj_annexes_are_flat():
+    annex = annexes(fueleu())[0]
+    assert all(c.kind is not SectionKind.HEADING for c in annex.children)
+    assert any(c.kind is SectionKind.TABLE for c in annex.children)
+
+
+def test_annexes_follow_articles_in_document_order():
+    kinds = [s.kind for s in fueleu().sections]
+    assert kinds == [SectionKind.ARTICLE, SectionKind.ARTICLE, SectionKind.ANNEX]
+
+
+def test_preamble_and_footnotes_are_absent():
+    text = " ".join(s.text for s in all_sections(mrv().sections))
+    assert "Having regard to the Treaty" not in text
+    assert "OJ L" not in text

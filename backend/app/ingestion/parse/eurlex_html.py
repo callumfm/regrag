@@ -18,6 +18,7 @@ ARTICLE_NUMBER = re.compile(r"Article\s+(\d+[a-z]?)", re.IGNORECASE)
 ANNEX_NUMBER = re.compile(r"ANNEX\s+([IVXLC]+|\d+)", re.IGNORECASE)
 PARAGRAPH_ID = re.compile(r"^\d+\.\d+$")
 LEADING_NUMBER = re.compile(r"^(\d+[a-z]?)\.\s*")
+HEADING_LEVEL = re.compile(r"title-gr-seq-level-(\d+)")
 MARKERS = re.compile(r"[▼►]\s*[A-Z]+\d*|◄")
 EMPTY_PARENS = re.compile(r"\s*\(\s*\)")
 FOOTNOTE_REF = "span.superscript, span.oj-super"
@@ -214,11 +215,51 @@ def article_section(node: Node, selectors: Selectors) -> Section:
     )
 
 
+def cons_heading_tree(node: Node) -> tuple[Section, ...]:
+    """Nest title-gr-seq-level-N headings, where level 1 is the annex title itself."""
+    stack: list[tuple[int, list[Section], str | None]] = [(1, [], None)]
+    for heading in node.css(CONS_ANNEX_HEADING):
+        match = HEADING_LEVEL.search(heading.attributes.get("class") or "")
+        level = int(match.group(1)) if match else 1
+        if level < 2:
+            continue
+        while stack[-1][0] >= level:
+            _, children, title = stack.pop()
+            stack[-1][1].append(
+                Section(kind=SectionKind.HEADING, title=title, children=tuple(children))
+            )
+        stack.append((level, [], clean(heading.text())))
+    while len(stack) > 1:
+        _, children, title = stack.pop()
+        stack[-1][1].append(
+            Section(kind=SectionKind.HEADING, title=title, children=tuple(children))
+        )
+    return tuple(stack[0][1])
+
+
+def annex_section(node: Node, selectors: Selectors) -> Section:
+    """OJ annexes are flat; consolidated ones nest by title-gr-seq level."""
+    labels = node.css(selectors.annex_label)
+    number = None
+    if labels:
+        match = ANNEX_NUMBER.search(clean(labels[0].text()))
+        number = match.group(1) if match else None
+    if selectors is OJ:
+        title = clean(labels[1].text()) if len(labels) > 1 else None
+        children = extract_tables(node)
+    else:
+        title_node = node.css_first(selectors.annex_title)
+        title = clean(title_node.text()) if title_node else None
+        children = extract_tables(node) + cons_heading_tree(node)
+    return Section(kind=SectionKind.ANNEX, number=number, title=title, children=children)
+
+
 def parse_eurlex_html(html: str, ref: str, topic: str) -> ParsedDocument:
     """Parse one EUR-Lex document into the format-neutral section tree."""
     tree = prepare(html)
     selectors = detect(tree)
-    sections = [article_section(node, selectors) for node in tree.css(ARTICLE)]
-    if not sections:
+    articles = [article_section(node, selectors) for node in tree.css(ARTICLE)]
+    if not articles:
         raise ParseError(f"{ref}: no articles found")
-    return ParsedDocument(ref=ref, topic=topic, sections=tuple(sections))
+    annexes = [annex_section(node, selectors) for node in tree.css(ANNEX)]
+    return ParsedDocument(ref=ref, topic=topic, sections=tuple(articles + annexes))
