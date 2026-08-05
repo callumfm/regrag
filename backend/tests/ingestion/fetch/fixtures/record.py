@@ -8,7 +8,8 @@ import time
 from pathlib import Path
 
 from app.core.http import http_client
-from app.ingestion.fetch.discover import SEEDS, SPARQL_ENDPOINT, parse_topic_response, topic_query
+from app.ingestion.constants import SEEDS
+from app.ingestion.fetch.discover import SPARQL_ENDPOINT, parse_topic_response, topic_query
 from app.ingestion.fetch.resolve import resolve
 
 FIXTURES = Path(__file__).parent

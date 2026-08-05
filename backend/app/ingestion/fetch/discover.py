@@ -7,7 +7,6 @@ from app.ingestion import celex
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch.models import DocumentSpec
 
-SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
 SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
 
 

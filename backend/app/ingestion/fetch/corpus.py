@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.http import transient_retry
+from app.ingestion.constants import SEEDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
-from app.ingestion.fetch.discover import SEEDS, discover
+from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.models import DocumentSpec, FetchDelta
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun

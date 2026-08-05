@@ -5,10 +5,10 @@ from collections.abc import Iterator
 
 from app.ingestion.chunk.models import Chunk, Locator
 from app.ingestion.chunk.references import extract_references
+from app.ingestion.constants import MAX_CHARS
 from app.ingestion.parse.models import ParsedDocument, Section
 
 CELL_SEPARATOR = " | "
-MAX_CHARS = 2000
 SENTENCE = re.compile(r"(?<=[.;:])\s+")
 
 

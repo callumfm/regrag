@@ -17,10 +17,11 @@ from app.core.config import config
 from app.core.db.session import async_session_factory
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
+from app.ingestion.constants import SEEDS
 from app.ingestion.enums import SectionKind
 from app.ingestion.fetch import corpus
 from app.ingestion.fetch.corpus import download
-from app.ingestion.fetch.discover import SEEDS, discover
+from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.main import configure_app

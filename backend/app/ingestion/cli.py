@@ -10,8 +10,8 @@ from app.core.config import config
 from app.core.db.session import get_session
 from app.core.http import http_client
 from app.core.logger import setup_logging
+from app.ingestion.constants import SEEDS
 from app.ingestion.exceptions import DiscoveryError
-from app.ingestion.fetch.discover import SEEDS
 from app.ingestion.models import RunReport
 from app.ingestion.pipeline import ingest
 
