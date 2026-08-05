@@ -19,8 +19,15 @@
   that only works for now and is meant to be replaced later.
 - Do not write inline comments. Prefer self-describing code; where
   explanation is genuinely needed, use a docstring of 1-2 lines max.
-- Package by capability. Each capability (`ingestion`, `retrieval`, ...) owns
-  its `schemas.py`, `enums.py`, `models.py`, `service.py`, and `router.py`
-  where it has HTTP surface. `core/` holds infrastructure only, including its
+- Package by capability, then by stage. Each capability (`ingestion`,
+  `retrieval`, ...) owns its `enums.py`, `models.py`, `service.py`, and
+  `router.py` where it has HTTP surface. A capability with pipeline stages
+  gives each stage a sub-package holding its own `models.py` and a `stage.py`
+  exposing `<verb>_document` and `<verb>_documents`; other modules in the
+  sub-package hold how that stage does its work. A sub-package that owns a
+  database table also owns its `schemas.py` and `service.py` — `fetch/` owns
+  `raw_documents`, `chunk/` owns `document_chunks`. Types describing the run
+  as a whole, including every stage delta and the run report, live in the
+  capability's `models.py`. `core/` holds infrastructure only, including its
   own operational endpoints such as health. New ORM schemas must be added to
   `core/db/registry.py`.

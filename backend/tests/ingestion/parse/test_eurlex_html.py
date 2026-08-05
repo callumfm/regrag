@@ -1,4 +1,4 @@
-"""EUR-Lex HTML parser: article boundaries, paragraphs, tables and annexes."""
+"""EUR-Lex HTML parser: article boundaries, paragraphs, tables, annexes and text normalisation."""
 
 from pathlib import Path
 

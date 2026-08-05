@@ -8,15 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.stage import chunk_documents
 from app.ingestion.enums import SectionKind
-from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.parse.models import ParsedDocument, Section
 
 pytestmark = pytest.mark.anyio
 
 
-async def test_reconciles_each_document_and_sums_one_delta(
-    db_session: AsyncSession, make_document: Callable[..., RawDocument]
-) -> None:
+async def test_reconciles_each_document_and_sums_one_delta(db_session: AsyncSession) -> None:
     document = ParsedDocument(
         ref="32023R1805",
         topic="fueleu",

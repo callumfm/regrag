@@ -1,4 +1,4 @@
-"""Format-neutral IR: node construction and text normalisation."""
+"""Format-neutral parser IR: section nesting and document identity."""
 
 import pytest
 from pydantic import ValidationError
