@@ -13,7 +13,7 @@ from app.ingestion.fetch.discover import (
     topic_query,
 )
 from app.ingestion.fetch.models import DiscoveredDocument
-from app.ingestion.fetch.resolve import resolve
+from app.ingestion.fetch.resolve import resolve_version
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -147,6 +147,6 @@ def corpus_handler(request: httpx.Request) -> httpx.Response:
 def test_topic_corpus_discovers_and_resolves(topic):
     with httpx.Client(transport=httpx.MockTransport(corpus_handler)) as client:
         specs = discover(client, topic, SEEDS[topic])
-        resolved = {f"{topic}:{s.ref}": resolve(client, s).resolved_ref for s in specs}
+        resolved = {f"{topic}:{s.ref}": resolve_version(client, s).resolved_ref for s in specs}
     expected = {k: v for k, v in EXPECTED_RESOLVED.items() if k.startswith(f"{topic}:")}
     assert resolved == expected

@@ -15,7 +15,7 @@ def is_missing_document(html: str) -> bool:
 
 
 @transient_retry
-def resolve(client: httpx.Client, spec: DiscoveredDocument) -> Resolution:
+def resolve_version(client: httpx.Client, spec: DiscoveredDocument) -> Resolution:
     """Return a verified Resolution for the latest consolidated version, else the original act."""
     candidates = [spec.candidate_ref, spec.ref] if spec.candidate_ref else [spec.ref]
     for candidate in candidates:

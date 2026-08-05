@@ -1,5 +1,7 @@
 """Chunk-stage values: the locator a chunk inherits, and the chunk itself."""
 
+import hashlib
+import json
 from typing import Self
 
 from pydantic import computed_field
@@ -64,6 +66,25 @@ class Chunk(Locator):
         if self.annex is not None:
             return f"Annex {self.annex}"
         return self.title or ""
+
+    @property
+    def content_hash(self) -> str:
+        """Hash of everything that makes a chunk what it is; topic is provenance, not identity."""
+        payload = json.dumps(
+            [
+                self.ref,
+                self.kind,
+                self.article,
+                self.annex,
+                self.title,
+                list(self.heading_path),
+                self.paragraph,
+                self.part,
+                self.parts,
+                self.text,
+            ]
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()
 
     @classmethod
     def build(

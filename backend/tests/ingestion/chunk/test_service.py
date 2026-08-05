@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.chunk.service import delete_chunks_outside, upsert_document_chunks
+from app.ingestion.chunk.service import delete_chunks_outside, keyed, upsert_document_chunks
 from app.ingestion.enums import SectionKind
 from tests.conftest import chunk
 
@@ -152,3 +152,20 @@ async def test_delete_chunks_outside_with_no_topics_is_a_noop(db_session: AsyncS
 
     assert await delete_chunks_outside(db_session, [], ["32026R0394"]) == 0
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
+
+
+def test_occurrence_counts_up_for_duplicates():
+    keys = [(digest, n) for _, digest, n in keyed([chunk(), chunk(), chunk()])]
+    assert [n for _, n in keys] == [0, 1, 2]
+    assert len({digest for digest, _ in keys}) == 1
+
+
+def test_distinct_chunks_each_start_at_occurrence_zero():
+    keys = [(digest, n) for _, digest, n in keyed([chunk(), chunk(article="5")])]
+    assert [n for _, n in keys] == [0, 0]
+    assert len({digest for digest, _ in keys}) == 2
+
+
+def test_keyed_yields_the_original_chunks_in_order():
+    chunks = [chunk(), chunk(article="5")]
+    assert [c for c, _, _ in keyed(chunks)] == chunks

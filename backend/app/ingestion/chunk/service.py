@@ -1,15 +1,24 @@
 """Chunk persistence: reconcile a document's chunks against what is already stored."""
 
-from collections.abc import Collection, Sequence
+from collections import Counter
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from typing import cast
 
 from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ingestion.chunk.identity import keyed
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.models import ChunkDelta
+
+
+def keyed(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
+    """Pair each chunk with its hash and the occurrence disambiguating identical siblings."""
+    seen: Counter[str] = Counter()
+    for chunk in chunks:
+        digest = chunk.content_hash
+        yield chunk, digest, seen[digest]
+        seen[digest] += 1
 
 
 def to_chunk_row(chunk: Chunk, digest: str, occurrence: int, corpus_version: str) -> DocumentChunk:

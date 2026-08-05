@@ -15,7 +15,7 @@ from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
 from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.models import DiscoveredDocument
-from app.ingestion.fetch.resolve import resolve
+from app.ingestion.fetch.resolve import resolve_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.models import FetchDelta
 from app.ingestion.schemas import IngestRun
@@ -65,7 +65,7 @@ def fetch_document(
     data_dir: Path,
 ) -> tuple[RawDocument, DocAction]:
     """Resolve one act, download it unless unchanged, and build its row."""
-    resolution = resolve(client, spec)
+    resolution = resolve_version(client, spec)
     action = classify(prev.resolved_ref if prev else None, resolution.resolved_ref)
     if action is DocAction.UNCHANGED and prev is not None:
         sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at

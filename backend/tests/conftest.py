@@ -22,13 +22,13 @@ from app.ingestion.constants import SEEDS
 from app.ingestion.enums import SectionKind
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.discover import discover
-from app.ingestion.fetch.resolve import resolve
+from app.ingestion.fetch.resolve import resolve_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.stage import download
 from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 
-RETRIED = (discover, resolve, download)
+RETRIED = (discover, resolve_version, download)
 
 
 @pytest.fixture
