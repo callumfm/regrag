@@ -45,6 +45,62 @@ def test_resolves_numbered_instrument_as_number_before_year() -> None:
     assert refs == (Reference(raw="Regulation (EC) No 765/2008", instrument="32008R0765"),)
 
 
+def test_resolves_a_two_digit_year_to_the_twentieth_century() -> None:
+    refs = extract_references("as amended by Council Directive 92/43/EEC")
+    assert refs == (Reference(raw="Directive 92/43/EEC", instrument="31992L0043"),)
+
+
+def test_resolves_a_numbered_instrument_with_a_two_digit_year() -> None:
+    refs = extract_references("referred to in Regulation (EEC) No 2913/92")
+    assert refs == (Reference(raw="Regulation (EEC) No 2913/92", instrument="31992R2913"),)
+
+
+def test_reads_the_year_as_the_year_even_when_the_no_is_dropped() -> None:
+    refs = extract_references("registered under Regulation (EC) 1907/2006")
+    assert refs == (Reference(raw="Regulation (EC) 1907/2006", instrument="32006R1907"),)
+
+
+def test_reads_a_high_act_number_as_a_number_not_a_year() -> None:
+    refs = extract_references("laid down in Regulation (EU) 2018/2066")
+    assert refs == (Reference(raw="Regulation (EU) 2018/2066", instrument="32018R2066"),)
+
+
+def test_reads_a_year_shaped_act_number_as_the_number() -> None:
+    refs = extract_references("promoting Directive (EU) 2018/2001")
+    assert refs == (Reference(raw="Directive (EU) 2018/2001", instrument="32018L2001"),)
+
+
+def test_drops_an_instrument_whose_citation_cannot_be_a_celex_id() -> None:
+    assert extract_references("the fictional Regulation 3021/4055") == ()
+
+
+def test_extracts_every_article_of_an_enumeration() -> None:
+    refs = extract_references("in accordance with Articles 6, 7 and 8")
+    assert refs == tuple(Reference(raw=f"Article {n}", article=n) for n in ("6", "7", "8"))
+
+
+def test_attributes_every_article_of_an_enumeration_to_its_instrument() -> None:
+    refs = extract_references("under Articles 6 and 7 of Regulation (EU) 2015/757")
+    assert refs == tuple(
+        Reference(
+            raw=f"Article {n} of Regulation (EU) 2015/757",
+            instrument="32015R0757",
+            article=n,
+        )
+        for n in ("6", "7")
+    )
+
+
+def test_extracts_every_annex_of_an_enumeration() -> None:
+    refs = extract_references("set out in Annexes I and II")
+    assert refs == tuple(Reference(raw=f"Annex {n}", annex=n) for n in ("I", "II"))
+
+
+def test_does_not_read_a_trailing_year_as_a_further_article() -> None:
+    refs = extract_references("Article 6, 2015 saw the adoption of the scheme")
+    assert refs == (Reference(raw="Article 6", article="6"),)
+
+
 def test_attributes_article_to_the_instrument_it_qualifies() -> None:
     refs = extract_references("verified under Article 6(2) of Regulation (EU) 2015/757")
     assert refs == (

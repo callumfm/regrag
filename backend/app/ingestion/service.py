@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Iterable, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -52,24 +52,26 @@ async def get_latest_corpus_version(session: AsyncSession) -> str | None:
 
 
 def corpus_fingerprint(documents: Iterable[IngestedDocument]) -> str:
-    """Content hash of a run's documents; an identical corpus fingerprints identically."""
+    """Content hash of the corpus; an identical corpus fingerprints identically."""
     content = sorted((doc.ref, doc.resolved_ref, doc.sha256) for doc in documents)
     return hashlib.sha256(json.dumps(content).encode()).hexdigest()[:7]
 
 
-async def next_corpus_version(session: AsyncSession, documents: Iterable[IngestedDocument]) -> str:
-    """Date the corpus last changed plus its fingerprint; unchanged corpora keep their version."""
-    fingerprint = corpus_fingerprint(documents)
+async def next_corpus_version(session: AsyncSession) -> str:
+    """Date the corpus last changed plus its fingerprint; unchanged corpora keep their version.
+
+    Fingerprints the whole corpus, not just the topics fetched, so a single-topic run
+    cannot mint a version that describes only part of it.
+    """
+    fingerprint = corpus_fingerprint(await get_corpus_docs(session))
     previous = await get_latest_corpus_version(session)
     if previous is not None and previous.endswith(f"-{fingerprint}"):
         return previous
     return f"{utc_today()}-{fingerprint}"
 
 
-async def get_baseline_docs(
-    session: AsyncSession, topics: Sequence[str]
-) -> dict[str, IngestedDocument]:
-    """Rows from each topic's own latest recorded run, keyed by name.
+def latest_run_docs() -> Select[tuple[IngestedDocument]]:
+    """Documents from each topic's own latest run: the corpus as it currently stands.
 
     The latest run is resolved per topic, so fetching topics separately still diffs.
     """
@@ -79,12 +81,21 @@ async def get_baseline_docs(
         .where(other.topic == IngestedDocument.topic)
         .scalar_subquery()
     )
+    return select(IngestedDocument).where(IngestedDocument.ingest_run_id == latest_for_topic)
+
+
+async def get_corpus_docs(session: AsyncSession) -> Sequence[IngestedDocument]:
+    """Every topic's latest documents, across all topics."""
+    return (await session.scalars(latest_run_docs())).all()
+
+
+async def get_baseline_docs(
+    session: AsyncSession, topics: Sequence[str]
+) -> dict[str, IngestedDocument]:
+    """Rows from each topic's own latest recorded run, keyed by name."""
     rows = await session.scalars(
-        select(IngestedDocument)
-        .where(
-            IngestedDocument.topic.in_(topics),
-            IngestedDocument.ingest_run_id == latest_for_topic,
-        )
+        latest_run_docs()
+        .where(IngestedDocument.topic.in_(topics))
         .order_by(IngestedDocument.ingest_run_id)
     )
     return {row.name: row for row in rows}

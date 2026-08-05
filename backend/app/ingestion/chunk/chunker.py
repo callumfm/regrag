@@ -51,19 +51,21 @@ class Chunk(Locator):
 def descend(section: Section, locator: Locator) -> Locator:
     """Fold a section's identity into the locator its children inherit."""
     if section.kind is SectionKind.ARTICLE:
-        return locator.model_copy(update={"article": section.number, "title": section.title})
+        return locator.model_copy(
+            update={"article": section.number, "annex": None, "title": section.title}
+        )
     if section.kind is SectionKind.ANNEX:
-        return locator.model_copy(update={"annex": section.number, "title": section.title})
+        return locator.model_copy(
+            update={"annex": section.number, "article": None, "title": section.title}
+        )
     if section.kind is SectionKind.HEADING and section.title:
         return locator.model_copy(update={"heading_path": (*locator.heading_path, section.title)})
     return locator
 
 
-def body(section: Section) -> str:
-    """A leaf's embeddable text; table rows are flattened one row per line."""
-    if section.rows:
-        return "\n".join(CELL_SEPARATOR.join(row) for row in section.rows)
-    return section.text
+def wrap(part: str, max_chars: int) -> list[str]:
+    """Last resort for a part with no boundary left to split on: cut it to length."""
+    return [part[start : start + max_chars] for start in range(0, len(part), max_chars)]
 
 
 def pack(parts: list[str], max_chars: int, joiner: str) -> list[str]:
@@ -72,6 +74,8 @@ def pack(parts: list[str], max_chars: int, joiner: str) -> list[str]:
     for part in parts:
         if packed and len(packed[-1]) + len(joiner) + len(part) <= max_chars:
             packed[-1] += joiner + part
+        elif len(part) > max_chars:
+            packed.extend(wrap(part, max_chars))
         else:
             packed.append(part)
     return packed
@@ -86,6 +90,22 @@ def segments(text: str, max_chars: int) -> list[str]:
         else:
             lines.append(line)
     return pack(lines, max_chars, "\n")
+
+
+def table_segments(rows: tuple[tuple[str, ...], ...], max_chars: int) -> list[str]:
+    """Table rows as pieces within max_chars, every piece led by the header row."""
+    header, *body = (CELL_SEPARATOR.join(row) for row in rows)
+    budget = max_chars - len(header) - 1
+    if not body or budget <= 0:
+        return segments("\n".join([header, *body]), max_chars)
+    return [f"{header}\n{piece}" for piece in pack(body, budget, "\n")]
+
+
+def pieces(section: Section, max_chars: int) -> list[str]:
+    """A leaf's embeddable text, split to fit; tables repeat their header on every piece."""
+    if section.rows:
+        return table_segments(section.rows, max_chars)
+    return segments(section.text, max_chars) if section.text else []
 
 
 def build(
@@ -114,10 +134,9 @@ def walk(
 ) -> Iterator[Chunk]:
     """Emit a chunk per piece of this section's text, then recurse into its children."""
     inherited = descend(section, locator)
-    if text := body(section):
-        pieces = segments(text, max_chars)
-        for index, piece in enumerate(pieces, start=1):
-            yield build(document, section, inherited, piece, index, len(pieces))
+    split = pieces(section, max_chars)
+    for index, piece in enumerate(split, start=1):
+        yield build(document, section, inherited, piece, index, len(split))
     for child in section.children:
         yield from walk(child, document, inherited, max_chars)
 

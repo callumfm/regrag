@@ -8,7 +8,6 @@ from sqlalchemy import text
 
 from app import __version__
 from app.core.dependencies import SessionDep
-from app.ingestion.service import get_latest_corpus_version
 
 
 class ServiceStatus(StrEnum):
@@ -23,7 +22,6 @@ class HealthStatus(StrEnum):
 
 class HealthResponse(BaseModel):
     version: str = __version__
-    corpus_version: str | None = None
     database: ServiceStatus
 
     @computed_field
@@ -47,10 +45,7 @@ router = APIRouter(tags=["health"])
 async def get_health(db: SessionDep) -> HealthResponse:
     try:
         await db.execute(text("SELECT 1"))
+        database = ServiceStatus.OK
     except Exception:
-        return HealthResponse(database=ServiceStatus.ERROR)
-    try:
-        corpus_version = await get_latest_corpus_version(db)
-    except Exception:
-        corpus_version = None
-    return HealthResponse(database=ServiceStatus.OK, corpus_version=corpus_version)
+        database = ServiceStatus.ERROR
+    return HealthResponse(database=database)

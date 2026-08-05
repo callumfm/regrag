@@ -13,6 +13,8 @@ from app.ingestion import celex
         ("Decision", "2013", "162", "32013D0162"),
         ("regulation", "2008", "765", "32008R0765"),
         ("Regulation", "2023", "1805", "32023R1805"),
+        ("Directive", "92", "43", "31992L0043"),
+        ("Regulation", "92", "2913", "31992R2913"),
     ],
 )
 def test_build_pads_the_number_and_maps_the_kind(kind, year, number, expected) -> None:
@@ -22,6 +24,20 @@ def test_build_pads_the_number_and_maps_the_kind(kind, year, number, expected) -
 def test_build_rejects_an_unknown_kind() -> None:
     with pytest.raises(KeyError):
         celex.build("Recommendation", "2015", "757")
+
+
+@pytest.mark.parametrize("year", ["3021", "1", "757"])
+def test_build_rejects_a_year_no_act_can_have(year: str) -> None:
+    with pytest.raises(ValueError, match="not a legislation citation"):
+        celex.build("Regulation", year, "757")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("2015", 2015), ("92", 1992), ("87", 1987), ("757", None), ("3021", None), ("1805", None)],
+)
+def test_year_candidates_are_plausible_four_digit_years(value: str, expected: int | None) -> None:
+    assert celex.as_year(value) == expected
 
 
 @pytest.mark.parametrize("ref", ["32015R0757", "32003L0087", "32013D0162"])
@@ -37,6 +53,7 @@ def test_legislation_ids_are_recognised(ref: str) -> None:
         "62015CJ0001",
         "32015X0757",
         "3201",
+        "392L0043",
     ],
 )
 def test_non_legislation_ids_are_rejected(ref: str) -> None:
