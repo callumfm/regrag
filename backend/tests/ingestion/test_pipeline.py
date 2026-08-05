@@ -110,6 +110,22 @@ async def test_malformed_sparql_payload_raises_discovery_error(db_session, tmp_p
         await ingest(db_session, client, ["mrv"], tmp_path)
 
 
+async def test_a_failure_after_fetch_still_marks_the_run_failed(
+    db_session, tmp_path, corpus_client, monkeypatch
+):
+    async def explode(*args, **kwargs):
+        raise RuntimeError("chunking blew up")
+
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_corpus", explode)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    with pytest.raises(RuntimeError):
+        await ingest(db_session, client, ["mrv"], tmp_path)
+
+    run = (await db_session.scalars(select(IngestRun))).one()
+    assert run.status is IngestRunStatus.FAILED
+    assert run.completed_at is not None
+
+
 async def chunk_rows(session: AsyncSession, ref: str | None = None) -> list[DocumentChunk]:
     stmt = select(DocumentChunk).order_by(DocumentChunk.id)
     if ref is not None:

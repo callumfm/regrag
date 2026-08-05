@@ -18,6 +18,7 @@ from app.ingestion.fetch.models import DocumentSpec, FetchDelta
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.ingestion.service import get_baseline_docs
+from app.ingestion.storage import raw_html_path
 
 PACE_SECONDS = 1.0
 
@@ -51,7 +52,7 @@ def download(client: httpx.Client, url: str) -> bytes:
 def store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
     """Write {ref}.html and return its (sha256, size_bytes)."""
     data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / f"{ref}.html").write_bytes(content)
+    raw_html_path(data_dir, ref).write_bytes(content)
     return hashlib.sha256(content).hexdigest(), len(content)
 
 
@@ -121,15 +122,15 @@ def ingest_documents(
     return documents
 
 
-async def fetch_documents(
+async def fetch_corpus(
     session: AsyncSession,
     client: httpx.Client,
     topics: Sequence[str],
     data_dir: Path,
     run: IngestRun,
-    delta: FetchDelta,
-) -> list[IngestedDocument]:
+) -> tuple[list[IngestedDocument], FetchDelta]:
     """Discover, resolve and download the corpus for topics, recording a row per document."""
+    delta = FetchDelta()
     specs = discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
     delta.discovered = [spec.ref for spec in specs]
@@ -137,4 +138,4 @@ async def fetch_documents(
     documents = ingest_documents(client, specs, baseline, run, data_dir, delta)
     session.add_all(documents)
     await session.flush()
-    return documents
+    return documents, delta

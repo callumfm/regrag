@@ -12,7 +12,7 @@ from app.ingestion.fetch.corpus import (
     classify,
     download,
     dropped_refs,
-    fetch_documents,
+    fetch_corpus,
     store,
 )
 from app.ingestion.fetch.models import DocumentSpec, FetchDelta
@@ -87,10 +87,9 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 
 
 async def fetch(db_session, client, topics, data_dir) -> tuple[FetchDelta, list[IngestedDocument]]:
-    """Drive the fetch stage alone, with the run and delta the orchestrator would supply."""
+    """Drive the fetch stage alone, with the run the orchestrator would supply."""
     run = await create_ingest_run(db_session)
-    delta = FetchDelta()
-    documents = await fetch_documents(db_session, client, topics, data_dir, run, delta)
+    documents, delta = await fetch_corpus(db_session, client, topics, data_dir, run)
     return delta, documents
 
 
