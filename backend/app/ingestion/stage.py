@@ -28,8 +28,18 @@ class IngestStageDelta(BaseModel):
         return [f"failed: {ref} ({error})" for ref, error in sorted(self.failed.items())]
 
     def __add__(self, other: Self) -> Self:
+        """Combine same-type operands field by field; fields must be int, list or dict."""
+        if type(other) is not type(self):
+            return NotImplemented
         merged: dict[str, Any] = {}
         for name in type(self).model_fields:
             mine, theirs = getattr(self, name), getattr(other, name)
-            merged[name] = {**mine, **theirs} if isinstance(mine, dict) else mine + theirs
+            if isinstance(mine, dict):
+                merged[name] = {**mine, **theirs}
+            elif isinstance(mine, list | int) and not isinstance(mine, bool):
+                merged[name] = mine + theirs
+            else:
+                raise TypeError(
+                    f"{type(self).__name__}.{name}: delta fields must be int, list or dict"
+                )
         return type(self)(**merged)
