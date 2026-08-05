@@ -44,6 +44,8 @@ async def test_completed_run_is_stamped_with_a_dated_corpus_version(
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
     run = await db_session.get(IngestRun, report.run_id)
+    assert run.status is IngestRunStatus.COMPLETED
+    assert run.completed_at is not None
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{7}", run.corpus_version)
 
 
