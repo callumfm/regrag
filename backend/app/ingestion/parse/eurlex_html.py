@@ -39,10 +39,25 @@ CONS_PARAGRAPH_NUMBER = "span.no-parag"
 CONS_PARAGRAPH_TEXT = "div.norm.inline-element"
 CONS_ANNEX_TITLE = "p.title-gr-seq-level-1"
 CONS_ANNEX_HEADING = 'p[class^="title-gr-seq-level-"]'
-DATA_TABLE = "table.oj-table"
+OJ_DATA_TABLE = "table.oj-table"
+CONS_DATA_TABLE = "table.borderOj"
 GRID_CONTAINER = "div.grid-container"
 GRID_MARKER = "div.grid-list-column-1"
 GRID_BODY = "div.grid-list-column-2"
+
+
+@dataclass(frozen=True)
+class Dialect:
+    """One EUR-Lex markup dialect: how to recognise it and where it keeps each part."""
+
+    signature: str
+    article_heading: str
+    annex_label: str
+    data_table: str
+    annex_title: Callable[[Node], str | None]
+    paragraphs: Callable[[Node], list[Node]]
+    paragraph: Callable[[Node], Section]
+    annex_headings: str | None = None
 
 
 def clean(text: str) -> str:
@@ -75,9 +90,9 @@ def table_rows(node: Node) -> tuple[tuple[str, ...], ...]:
     return tuple(rows)
 
 
-def extract_tables(node: Node) -> tuple[Section, ...]:
+def extract_tables(node: Node, dialect: Dialect) -> tuple[Section, ...]:
     """Take data tables out of the tree, so their cells never re-appear as prose."""
-    tables = node.css(DATA_TABLE)
+    tables = node.css(dialect.data_table)
     sections = tuple(
         Section(kind=SectionKind.TABLE, rows=rows)
         for table in tables
@@ -177,23 +192,11 @@ def cons_annex_title(node: Node) -> str | None:
     return clean(title.text()) if title is not None else None
 
 
-@dataclass(frozen=True)
-class Dialect:
-    """One EUR-Lex markup dialect: how to recognise it and where it keeps each part."""
-
-    signature: str
-    article_heading: str
-    annex_label: str
-    annex_title: Callable[[Node], str | None]
-    paragraphs: Callable[[Node], list[Node]]
-    paragraph: Callable[[Node], Section]
-    annex_headings: str | None = None
-
-
 OJ = Dialect(
     signature=".oj-normal",
     article_heading="p.oj-ti-art",
     annex_label=OJ_ANNEX_LABEL,
+    data_table=OJ_DATA_TABLE,
     annex_title=oj_annex_title,
     paragraphs=oj_paragraphs,
     paragraph=oj_paragraph,
@@ -203,6 +206,7 @@ CONS = Dialect(
     signature="p.norm, div.norm",
     article_heading="p.title-article-norm",
     annex_label="p.title-annex-1",
+    data_table=CONS_DATA_TABLE,
     annex_title=cons_annex_title,
     paragraphs=cons_paragraphs,
     paragraph=cons_paragraph,
@@ -278,7 +282,7 @@ def annex_body(node: Node, dialect: Dialect) -> tuple[Section, ...]:
 
 def annex_section(node: Node, dialect: Dialect) -> Section:
     """OJ annexes are flat; consolidated ones nest by title-gr-seq level."""
-    tables = extract_tables(node)
+    tables = extract_tables(node, dialect)
     headings = heading_tree(node, dialect.annex_headings) if dialect.annex_headings else ()
     return Section(
         kind=SectionKind.ANNEX,
