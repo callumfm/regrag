@@ -1,7 +1,20 @@
 """Format-neutral IR: node construction and text normalisation."""
 
+import pytest
+from pydantic import ValidationError
+
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.base import ParsedDocument, Section, normalise
+
+
+def test_section_rejects_a_kind_that_is_not_a_section_kind():
+    with pytest.raises(ValidationError):
+        Section(kind="footnote")
+
+
+def test_section_rejects_a_child_that_is_not_a_section():
+    with pytest.raises(ValidationError):
+        Section(kind=SectionKind.ARTICLE, children=("not a section",))  # ty: ignore[invalid-argument-type]
 
 
 def test_section_defaults_to_an_empty_leaf():

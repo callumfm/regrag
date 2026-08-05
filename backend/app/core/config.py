@@ -61,7 +61,7 @@ class PostgresConfig(BaseSettings):
     def SQLALCHEMY_DATABASE_URI(self) -> str:
         """Build SQLAlchemy database URI."""
         return (
-            f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASS}"
+            f"postgresql+psycopg://{self.DB_USER}:{self.DB_PASS}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
 
@@ -76,8 +76,8 @@ class PostgresConfig(BaseSettings):
             "pool_recycle": self.DB_POOL_RECYCLE,
             "pool_timeout": self.DB_POOL_TIMEOUT,
             "connect_args": {
-                "timeout": self.DB_CONNECT_TIMEOUT,
-                "command_timeout": self.DB_COMMAND_TIMEOUT,
+                "connect_timeout": self.DB_CONNECT_TIMEOUT,
+                "options": f"-c statement_timeout={self.DB_COMMAND_TIMEOUT * 1000}",
             },
         }
 

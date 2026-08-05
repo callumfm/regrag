@@ -32,8 +32,6 @@ export interface components {
              * @default 0.1.0
              */
             version: string;
-            /** Corpus Version */
-            corpus_version?: string | null;
             database: components["schemas"]["ServiceStatus"];
             /** @description Overall status: ok only while every ServiceStatus field reports ok. */
             readonly status: components["schemas"]["HealthStatus"];

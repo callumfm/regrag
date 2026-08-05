@@ -22,7 +22,6 @@ class HealthStatus(StrEnum):
 
 class HealthResponse(BaseModel):
     version: str = __version__
-    corpus_version: str | None = None
     database: ServiceStatus
 
     @computed_field

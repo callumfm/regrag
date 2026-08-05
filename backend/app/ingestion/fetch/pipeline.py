@@ -5,18 +5,24 @@ import json
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import utc_now
 from app.core.http import transient_retry
 from app.ingestion.enums import DocAction, IngestRunStatus
-from app.ingestion.fetch.discover import SEEDS, DiscoveryError, DocumentSpec, discover
-from app.ingestion.fetch.resolve import ResolutionError, resolve
+from app.ingestion.exceptions import DiscoveryError, IngestionError
+from app.ingestion.fetch.discover import SEEDS, DocumentSpec, discover
+from app.ingestion.fetch.resolve import resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun
-from app.ingestion.service import complete_ingest_run, create_ingest_run, get_baseline_docs
+from app.ingestion.service import (
+    complete_ingest_run,
+    create_ingest_run,
+    get_baseline_docs,
+    next_corpus_version,
+)
 
 PACE_SECONDS = 1.0
 
@@ -40,6 +46,7 @@ class RunReport:
     """Outcome of one fetch run, bucketed for the CLI diff."""
 
     run_id: int
+    corpus_version: str | None = None
     new: list[str] = field(default_factory=list)
     changed: list[str] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
@@ -66,7 +73,8 @@ class RunReport:
         lines = [
             f"run {self.run_id}: {len(self.new)} new, {len(self.changed)} changed, "
             f"{len(self.unchanged)} unchanged, {len(self.dropped)} dropped, "
-            f"{len(self.failed)} failed"
+            f"{len(self.failed)} failed",
+            f"  corpus version: {self.corpus_version or '(not stamped)'}",
         ]
         for label, refs in (
             ("new", self.new),
@@ -126,7 +134,7 @@ def ingest_document(
         sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at
     else:
         sha256, size_bytes = store(data_dir, spec.ref, download(client, resolution.url))
-        fetched_at = datetime.now(UTC)
+        fetched_at = utc_now()
     document = IngestedDocument(
         run=run,
         name=spec.ref,
@@ -157,7 +165,7 @@ def ingest_documents(
             pace()
         try:
             document, action = ingest_document(client, spec, baseline.get(spec.ref), run, data_dir)
-        except (ResolutionError, httpx.HTTPError) as exc:
+        except (IngestionError, httpx.HTTPError) as exc:
             report.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
             continue
         documents.append(document)
@@ -179,8 +187,10 @@ async def fetch_topics(
         baseline = await get_baseline_docs(session, topics)
         report.dropped = dropped_refs(specs, baseline)
         session.add_all(ingest_documents(client, specs, baseline, run, data_dir, report))
+        await session.flush()
     except (DiscoveryError, httpx.HTTPError):
         await complete_ingest_run(session, run, IngestRunStatus.FAILED)
         raise
-    await complete_ingest_run(session, run, report.status)
+    report.corpus_version = await next_corpus_version(session) if report.ok else None
+    await complete_ingest_run(session, run, report.status, report.corpus_version)
     return report

@@ -9,7 +9,8 @@ import httpx
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.http import http_client
-from app.ingestion.fetch.discover import SEEDS, DiscoveryError
+from app.ingestion.exceptions import DiscoveryError
+from app.ingestion.fetch.discover import SEEDS
 from app.ingestion.fetch.pipeline import RunReport, fetch_topics
 
 

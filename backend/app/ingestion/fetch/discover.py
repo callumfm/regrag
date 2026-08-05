@@ -1,21 +1,17 @@
 """Corpus discovery from the CELLAR graph: one SPARQL query per topic seed."""
 
-from dataclasses import dataclass
-
 import httpx
 
 from app.core.http import transient_retry
+from app.core.models import FrozenModel
+from app.ingestion import celex
+from app.ingestion.exceptions import DiscoveryError
 
 SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
 SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
 
 
-class DiscoveryError(Exception):
-    """Discovery returned an implausible result (e.g. seed act missing)."""
-
-
-@dataclass(frozen=True)
-class DocumentSpec:
+class DocumentSpec(FrozenModel):
     """One discovered corpus document; transient wire data between discover and fetch."""
 
     topic: str
@@ -41,17 +37,13 @@ SELECT DISTINCT ?c ?force ?cons WHERE {{
 }}"""
 
 
-def _is_legislation(celex: str) -> bool:
-    return celex.startswith("3") and len(celex) > 5 and celex[5] in "RLD"
-
-
 def parse_topic_response(topic: str, payload: dict) -> list[DocumentSpec]:
     """Apply the mechanical filters: legislation-only, in-force, not-folded."""
     in_force: dict[str, str] = {}
     consolidations: dict[str, set[str]] = {}
     for b in payload["results"]["bindings"]:
         ref = b["c"]["value"]
-        if not _is_legislation(ref):
+        if not celex.is_legislation(ref):
             continue
         consolidations.setdefault(ref, set())
         if "force" in b:
@@ -62,7 +54,7 @@ def parse_topic_response(topic: str, payload: dict) -> list[DocumentSpec]:
     for ref, cons in sorted(consolidations.items()):
         if in_force.get(ref) != "1":
             continue
-        own_stem = {c for c in cons if c.startswith(f"0{ref[1:]}-")}
+        own_stem = {c for c in cons if c.startswith(celex.consolidated_stem(ref))}
         if cons and not own_stem:
             continue
         specs.append(

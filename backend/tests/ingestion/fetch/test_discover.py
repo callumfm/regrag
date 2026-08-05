@@ -5,9 +5,9 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch.discover import (
     SEEDS,
-    DiscoveryError,
     DocumentSpec,
     discover,
     parse_topic_response,

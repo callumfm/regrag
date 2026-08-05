@@ -1,21 +1,16 @@
 """Format-neutral parser IR: every parser produces a ParsedDocument section tree."""
 
 import re
-from dataclasses import dataclass
 from typing import Protocol
 
+from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
 
 FORMULA_PLACEHOLDER = "[formula]"
 WHITESPACE = re.compile(r"\s+")
 
 
-class ParseError(Exception):
-    """A document could not be parsed into a section tree."""
-
-
-@dataclass(frozen=True)
-class Section:
+class Section(FrozenModel):
     """One node of a document tree; rows is populated only for TABLE."""
 
     kind: SectionKind
@@ -26,8 +21,7 @@ class Section:
     children: tuple["Section", ...] = ()
 
 
-@dataclass(frozen=True)
-class ParsedDocument:
+class ParsedDocument(FrozenModel):
     """A parsed act: identity from the ingest record, body as a section tree."""
 
     ref: str

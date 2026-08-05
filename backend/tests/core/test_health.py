@@ -10,16 +10,11 @@ from app.core.db.session import get_db
 def test_health_returns_ok(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "ok",
-        "version": "0.1.0",
-        "corpus_version": None,
-        "database": "ok",
-    }
+    assert response.json() == {"status": "ok", "version": "0.1.0", "database": "ok"}
 
 
 def test_health_degraded_when_db_unreachable(app: FastAPI, client: TestClient) -> None:
-    bad_engine = create_async_engine("postgresql+asyncpg://postgres:postgres@localhost:9/regrag")
+    bad_engine = create_async_engine("postgresql+psycopg://postgres:postgres@localhost:9/regrag")
     bad_factory = async_sessionmaker(bind=bad_engine, class_=AsyncSession)
 
     async def bad_db() -> AsyncGenerator[AsyncSession, None]:

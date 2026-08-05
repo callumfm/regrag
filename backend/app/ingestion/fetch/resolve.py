@@ -1,22 +1,17 @@
 """EUR-Lex resolution: verify graph-fed candidates, falling back to the original act."""
 
-from dataclasses import dataclass
-
 import httpx
 
 from app.core.http import transient_retry
+from app.core.models import FrozenModel
+from app.ingestion.exceptions import ResolutionError
 from app.ingestion.fetch.discover import DocumentSpec
 
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}"
 MISSING_MARKER = "The requested document does not exist."
 
 
-class ResolutionError(Exception):
-    """No fetchable HTML could be found for a discovered document."""
-
-
-@dataclass(frozen=True)
-class Resolution:
+class Resolution(FrozenModel):
     """A verified resolution: version-pinned ref and its fetchable HTML URL."""
 
     resolved_ref: str

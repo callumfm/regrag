@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.base import ParseError
+from app.ingestion.exceptions import ParseError
 from app.ingestion.parse.eurlex_html import (
     CONS,
     FOOTNOTE,

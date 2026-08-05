@@ -1,14 +1,16 @@
 """Fetch decision logic, run report, and end-to-end corpus fetch."""
 
 import hashlib
+import re
 
 import httpx
 import pytest
 from sqlalchemy import select
 
 from app.ingestion.enums import DocAction, IngestRunStatus
+from app.ingestion.exceptions import DiscoveryError, ParseError
 from app.ingestion.fetch import pipeline
-from app.ingestion.fetch.discover import SEEDS, DiscoveryError, DocumentSpec
+from app.ingestion.fetch.discover import SEEDS, DocumentSpec
 from app.ingestion.fetch.pipeline import (
     RunReport,
     classify,
@@ -146,6 +148,14 @@ MRV_SPARQL = httpx.Response(
 )
 
 
+def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
+    """The two-document mrv corpus, with per-ref responses overridable."""
+    return {
+        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+    } | (overrides or {})
+
+
 async def test_first_run_ingests_all_as_new(db_session, tmp_path):
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL},
@@ -253,6 +263,78 @@ async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path):
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
     assert run.completed_at is not None
+
+
+async def test_completed_run_is_stamped_with_a_dated_corpus_version(db_session, tmp_path):
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    run = await db_session.get(IngestRun, report.run_id)
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{7}", run.corpus_version)
+
+
+async def test_unchanged_corpus_keeps_the_previous_corpus_version(db_session, tmp_path):
+    docs = mrv_docs()
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    first = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    second = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    versions = [(await db_session.get(IngestRun, r.run_id)).corpus_version for r in (first, second)]
+    assert versions[0] is not None
+    assert versions[0] == versions[1]
+
+
+async def test_changed_document_produces_a_new_corpus_version(db_session, tmp_path):
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL},
+        mrv_docs({"32015R0757": httpx.Response(200, content=b"<html>v1</html>")}),
+    )
+    first = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    consolidated = httpx.Response(
+        200,
+        json=payload(
+            binding("32015R0757", force="1", cons="02015R0757-20250101"),
+            binding("32023R2449", force="1"),
+        ),
+    )
+    client, _ = corpus_client(
+        {"mrv": consolidated},
+        mrv_docs({"02015R0757-20250101": httpx.Response(200, content=b"<html>v2</html>")}),
+    )
+    second = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    versions = [(await db_session.get(IngestRun, r.run_id)).corpus_version for r in (first, second)]
+    assert versions[0] != versions[1]
+
+
+async def test_failed_run_is_not_stamped_with_a_corpus_version(db_session, tmp_path):
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
+    )
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    run = await db_session.get(IngestRun, report.run_id)
+    assert run.status is IngestRunStatus.FAILED
+    assert run.corpus_version is None
+
+
+async def test_any_ingestion_error_is_recorded_per_document(db_session, tmp_path, monkeypatch):
+    """The per-document loop catches the whole IngestionError family, not just resolution."""
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+
+    def unparseable(*args, **kwargs):
+        raise ParseError("unrecognised EUR-Lex dialect")
+
+    monkeypatch.setattr(pipeline, "ingest_document", unparseable)
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    assert sorted(report.failed) == ["32015R0757", "32023R2449"]
+    assert set(report.failed.values()) == {"ParseError: unrecognised EUR-Lex dialect"}
+    assert not report.ok
+    run = await db_session.get(IngestRun, report.run_id)
+    assert run.status is IngestRunStatus.FAILED
 
 
 async def test_malformed_sparql_payload_raises_discovery_error(db_session, tmp_path):

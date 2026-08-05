@@ -2,7 +2,13 @@
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+
+class FrozenModel(BaseModel):
+    """Base for immutable, hashable domain values."""
+
+    model_config = ConfigDict(frozen=True)
 
 
 class ErrorResponse(BaseModel):
