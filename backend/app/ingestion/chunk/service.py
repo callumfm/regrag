@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.chunker import Chunk
 from app.ingestion.chunk.identity import keyed
-from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.models import ChunkDelta
 
@@ -30,7 +29,7 @@ def to_chunk_row(chunk: Chunk, digest: str, occurrence: int, corpus_version: str
         parts=chunk.parts,
         citation=chunk.citation,
         text=chunk.text,
-        references=[reference.model_dump() for reference in extract_references(chunk.text)],
+        references=[reference.model_dump() for reference in chunk.references],
         corpus_version=corpus_version,
     )
 

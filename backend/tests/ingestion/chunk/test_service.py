@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.chunker import Chunk
+from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import delete_chunks_for_refs, upsert_document_chunks
 from app.ingestion.enums import SectionKind
@@ -107,10 +108,11 @@ async def test_chunk_fields_are_mapped_onto_the_row(db_session: AsyncSession):
 
 
 async def test_references_are_stored_as_json(db_session: AsyncSession):
+    text = "As set out in Annex I to this Regulation."
     await upsert_document_chunks(
         db_session,
         "32023R1805",
-        [chunk(text="As set out in Annex I to this Regulation.")],
+        [chunk(text=text, references=extract_references(text))],
         "2026-08-05-aaaaaaa",
     )
     row = (await chunk_rows(db_session))[0]
