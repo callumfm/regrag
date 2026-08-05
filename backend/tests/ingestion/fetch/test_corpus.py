@@ -15,7 +15,7 @@ from app.ingestion.fetch.corpus import (
     fetch_documents,
     store,
 )
-from app.ingestion.fetch.discover import DocumentSpec
+from app.ingestion.fetch.models import DocumentSpec
 from app.ingestion.models import RunReport
 from app.ingestion.schemas import IngestedDocument
 from app.ingestion.service import create_ingest_run, get_baseline_docs

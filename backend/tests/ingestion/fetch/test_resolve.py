@@ -6,10 +6,9 @@ import httpx
 import pytest
 
 from app.ingestion.exceptions import ResolutionError
-from app.ingestion.fetch.discover import DocumentSpec
+from app.ingestion.fetch.models import DocumentSpec, Resolution
 from app.ingestion.fetch.resolve import (
     MISSING_MARKER,
-    Resolution,
     is_missing_document,
     resolve,
 )

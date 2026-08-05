@@ -11,6 +11,7 @@ from app.ingestion.parse.eurlex_html import (
     FOOTNOTE,
     OJ,
     extract_tables,
+    normalise,
     parse_eurlex_html,
     prepare,
 )
@@ -278,3 +279,15 @@ def test_consolidated_annex_prose_excludes_its_heading_lines():
     assert prose
     assert "Methods for monitoring greenhouse gas emissions" not in prose[0].text
     assert "companies shall apply the following formula" in prose[0].text
+
+
+def test_normalise_collapses_runs_of_whitespace():
+    assert normalise("a  \n   b\t c") == "a b c"
+
+
+def test_normalise_replaces_the_non_breaking_spaces_eurlex_indents_with():
+    assert normalise("1.\xa0\xa0\xa0The yearly average") == "1. The yearly average"
+
+
+def test_normalise_strips_leading_and_trailing_whitespace():
+    assert normalise("\n   ANNEX I\n   ") == "ANNEX I"

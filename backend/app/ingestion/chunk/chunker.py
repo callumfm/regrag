@@ -8,7 +8,7 @@ from pydantic import computed_field
 from app.core.models import FrozenModel
 from app.ingestion.chunk.references import Reference, extract_references
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.base import ParsedDocument, Section
+from app.ingestion.parse.models import ParsedDocument, Section
 
 CELL_SEPARATOR = " | "
 MAX_CHARS = 2000

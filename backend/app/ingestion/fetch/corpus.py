@@ -13,7 +13,8 @@ from app.core.clock import utc_now
 from app.core.http import transient_retry
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
-from app.ingestion.fetch.discover import SEEDS, DocumentSpec, discover
+from app.ingestion.fetch.discover import SEEDS, discover
+from app.ingestion.fetch.models import DocumentSpec
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.models import RunReport
 from app.ingestion.schemas import IngestedDocument, IngestRun

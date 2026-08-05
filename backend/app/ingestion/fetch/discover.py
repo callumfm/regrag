@@ -3,21 +3,12 @@
 import httpx
 
 from app.core.http import transient_retry
-from app.core.models import FrozenModel
 from app.ingestion import celex
 from app.ingestion.exceptions import DiscoveryError
+from app.ingestion.fetch.models import DocumentSpec
 
 SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
 SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
-
-
-class DocumentSpec(FrozenModel):
-    """One discovered corpus document; transient wire data between discover and fetch."""
-
-    topic: str
-    source: str
-    ref: str
-    candidate_ref: str | None
 
 
 def topic_query(seed_ref: str) -> str:

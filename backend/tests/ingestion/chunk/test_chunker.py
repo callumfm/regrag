@@ -1,7 +1,7 @@
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.references import Reference
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.base import ParsedDocument, Section
+from app.ingestion.parse.models import ParsedDocument, Section
 
 
 def paragraph(number: str | None, text: str) -> Section:
