@@ -31,6 +31,7 @@ CONS_PARAGRAPH = "div.norm"
 CONS_PARAGRAPH_NUMBER = "span.no-parag"
 CONS_PARAGRAPH_TEXT = "div.norm.inline-element"
 CONS_ANNEX_HEADING = 'p[class^="title-gr-seq-level-"]'
+DATA_TABLE = "table.oj-table"
 GRID_CONTAINER = "grid-container"
 GRID_MARKER = "div.grid-list-column-1"
 GRID_BODY = "div.grid-list-column-2"
@@ -83,6 +84,28 @@ def prepare(html: str) -> HTMLParser:
     for marker in tree.css(FOOTNOTE_REF):
         marker.decompose()
     return tree
+
+
+def table_rows(node: Node) -> tuple[tuple[str, ...], ...]:
+    rows = []
+    for row in node.css("tr"):
+        cells = tuple(clean(cell.text()) for cell in row.css("td, th"))
+        if cells:
+            rows.append(cells)
+    return tuple(rows)
+
+
+def extract_tables(node: Node) -> tuple[Section, ...]:
+    """Take data tables out of the tree, so their cells never re-appear as prose."""
+    tables = node.css(DATA_TABLE)
+    sections = tuple(
+        Section(kind=SectionKind.TABLE, rows=rows)
+        for rows in (table_rows(table) for table in tables)
+        if rows
+    )
+    for table in tables:
+        table.decompose()
+    return sections
 
 
 def grid_line(node: Node) -> str:

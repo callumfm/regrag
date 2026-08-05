@@ -6,7 +6,7 @@ import pytest
 
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.base import ParseError
-from app.ingestion.parse.eurlex_html import parse_eurlex_html
+from app.ingestion.parse.eurlex_html import extract_tables, parse_eurlex_html, prepare
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FUELEU = (FIXTURES / "32023R1805.html").read_text()
@@ -125,3 +125,50 @@ def test_article_without_numbered_paragraphs_yields_one_unnumbered_paragraph():
     assert len(paragraphs) == 1
     assert paragraphs[0].number is None
     assert paragraphs[0].text == "This Regulation enters into force."
+
+
+def subdivision(html, node_id):
+    node = prepare(html).css_first(f'div[id="{node_id}"]')
+    assert node is not None
+    return node
+
+
+def test_data_table_rows_are_a_raw_grid():
+    grids = extract_tables(subdivision(FUELEU, "anx_II"))
+    assert grids
+    assert grids[0].kind is SectionKind.TABLE
+    rows = grids[0].rows
+    assert rows[0] == ("1", "2", "3", "4", "5", "6", "7", "8", "9")
+    assert any("Fuel Class" in cell for row in rows for cell in row)
+
+
+def test_extracted_rows_are_tuples_of_strings():
+    for grid in extract_tables(subdivision(FUELEU, "anx_II")):
+        assert isinstance(grid.rows, tuple)
+        for row in grid.rows:
+            assert isinstance(row, tuple)
+            assert all(isinstance(cell, str) for cell in row)
+
+
+def test_formula_images_become_placeholders_in_table_cells():
+    cells = [
+        cell
+        for grid in extract_tables(subdivision(FUELEU, "anx_II"))
+        for row in grid.rows
+        for cell in row
+    ]
+    assert any("[formula]" in cell for cell in cells)
+    assert not any("base64" in cell for cell in cells)
+
+
+def test_extracting_a_table_detaches_it_so_its_text_is_not_duplicated():
+    annex = subdivision(FUELEU, "anx_II")
+    assert "Fuel Class" in annex.text()
+    extract_tables(annex)
+    assert "Fuel Class" not in annex.text()
+
+
+def test_layout_tables_are_not_extracted_as_data_tables():
+    article = subdivision(FUELEU, "art_4")
+    assert article.css("table")
+    assert extract_tables(article) == ()
