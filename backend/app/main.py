@@ -32,5 +32,10 @@ def configure_app(app: FastAPI) -> None:
     app.include_router(health_router)
 
 
-app = FastAPI(title=config.PROJECT_NAME, version=__version__, lifespan=lifespan)
+app = FastAPI(
+    title=config.PROJECT_NAME,
+    version=__version__,
+    lifespan=lifespan,
+    root_path=config.ROOT_PATH,
+)
 configure_app(app)

@@ -36,6 +36,9 @@ class AppConfig(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:5173"]
     RAW_DATA_DIR: Path = PROJECT_ROOT / "data" / "raw"
 
+    ROOT_PATH: str = ""
+    """External prefix the app is mounted under when a proxy strips it."""
+
 
 class PostgresConfig(BaseSettings):
     """PostgreSQL database configuration."""

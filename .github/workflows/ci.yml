@@ -116,6 +116,13 @@ jobs:
           code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)
           test "$code" = "404" || { echo "expected 404 at /, got $code"; exit 1; }
 
+      - name: Verify the docs resolve the spec URL they advertise
+        run: |
+          spec=$(curl -fsk https://localhost/api/docs | sed -n "s/.*url: '\([^']*\)'.*/\1/p" | head -1)
+          echo "docs advertise: $spec"
+          test "$spec" = "/api/openapi.json" || { echo "expected /api/openapi.json"; exit 1; }
+          curl -fsk -o /dev/null "https://localhost$spec"
+
       - name: Dump logs on failure
         if: failure()
         run: |
