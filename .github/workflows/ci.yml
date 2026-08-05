@@ -96,9 +96,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Write the deployment env file
+        run: |
+          cat > .env.prod <<'EOF'
+          DOMAIN=localhost
+          ACME_EMAIL=dev@example.com
+          DB_PASS=postgres
+          CORS_ORIGINS=["http://localhost:5173"]
+          EOF
+
       - name: Assert the prod overlay does not publish Postgres
         run: |
-          cp .env.example .env.prod
           docker compose config --format json \
             | jq -e '(.services.db.ports // []) == []' > /dev/null \
             || { echo "Postgres is published in the prod overlay"; exit 1; }
