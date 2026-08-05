@@ -19,7 +19,7 @@ def test_health_returns_ok(client: TestClient) -> None:
 
 
 def test_health_degraded_when_db_unreachable(app: FastAPI, client: TestClient) -> None:
-    bad_engine = create_async_engine("postgresql+asyncpg://postgres:postgres@localhost:9/regrag")
+    bad_engine = create_async_engine("postgresql+psycopg://postgres:postgres@localhost:9/regrag")
     bad_factory = async_sessionmaker(bind=bad_engine, class_=AsyncSession)
 
     async def bad_db() -> AsyncGenerator[AsyncSession, None]:
