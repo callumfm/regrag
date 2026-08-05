@@ -11,18 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.http import transient_retry
-from app.ingestion.enums import DocAction, IngestRunStatus
+from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
 from app.ingestion.fetch.discover import SEEDS, DocumentSpec, discover
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.models import RunReport
 from app.ingestion.schemas import IngestedDocument, IngestRun
-from app.ingestion.service import (
-    complete_ingest_run,
-    create_ingest_run,
-    get_baseline_docs,
-    next_corpus_version,
-)
+from app.ingestion.service import get_baseline_docs
 
 PACE_SECONDS = 1.0
 
@@ -126,24 +121,19 @@ def ingest_documents(
     return documents
 
 
-async def fetch_topics(
+async def fetch_documents(
     session: AsyncSession,
     client: httpx.Client,
     topics: Sequence[str],
     data_dir: Path,
-) -> RunReport:
-    """Fetch the corpus for topics in one ingest run; blocking HTTP is fine here (CLI-only)."""
-    run = await create_ingest_run(session)
-    report = RunReport(run_id=run.id)
-    try:
-        specs = discover_topics(client, topics)
-        baseline = await get_baseline_docs(session, topics)
-        report.dropped = dropped_refs(specs, baseline)
-        session.add_all(ingest_documents(client, specs, baseline, run, data_dir, report))
-        await session.flush()
-    except (DiscoveryError, httpx.HTTPError):
-        await complete_ingest_run(session, run, IngestRunStatus.FAILED)
-        raise
-    report.corpus_version = await next_corpus_version(session) if report.ok else None
-    await complete_ingest_run(session, run, report.status, report.corpus_version)
-    return report
+    run: IngestRun,
+    report: RunReport,
+) -> list[IngestedDocument]:
+    """Discover, resolve and download the corpus for topics, recording a row per document."""
+    specs = discover_topics(client, topics)
+    baseline = await get_baseline_docs(session, topics)
+    report.dropped = dropped_refs(specs, baseline)
+    documents = ingest_documents(client, specs, baseline, run, data_dir, report)
+    session.add_all(documents)
+    await session.flush()
+    return documents

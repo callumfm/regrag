@@ -3,6 +3,7 @@
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -16,8 +17,9 @@ from app.core.config import config
 from app.core.db.session import async_session_factory
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.enums import SectionKind
-from app.ingestion.fetch.discover import discover
-from app.ingestion.fetch.pipeline import download
+from app.ingestion.fetch import corpus
+from app.ingestion.fetch.corpus import download
+from app.ingestion.fetch.discover import SEEDS, discover
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.main import configure_app
@@ -124,3 +126,51 @@ def app() -> FastAPI:
 @pytest.fixture
 def client(app: FastAPI) -> TestClient:
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Count pacing delays instead of sleeping through them."""
+    calls: list[float] = []
+    monkeypatch.setattr(corpus, "pace", lambda: calls.append(corpus.PACE_SECONDS))
+    return calls
+
+
+@pytest.fixture
+def corpus_client() -> Callable[..., tuple[httpx.Client, list[str]]]:
+    """Transport serving SPARQL payloads per topic and HTML responses per celex ref."""
+
+    def _make(
+        sparql: dict[str, httpx.Response], docs: dict[str, httpx.Response]
+    ) -> tuple[httpx.Client, list[str]]:
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "publications.europa.eu":
+                query = request.url.params["query"]
+                for topic, seed in SEEDS.items():
+                    if seed in query:
+                        return sparql[topic]
+                raise AssertionError(f"no seed in query: {query[:80]}")
+            celex = request.url.params["uri"].removeprefix("CELEX:")
+            calls.append(celex)
+            return docs[celex]
+
+        return httpx.Client(transport=httpx.MockTransport(handler)), calls
+
+    return _make
+
+
+def binding(celex: str, force: str | None = None, cons: str | None = None) -> dict:
+    """One SPARQL result row for a celex ref, with optional in-force and consolidation."""
+    b: dict = {"c": {"value": celex}}
+    if force is not None:
+        b["force"] = {"value": force}
+    if cons is not None:
+        b["cons"] = {"value": cons}
+    return b
+
+
+def payload(*bindings: dict) -> dict:
+    """A SPARQL JSON response body wrapping the given result rows."""
+    return {"results": {"bindings": list(bindings)}}

@@ -11,8 +11,8 @@ from app.core.db.session import get_session
 from app.core.http import http_client
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch.discover import SEEDS
-from app.ingestion.fetch.pipeline import fetch_topics
 from app.ingestion.models import RunReport
+from app.ingestion.pipeline import ingest
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,10 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _fetch(topics: list[str]) -> RunReport:
+async def _ingest(topics: list[str]) -> RunReport:
     with http_client() as client:
         async with get_session(auto_commit=False) as session:
-            return await fetch_topics(session, client, topics, config.RAW_DATA_DIR)
+            return await ingest(session, client, topics, config.RAW_DATA_DIR)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     if unknown:
         parser.error(f"unknown topics: {', '.join(unknown)} (known: {', '.join(sorted(SEEDS))})")
     try:
-        report = asyncio.run(_fetch(topics))
+        report = asyncio.run(_ingest(topics))
     except (DiscoveryError, httpx.HTTPError) as exc:
         print(f"fetch aborted: {exc}", file=sys.stderr)
         return 1

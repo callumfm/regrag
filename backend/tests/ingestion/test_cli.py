@@ -21,7 +21,7 @@ def fake_fetch(monkeypatch):
         calls.append(list(topics))
         return report
 
-    monkeypatch.setattr(cli, "_fetch", _fake)
+    monkeypatch.setattr(cli, "_ingest", _fake)
     return calls, report
 
 
@@ -68,7 +68,7 @@ def test_abort_prints_error_and_exits_nonzero(monkeypatch, capsys):
     async def _boom(topics):
         raise DiscoveryError("mrv: malformed SPARQL response")
 
-    monkeypatch.setattr(cli, "_fetch", _boom)
+    monkeypatch.setattr(cli, "_ingest", _boom)
     assert main(["fetch"]) == 1
     assert "fetch aborted: mrv" in capsys.readouterr().err
 
@@ -77,6 +77,6 @@ def test_abort_on_http_error(monkeypatch, capsys):
     async def _boom(topics):
         raise httpx.ConnectError("endpoint down")
 
-    monkeypatch.setattr(cli, "_fetch", _boom)
+    monkeypatch.setattr(cli, "_ingest", _boom)
     assert main(["fetch"]) == 1
     assert "fetch aborted" in capsys.readouterr().err
