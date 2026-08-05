@@ -6,8 +6,8 @@ from typing import cast
 from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ingestion.chunk.chunker import Chunk
 from app.ingestion.chunk.identity import keyed
+from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.models import ChunkDelta
 

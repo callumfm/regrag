@@ -4,6 +4,7 @@ import re
 
 from app.core.models import FrozenModel
 from app.ingestion import celex
+from app.ingestion.chunk.models import Reference
 
 ARTICLE_REF = re.compile(r"Articles?\s+(\d+[a-z]?)(?:\((\d+[a-z]?)\))?")
 ARTICLE_TAIL = re.compile(r"\s*(?:,|and)\s+(\d{1,3}[a-z]?)\b(?:\((\d+[a-z]?)\))?")
@@ -17,16 +18,6 @@ INSTRUMENT_REF = re.compile(
 QUALIFIER = re.compile(r"^\s+(?:of|to|in)\s+(?:that\s+|the\s+)?$")
 
 Span = tuple[int, int]
-
-
-class Reference(FrozenModel):
-    """One cross-reference; instrument is None when the target is this document."""
-
-    raw: str
-    instrument: str | None = None
-    article: str | None = None
-    paragraph: str | None = None
-    annex: str | None = None
 
 
 class Division(FrozenModel):

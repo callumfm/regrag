@@ -3,64 +3,13 @@
 import re
 from collections.abc import Iterator
 
-from pydantic import computed_field
-
-from app.core.models import FrozenModel
-from app.ingestion.chunk.references import Reference, extract_references
-from app.ingestion.enums import SectionKind
+from app.ingestion.chunk.models import Chunk, Locator
+from app.ingestion.chunk.references import extract_references
 from app.ingestion.parse.models import ParsedDocument, Section
 
 CELL_SEPARATOR = " | "
 MAX_CHARS = 2000
 SENTENCE = re.compile(r"(?<=[.;:])\s+")
-
-
-class Locator(FrozenModel):
-    """Where a chunk sits in the document, accumulated on the way down the tree."""
-
-    article: str | None = None
-    annex: str | None = None
-    title: str | None = None
-    heading_path: tuple[str, ...] = ()
-
-
-class Chunk(Locator):
-    """One retrievable unit of a regulation, with its citation and cross-references."""
-
-    ref: str
-    topic: str
-    kind: SectionKind
-    text: str
-    paragraph: str | None = None
-    part: int = 1
-    parts: int = 1
-    references: tuple[Reference, ...] = ()
-
-    @computed_field
-    @property
-    def citation(self) -> str:
-        """The locator as a lawyer would cite it: 'Article 6(2)', 'Annex I'."""
-        if self.article is not None:
-            suffix = f"({self.paragraph})" if self.paragraph else ""
-            return f"Article {self.article}{suffix}"
-        if self.annex is not None:
-            return f"Annex {self.annex}"
-        return self.title or ""
-
-
-def descend(section: Section, locator: Locator) -> Locator:
-    """Fold a section's identity into the locator its children inherit."""
-    if section.kind is SectionKind.ARTICLE:
-        return locator.model_copy(
-            update={"article": section.number, "annex": None, "title": section.title}
-        )
-    if section.kind is SectionKind.ANNEX:
-        return locator.model_copy(
-            update={"annex": section.number, "article": None, "title": section.title}
-        )
-    if section.kind is SectionKind.HEADING and section.title:
-        return locator.model_copy(update={"heading_path": (*locator.heading_path, section.title)})
-    return locator
 
 
 def wrap(part: str, max_chars: int) -> list[str]:
@@ -108,35 +57,16 @@ def pieces(section: Section, max_chars: int) -> list[str]:
     return segments(section.text, max_chars) if section.text else []
 
 
-def build(
-    document: ParsedDocument,
-    section: Section,
-    locator: Locator,
-    text: str,
-    part: int,
-    parts: int,
-) -> Chunk:
-    return Chunk(
-        **locator.model_dump(),
-        ref=document.ref,
-        topic=document.topic,
-        kind=section.kind,
-        text=text,
-        paragraph=section.number if section.kind is SectionKind.PARAGRAPH else None,
-        part=part,
-        parts=parts,
-        references=extract_references(text),
-    )
-
-
 def walk(
     section: Section, document: ParsedDocument, locator: Locator, max_chars: int
 ) -> Iterator[Chunk]:
     """Emit a chunk per piece of this section's text, then recurse into its children."""
-    inherited = descend(section, locator)
+    inherited = locator.descend(section)
     split = pieces(section, max_chars)
     for index, piece in enumerate(split, start=1):
-        yield build(document, section, inherited, piece, index, len(split))
+        yield Chunk.build(
+            document, section, inherited, piece, index, len(split), extract_references(piece)
+        )
     for child in section.children:
         yield from walk(child, document, inherited, max_chars)
 

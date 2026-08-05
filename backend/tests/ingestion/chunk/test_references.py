@@ -1,4 +1,5 @@
-from app.ingestion.chunk.references import Reference, extract_references
+from app.ingestion.chunk.models import Reference
+from app.ingestion.chunk.references import extract_references
 
 
 def test_extracts_internal_article_reference() -> None:

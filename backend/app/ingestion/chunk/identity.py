@@ -5,7 +5,7 @@ import json
 from collections import Counter
 from collections.abc import Iterable, Iterator
 
-from app.ingestion.chunk.chunker import Chunk
+from app.ingestion.chunk.models import Chunk
 
 
 def content_hash(chunk: Chunk) -> str:

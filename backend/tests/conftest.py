@@ -15,7 +15,7 @@ from tenacity import wait_none
 from app.core.clock import utc_now
 from app.core.config import config
 from app.core.db.session import async_session_factory
-from app.ingestion.chunk.chunker import Chunk
+from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.enums import SectionKind
 from app.ingestion.fetch import corpus

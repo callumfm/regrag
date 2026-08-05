@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from app.ingestion.chunk.chunker import MAX_CHARS, Chunk, chunk_document
+from app.ingestion.chunk.chunker import MAX_CHARS, chunk_document
+from app.ingestion.chunk.models import Chunk
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.eurlex_html import parse_eurlex_html
 
