@@ -16,8 +16,9 @@ from app.ingestion.fetch.corpus import (
     fetch_corpus,
     store,
 )
-from app.ingestion.fetch.models import DiscoveredDocument, FetchDelta
+from app.ingestion.fetch.models import DiscoveredDocument
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.models import FetchDelta
 from app.ingestion.service import create_ingest_run, get_baseline_docs
 from tests.conftest import binding, payload
 

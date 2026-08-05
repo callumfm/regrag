@@ -2,11 +2,8 @@
 
 from typing import Protocol
 
-from pydantic import Field
-
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
-from app.ingestion.stage import IngestStageDelta
 
 
 class Section(FrozenModel):
@@ -30,12 +27,3 @@ class ParsedDocument(FrozenModel):
 
 class Parser(Protocol):
     def __call__(self, html: str, ref: str, topic: str) -> ParsedDocument: ...
-
-
-class ParseDelta(IngestStageDelta):
-    """Which fetched documents yielded a section tree."""
-
-    parsed: list[str] = Field(default_factory=list)
-
-    def counts(self) -> dict[str, int]:
-        return {"parsed": len(self.parsed)}

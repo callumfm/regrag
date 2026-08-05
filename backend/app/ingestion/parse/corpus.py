@@ -5,8 +5,9 @@ from pathlib import Path
 
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.models import ParseDelta
 from app.ingestion.parse.eurlex_html import parse_eurlex_html
-from app.ingestion.parse.models import ParsedDocument, ParseDelta
+from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.storage import raw_html_path
 
 

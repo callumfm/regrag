@@ -14,9 +14,10 @@ from app.ingestion.constants import SEEDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
 from app.ingestion.fetch.discover import discover
-from app.ingestion.fetch.models import DiscoveredDocument, FetchDelta
+from app.ingestion.fetch.models import DiscoveredDocument
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.models import FetchDelta
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import get_baseline_docs
 from app.ingestion.storage import raw_html_path

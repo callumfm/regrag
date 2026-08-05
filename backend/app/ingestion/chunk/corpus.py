@@ -5,8 +5,8 @@ from collections.abc import Collection, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.chunker import chunk_document
-from app.ingestion.chunk.models import ChunkDelta
 from app.ingestion.chunk.service import delete_chunks_outside, upsert_document_chunks
+from app.ingestion.models import ChunkDelta
 from app.ingestion.parse.models import ParsedDocument
 
 
