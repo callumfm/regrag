@@ -1,4 +1,4 @@
-"""Fetch decision logic, run report, and the fetch stage in isolation."""
+"""Fetch decision logic, download and store, and the fetch stage in isolation."""
 
 import hashlib
 
@@ -96,13 +96,7 @@ async def fetch(db_session, client, topics, data_dir) -> tuple[RunReport, list[I
 
 
 async def test_first_run_ingests_all_as_new(db_session, tmp_path, corpus_client):
-    client, _ = corpus_client(
-        {"mrv": MRV_SPARQL},
-        {
-            "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
-            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-        },
-    )
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report, _ = await fetch(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(report.new) == ["32015R0757", "32023R2449"]
@@ -114,10 +108,7 @@ async def test_first_run_ingests_all_as_new(db_session, tmp_path, corpus_client)
 
 
 async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path, corpus_client):
-    docs = {
-        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
-        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-    }
+    docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch(db_session, client, ["mrv"], tmp_path)
 
@@ -131,10 +122,7 @@ async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path
 
 
 async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_path, corpus_client):
-    docs = {
-        "32015R0757": httpx.Response(200, content=b"<html>v1</html>"),
-        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-    }
+    docs = mrv_docs({"32015R0757": httpx.Response(200, content=b"<html>v1</html>")})
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch(db_session, client, ["mrv"], tmp_path)
 
@@ -145,10 +133,7 @@ async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_pat
             binding("32023R2449", force="1"),
         ),
     )
-    docs = {
-        "02015R0757-20250101": httpx.Response(200, content=b"<html>v2</html>"),
-        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-    }
+    docs = mrv_docs({"02015R0757-20250101": httpx.Response(200, content=b"<html>v2</html>")})
     client, _ = corpus_client({"mrv": consolidated}, docs)
     report, _ = await fetch(db_session, client, ["mrv"], tmp_path)
 
@@ -159,10 +144,7 @@ async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_pat
 
 
 async def test_vanished_doc_reported_dropped(db_session, tmp_path, corpus_client):
-    docs = {
-        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
-        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-    }
+    docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch(db_session, client, ["mrv"], tmp_path)
 
@@ -175,10 +157,7 @@ async def test_vanished_doc_reported_dropped(db_session, tmp_path, corpus_client
 
 
 async def test_per_doc_failure_continues_and_is_recorded(db_session, tmp_path, corpus_client):
-    docs = {
-        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
-        "32023R2449": httpx.Response(400, text="bad"),
-    }
+    docs = mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     report, _ = await fetch(db_session, client, ["mrv"], tmp_path)
 
@@ -224,10 +203,6 @@ async def test_duplicate_ref_across_topics_ingested_once(db_session, tmp_path, c
 
 
 async def test_paces_between_documents(db_session, tmp_path, corpus_client, paces):
-    docs = {
-        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
-        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-    }
-    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     await fetch(db_session, client, ["mrv"], tmp_path)
     assert paces == [corpus.PACE_SECONDS]
