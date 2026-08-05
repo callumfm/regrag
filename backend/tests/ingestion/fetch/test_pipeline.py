@@ -7,8 +7,9 @@ import pytest
 from sqlalchemy import select
 
 from app.ingestion.enums import DocAction, IngestRunStatus
+from app.ingestion.exceptions import DiscoveryError, ParseError
 from app.ingestion.fetch import pipeline
-from app.ingestion.fetch.discover import SEEDS, DiscoveryError, DocumentSpec
+from app.ingestion.fetch.discover import SEEDS, DocumentSpec
 from app.ingestion.fetch.pipeline import (
     RunReport,
     classify,
@@ -253,6 +254,29 @@ async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path):
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
     assert run.completed_at is not None
+
+
+async def test_any_ingestion_error_is_recorded_per_document(db_session, tmp_path, monkeypatch):
+    """The per-document loop catches the whole IngestionError family, not just resolution."""
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL},
+        {
+            "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+        },
+    )
+
+    def unparseable(*args, **kwargs):
+        raise ParseError("unrecognised EUR-Lex dialect")
+
+    monkeypatch.setattr(pipeline, "ingest_document", unparseable)
+    report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
+
+    assert sorted(report.failed) == ["32015R0757", "32023R2449"]
+    assert set(report.failed.values()) == {"ParseError: unrecognised EUR-Lex dialect"}
+    assert not report.ok
+    run = await db_session.get(IngestRun, report.run_id)
+    assert run.status is IngestRunStatus.FAILED
 
 
 async def test_malformed_sparql_payload_raises_discovery_error(db_session, tmp_path):

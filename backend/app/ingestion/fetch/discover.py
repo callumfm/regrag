@@ -5,13 +5,10 @@ from dataclasses import dataclass
 import httpx
 
 from app.core.http import transient_retry
+from app.ingestion.exceptions import DiscoveryError
 
 SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
 SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
-
-
-class DiscoveryError(Exception):
-    """Discovery returned an implausible result (e.g. seed act missing)."""
 
 
 @dataclass(frozen=True)

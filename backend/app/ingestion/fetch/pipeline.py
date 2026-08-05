@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.http import transient_retry
 from app.ingestion.enums import DocAction, IngestRunStatus
-from app.ingestion.fetch.discover import SEEDS, DiscoveryError, DocumentSpec, discover
-from app.ingestion.fetch.resolve import ResolutionError, resolve
+from app.ingestion.exceptions import DiscoveryError, IngestionError
+from app.ingestion.fetch.discover import SEEDS, DocumentSpec, discover
+from app.ingestion.fetch.resolve import resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run, get_baseline_docs
 
@@ -157,7 +158,7 @@ def ingest_documents(
             pace()
         try:
             document, action = ingest_document(client, spec, baseline.get(spec.ref), run, data_dir)
-        except (ResolutionError, httpx.HTTPError) as exc:
+        except (IngestionError, httpx.HTTPError) as exc:
             report.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
             continue
         documents.append(document)

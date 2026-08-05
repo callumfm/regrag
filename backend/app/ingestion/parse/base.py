@@ -10,10 +10,6 @@ FORMULA_PLACEHOLDER = "[formula]"
 WHITESPACE = re.compile(r"\s+")
 
 
-class ParseError(Exception):
-    """A document could not be parsed into a section tree."""
-
-
 class Section(FrozenModel):
     """One node of a document tree; rows is populated only for TABLE."""
 

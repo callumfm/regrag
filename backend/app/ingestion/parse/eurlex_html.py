@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from selectolax.parser import HTMLParser, Node
 
 from app.ingestion.enums import SectionKind
+from app.ingestion.exceptions import ParseError
 from app.ingestion.parse.base import (
     FORMULA_PLACEHOLDER,
     ParsedDocument,
-    ParseError,
     Section,
     normalise,
 )
