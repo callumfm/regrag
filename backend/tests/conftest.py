@@ -15,6 +15,7 @@ from tenacity import wait_none
 from app.core.clock import utc_now
 from app.core.config import config
 from app.core.db.session import async_session_factory
+from app.core.http import PACE_SECONDS
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
@@ -134,7 +135,7 @@ def client(app: FastAPI) -> TestClient:
 def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """Count pacing delays instead of sleeping through them."""
     calls: list[float] = []
-    monkeypatch.setattr(corpus, "pace", lambda: calls.append(corpus.PACE_SECONDS))
+    monkeypatch.setattr(corpus, "pace", lambda: calls.append(PACE_SECONDS))
     return calls
 
 

@@ -1,6 +1,7 @@
 """Shared outbound-HTTP policy: headers, timeout, and transient-failure retries."""
 
 import logging
+import time
 
 import httpx
 from tenacity import (
@@ -43,3 +44,18 @@ transient_retry = retry(
     reraise=True,
 )
 """Decorator retrying transient HTTP failures with exponential backoff."""
+
+PACE_SECONDS = 1.0
+
+
+@transient_retry
+def download(client: httpx.Client, url: str) -> bytes:
+    """Fetch a URL's bytes, retrying transient failures."""
+    response = client.get(url)
+    response.raise_for_status()
+    return response.content
+
+
+def pace(seconds: float = PACE_SECONDS) -> None:
+    """Space out requests to an upstream host."""
+    time.sleep(seconds)

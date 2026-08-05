@@ -5,6 +5,7 @@ import hashlib
 import httpx
 import pytest
 
+from app.core.http import PACE_SECONDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import corpus
@@ -203,4 +204,4 @@ async def test_duplicate_ref_across_topics_ingested_once(db_session, tmp_path, c
 async def test_paces_between_documents(db_session, tmp_path, corpus_client, paces):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     await fetch(db_session, client, ["mrv"], tmp_path)
-    assert paces == [corpus.PACE_SECONDS]
+    assert paces == [PACE_SECONDS]

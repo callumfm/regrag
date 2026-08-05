@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import time
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
@@ -10,7 +9,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
-from app.core.http import transient_retry
+from app.core.http import download, pace
 from app.ingestion.constants import SEEDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
@@ -20,8 +19,6 @@ from app.ingestion.fetch.resolve import resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.ingestion.service import get_baseline_docs
 from app.ingestion.storage import raw_html_path
-
-PACE_SECONDS = 1.0
 
 
 def classify(prev_resolved_ref: str | None, resolved_ref: str) -> DocAction:
@@ -36,18 +33,6 @@ def dropped_refs(specs: Sequence[DocumentSpec], baseline_refs: Iterable[str]) ->
     """Baseline refs no longer present in discovery (repealed or out of force)."""
     discovered = {spec.ref for spec in specs}
     return sorted(set(baseline_refs) - discovered)
-
-
-def pace() -> None:
-    """Space out requests to the upstream host between documents."""
-    time.sleep(PACE_SECONDS)
-
-
-@transient_retry
-def download(client: httpx.Client, url: str) -> bytes:
-    response = client.get(url)
-    response.raise_for_status()
-    return response.content
 
 
 def store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
