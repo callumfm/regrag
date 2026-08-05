@@ -6,7 +6,12 @@ import pytest
 
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.base import ParseError
-from app.ingestion.parse.eurlex_html import extract_tables, parse_eurlex_html, prepare
+from app.ingestion.parse.eurlex_html import (
+    FOOTNOTE,
+    extract_tables,
+    parse_eurlex_html,
+    prepare,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FUELEU = (FIXTURES / "32023R1805.html").read_text()
@@ -217,7 +222,40 @@ def test_annexes_follow_articles_in_document_order():
     assert kinds == [SectionKind.ARTICLE, SectionKind.ARTICLE, SectionKind.ANNEX]
 
 
-def test_preamble_and_footnotes_are_absent():
-    text = " ".join(s.text for s in all_sections(mrv().sections))
+def test_recitals_and_citations_are_excluded():
+    document = parse_eurlex_html(
+        "<html><body>"
+        '<div class="eli-subdivision" id="rct_1"><p class="oj-normal">Whereas something.</p></div>'
+        '<div class="eli-subdivision" id="cit_1">'
+        '<p class="oj-normal">Having regard to the Treaty.</p></div>'
+        '<div class="eli-subdivision" id="art_1"><p class="oj-ti-art">Article 1</p>'
+        '<p class="oj-normal">Subject matter.</p></div>'
+        "</body></html>",
+        "x",
+        "t",
+    )
+    text = " ".join(s.text for s in all_sections(document.sections))
+    assert "Subject matter." in text
+    assert "Whereas" not in text
     assert "Having regard to the Treaty" not in text
-    assert "OJ L" not in text
+
+
+def test_footnote_blocks_are_removed_from_the_tree():
+    assert prepare(MRV).css(FOOTNOTE) == []
+    assert prepare(FUELEU).css(FOOTNOTE) == []
+
+
+def test_oj_annex_prose_is_kept_alongside_its_tables():
+    annex = annexes(fueleu())[0]
+    prose = [c for c in annex.children if c.kind is SectionKind.PARAGRAPH]
+    assert prose
+    assert "The default emission factors contained in the table below" in prose[0].text
+    assert "Fuel Class" not in prose[0].text
+
+
+def test_consolidated_annex_prose_excludes_its_heading_lines():
+    annex = annexes(mrv())[0]
+    prose = [c for c in annex.children if c.kind is SectionKind.PARAGRAPH]
+    assert prose
+    assert "Methods for monitoring greenhouse gas emissions" not in prose[0].text
+    assert "companies shall apply the following formula" in prose[0].text

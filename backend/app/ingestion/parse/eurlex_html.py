@@ -22,6 +22,7 @@ HEADING_LEVEL = re.compile(r"title-gr-seq-level-(\d+)")
 MARKERS = re.compile(r"[▼►]\s*[A-Z]+\d*|◄")
 EMPTY_PARENS = re.compile(r"\s*\(\s*\)")
 FOOTNOTE_REF = "span.superscript, span.oj-super"
+FOOTNOTE = "p.footnote, p.oj-note, div[id^=fnp]"
 
 ARTICLE = "div.eli-subdivision[id^=art_]"
 ANNEX = "div[id^=anx_]"
@@ -84,6 +85,8 @@ def prepare(html: str) -> HTMLParser:
         banner.decompose()
     for marker in tree.css(FOOTNOTE_REF):
         marker.decompose()
+    for footnote in tree.css(FOOTNOTE):
+        footnote.decompose()
     return tree
 
 
@@ -237,6 +240,15 @@ def cons_heading_tree(node: Node) -> tuple[Section, ...]:
     return tuple(stack[0][1])
 
 
+def annex_body(node: Node, selectors: Selectors) -> tuple[Section, ...]:
+    """The annex prose, with its own label, title and sub-heading lines removed."""
+    skip = {clean(n.text()) for n in node.css(selectors.annex_label)}
+    skip |= {clean(n.text()) for n in node.css(selectors.annex_title)}
+    skip |= {clean(n.text()) for n in node.css(CONS_ANNEX_HEADING)}
+    lines = [line for line in block_text(node).split("\n") if line and line not in skip]
+    return (Section(kind=SectionKind.PARAGRAPH, text="\n".join(lines)),) if lines else ()
+
+
 def annex_section(node: Node, selectors: Selectors) -> Section:
     """OJ annexes are flat; consolidated ones nest by title-gr-seq level."""
     labels = node.css(selectors.annex_label)
@@ -246,11 +258,11 @@ def annex_section(node: Node, selectors: Selectors) -> Section:
         number = match.group(1) if match else None
     if selectors is OJ:
         title = clean(labels[1].text()) if len(labels) > 1 else None
-        children = extract_tables(node)
     else:
         title_node = node.css_first(selectors.annex_title)
         title = clean(title_node.text()) if title_node else None
-        children = extract_tables(node) + cons_heading_tree(node)
+    tables = extract_tables(node)
+    children = tables + annex_body(node, selectors) + cons_heading_tree(node)
     return Section(kind=SectionKind.ANNEX, number=number, title=title, children=children)
 
 
