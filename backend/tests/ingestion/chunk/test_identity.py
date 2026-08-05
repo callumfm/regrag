@@ -1,22 +1,7 @@
 """Chunk identity: content hashing and duplicate disambiguation."""
 
-from typing import Any
-
-from app.ingestion.chunk.chunker import Chunk
 from app.ingestion.chunk.identity import content_hash, keyed
-from app.ingestion.enums import SectionKind
-
-
-def chunk(**overrides: Any) -> Chunk:
-    defaults: dict[str, Any] = {
-        "ref": "32023R1805",
-        "topic": "fueleu",
-        "kind": SectionKind.PARAGRAPH,
-        "text": "The greenhouse gas intensity limit.",
-        "article": "4",
-        "paragraph": "1",
-    }
-    return Chunk(**{**defaults, **overrides})
+from tests.conftest import chunk
 
 
 def test_hash_is_stable_for_identical_content():

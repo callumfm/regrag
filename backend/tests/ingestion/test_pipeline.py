@@ -1,4 +1,4 @@
-"""The ingest orchestrator: run lifecycle and corpus versioning around the fetch stage."""
+"""The ingest orchestrator end to end: run lifecycle, corpus versioning, chunk persistence."""
 
 import re
 from pathlib import Path
@@ -118,13 +118,7 @@ async def chunk_rows(session: AsyncSession, ref: str | None = None) -> list[Docu
 
 
 async def test_run_persists_chunks_for_every_document(db_session, tmp_path, corpus_client):
-    client, _ = corpus_client(
-        {"mrv": MRV_SPARQL},
-        {
-            "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
-            "32023R2449": httpx.Response(200, content=FUELEU_HTML.encode()),
-        },
-    )
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
     rows = await chunk_rows(db_session)
@@ -135,10 +129,7 @@ async def test_run_persists_chunks_for_every_document(db_session, tmp_path, corp
 
 
 async def test_second_identical_run_adds_and_removes_nothing(db_session, tmp_path, corpus_client):
-    docs = {
-        "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
-        "32023R2449": httpx.Response(200, content=FUELEU_HTML.encode()),
-    }
+    docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await ingest(db_session, client, ["mrv"], tmp_path)
     before = {row.id for row in await chunk_rows(db_session)}
@@ -151,20 +142,40 @@ async def test_second_identical_run_adds_and_removes_nothing(db_session, tmp_pat
     assert {row.id for row in await chunk_rows(db_session)} == before
 
 
+ONLY_SEED_SPARQL = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
+
+
 async def test_dropped_document_loses_its_chunks(db_session, tmp_path, corpus_client):
-    docs = {
-        "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
-        "32023R2449": httpx.Response(200, content=FUELEU_HTML.encode()),
-    }
+    docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await ingest(db_session, client, ["mrv"], tmp_path)
     assert await chunk_rows(db_session, "32023R2449")
 
-    only_seed = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
-    client, _ = corpus_client({"mrv": only_seed}, docs)
+    client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, docs)
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
     assert report.dropped == ["32023R2449"]
+    assert await chunk_rows(db_session, "32023R2449") == []
+    assert await chunk_rows(db_session, "32015R0757")
+
+
+async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fetch(
+    db_session, tmp_path, corpus_client
+):
+    """A failed fetch drops the doc from the next run's baseline; chunks must still go."""
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    await ingest(db_session, client, ["mrv"], tmp_path)
+    assert await chunk_rows(db_session, "32023R2449")
+
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
+    )
+    await ingest(db_session, client, ["mrv"], tmp_path)
+
+    client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, mrv_docs())
+    report = await ingest(db_session, client, ["mrv"], tmp_path)
+
+    assert report.dropped == []
     assert await chunk_rows(db_session, "32023R2449") == []
     assert await chunk_rows(db_session, "32015R0757")
 
@@ -174,10 +185,7 @@ async def test_unparseable_document_is_recorded_and_others_persist(
 ):
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL},
-        {
-            "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
-            "32023R2449": httpx.Response(200, content=b"<html>not eur-lex</html>"),
-        },
+        mrv_docs({"32023R2449": httpx.Response(200, content=b"<html>not eur-lex</html>")}),
     )
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
@@ -192,13 +200,7 @@ async def test_unparseable_document_is_recorded_and_others_persist(
 async def test_missing_source_file_is_recorded_not_raised(
     db_session, tmp_path, corpus_client, monkeypatch
 ):
-    client, _ = corpus_client(
-        {"mrv": MRV_SPARQL},
-        {
-            "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
-            "32023R2449": httpx.Response(200, content=FUELEU_HTML.encode()),
-        },
-    )
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     monkeypatch.setattr(corpus, "store", lambda data_dir, ref, content: ("a" * 64, len(content)))
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
@@ -209,11 +211,7 @@ async def test_missing_source_file_is_recorded_not_raised(
 
 async def test_failed_fetch_still_chunks_what_was_downloaded(db_session, tmp_path, corpus_client):
     client, _ = corpus_client(
-        {"mrv": MRV_SPARQL},
-        {
-            "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
-            "32023R2449": httpx.Response(400, text="bad"),
-        },
+        {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
     )
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
@@ -272,11 +270,26 @@ async def test_fueleu_chunks_are_stamped_and_topic_tagged(db_session, tmp_path, 
     rows = await chunk_rows(db_session, "32023R1805")
     assert {row.topic for row in rows} == {"fueleu"}
     assert {row.corpus_version for row in rows} == {report.corpus_version}
-    # ty: ignore[no-matching-overload] — report.ok guarantees corpus_version is a str
+    assert report.corpus_version is not None
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{7}", report.corpus_version)
 
 
+async def test_single_topic_run_leaves_another_topics_chunks_alone(
+    db_session, tmp_path, corpus_client
+):
+    await ingest_fueleu(db_session, tmp_path, corpus_client)
+    before = {row.id for row in await chunk_rows(db_session, "32023R1805")}
+    assert before
+
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    await ingest(db_session, client, ["mrv"], tmp_path)
+
+    assert {row.id for row in await chunk_rows(db_session, "32023R1805")} == before
+
+
 async def test_fueleu_chunk_count_matches_the_chunker(db_session, tmp_path, corpus_client):
+    """Persisted order matches the chunker for a fresh corpus only: ids are first-insert order,
+    so after any partial change replacement rows sort above untouched ones."""
     await ingest_fueleu(db_session, tmp_path, corpus_client)
 
     expected = chunk_document(parse_eurlex_html(FUELEU_HTML, "32023R1805", "fueleu"))

@@ -132,6 +132,7 @@ async def fetch_documents(
     """Discover, resolve and download the corpus for topics, recording a row per document."""
     specs = discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
+    report.discovered = [spec.ref for spec in specs]
     report.dropped = dropped_refs(specs, baseline)
     documents = ingest_documents(client, specs, baseline, run, data_dir, report)
     session.add_all(documents)

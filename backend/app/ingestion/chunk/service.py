@@ -1,6 +1,6 @@
 """Chunk persistence: reconcile a document's chunks against what is already stored."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import cast
 
 from sqlalchemy import CursorResult, delete, select
@@ -40,13 +40,19 @@ async def upsert_document_chunks(
     """Reconcile a document's chunks by content hash, leaving matched rows untouched."""
     incoming = {(digest, occurrence): chunk for chunk, digest, occurrence in keyed(chunks)}
     existing = {
-        (row.content_hash, row.occurrence): row
-        for row in await session.scalars(select(DocumentChunk).where(DocumentChunk.ref == ref))
+        (content_hash, occurrence): row_id
+        for row_id, content_hash, occurrence in await session.execute(
+            select(DocumentChunk.id, DocumentChunk.content_hash, DocumentChunk.occurrence).where(
+                DocumentChunk.ref == ref
+            )
+        )
     }
     gone = existing.keys() - incoming.keys()
     added = [key for key in incoming if key not in existing]
-    for key in gone:
-        await session.delete(existing[key])
+    if gone:
+        await session.execute(
+            delete(DocumentChunk).where(DocumentChunk.id.in_([existing[key] for key in gone]))
+        )
     session.add_all(to_chunk_row(incoming[key], key[0], key[1], corpus_version) for key in added)
     await session.flush()
     return ChunkDelta(
@@ -54,10 +60,16 @@ async def upsert_document_chunks(
     )
 
 
-async def delete_chunks_for_refs(session: AsyncSession, refs: Sequence[str]) -> int:
-    """Drop every chunk of documents no longer in the corpus."""
-    if not refs:
+async def delete_chunks_outside(
+    session: AsyncSession, topics: Sequence[str], discovered_refs: Collection[str]
+) -> int:
+    """Drop chunks of documents no longer discovered for the topics being ingested."""
+    if not topics or not discovered_refs:
         return 0
-    result = await session.execute(delete(DocumentChunk).where(DocumentChunk.ref.in_(refs)))
+    result = await session.execute(
+        delete(DocumentChunk).where(
+            DocumentChunk.topic.in_(topics), DocumentChunk.ref.notin_(discovered_refs)
+        )
+    )
     await session.flush()
     return cast(CursorResult, result).rowcount

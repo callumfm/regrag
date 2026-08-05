@@ -1,30 +1,16 @@
 """Chunk persistence: reconciling a document's chunks by content hash."""
 
-from typing import Any
-
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ingestion.chunk.chunker import Chunk
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.chunk.service import delete_chunks_for_refs, upsert_document_chunks
+from app.ingestion.chunk.service import delete_chunks_outside, upsert_document_chunks
 from app.ingestion.enums import SectionKind
+from tests.conftest import chunk
 
 pytestmark = pytest.mark.anyio
-
-
-def chunk(**overrides: Any) -> Chunk:
-    defaults: dict[str, Any] = {
-        "ref": "32023R1805",
-        "topic": "fueleu",
-        "kind": SectionKind.PARAGRAPH,
-        "text": "The greenhouse gas intensity limit.",
-        "article": "4",
-        "paragraph": "1",
-    }
-    return Chunk(**{**defaults, **overrides})
 
 
 async def chunk_rows(session: AsyncSession, ref: str = "32023R1805") -> list[DocumentChunk]:
@@ -120,18 +106,49 @@ async def test_references_are_stored_as_json(db_session: AsyncSession):
     assert row.references[0]["annex"] == "I"
 
 
-async def test_delete_chunks_for_refs_removes_only_those_documents(db_session: AsyncSession):
-    await upsert_document_chunks(db_session, "32023R1805", [chunk()], "v1")
-    await upsert_document_chunks(db_session, "32015R0757", [chunk(ref="32015R0757")], "v1")
+async def seed_two_topics(session: AsyncSession) -> None:
+    """One fueleu document and one mrv document, a chunk each."""
+    await upsert_document_chunks(session, "32023R1805", [chunk()], "v1")
+    await upsert_document_chunks(
+        session, "32015R0757", [chunk(ref="32015R0757", topic="mrv")], "v1"
+    )
 
-    removed = await delete_chunks_for_refs(db_session, ["32023R1805"])
+
+async def test_delete_chunks_outside_removes_undiscovered_documents(db_session: AsyncSession):
+    await seed_two_topics(db_session)
+
+    removed = await delete_chunks_outside(db_session, ["fueleu"], ["32026R0394"])
 
     assert removed == 1
     assert await chunk_rows(db_session, "32023R1805") == []
+
+
+async def test_delete_chunks_outside_keeps_discovered_documents(db_session: AsyncSession):
+    await seed_two_topics(db_session)
+
+    assert await delete_chunks_outside(db_session, ["fueleu"], ["32023R1805"]) == 0
+    assert len(await chunk_rows(db_session, "32023R1805")) == 1
+
+
+async def test_delete_chunks_outside_never_touches_another_topic(db_session: AsyncSession):
+    await seed_two_topics(db_session)
+
+    await delete_chunks_outside(db_session, ["fueleu"], ["32026R0394"])
+
     assert len(await chunk_rows(db_session, "32015R0757")) == 1
 
 
-async def test_delete_chunks_for_no_refs_is_a_noop(db_session: AsyncSession):
-    await upsert_document_chunks(db_session, "32023R1805", [chunk()], "v1")
-    assert await delete_chunks_for_refs(db_session, []) == 0
-    assert len(await chunk_rows(db_session)) == 1
+async def test_delete_chunks_outside_refuses_to_wipe_a_topic_on_empty_discovery(
+    db_session: AsyncSession,
+):
+    await seed_two_topics(db_session)
+
+    assert await delete_chunks_outside(db_session, ["fueleu"], []) == 0
+    assert len(await chunk_rows(db_session, "32023R1805")) == 1
+
+
+async def test_delete_chunks_outside_with_no_topics_is_a_noop(db_session: AsyncSession):
+    await seed_two_topics(db_session)
+
+    assert await delete_chunks_outside(db_session, [], ["32026R0394"]) == 0
+    assert len(await chunk_rows(db_session, "32023R1805")) == 1

@@ -8,7 +8,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.chunker import chunk_document
-from app.ingestion.chunk.service import delete_chunks_for_refs, upsert_document_chunks
+from app.ingestion.chunk.service import delete_chunks_outside, upsert_document_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import DiscoveryError, ParseError
 from app.ingestion.fetch.corpus import fetch_documents
@@ -26,8 +26,9 @@ async def chunk_documents(
     data_dir: Path,
     corpus_version: str,
     report: RunReport,
-) -> int:
-    """Parse and chunk each fetched document, reconciling its rows; returns chunks produced."""
+) -> tuple[int, int]:
+    """Parse and chunk each fetched document, reconciling its rows; returns (documents, chunks)."""
+    chunked = 0
     produced = 0
     for document in documents:
         try:
@@ -40,12 +41,13 @@ async def chunk_documents(
             report.unparsed[document.ref] = f"{type(exc).__name__}: {exc}"
             continue
         chunks = chunk_document(parsed)
+        chunked += 1
         produced += len(chunks)
         delta = await upsert_document_chunks(session, document.ref, chunks, corpus_version)
         report.chunks_added += delta.added
         report.chunks_removed += delta.removed
         report.chunks_unchanged += delta.unchanged
-    return produced
+    return chunked, produced
 
 
 async def ingest(
@@ -71,9 +73,9 @@ async def ingest(
         len(report.failed),
     )
     version = await next_corpus_version(session)
-    report.chunks_removed += await delete_chunks_for_refs(session, report.dropped)
-    produced = await chunk_documents(session, documents, data_dir, version, report)
-    logger.info("[chunk] %d documents -> %d chunks", len(documents), produced)
+    report.chunks_removed += await delete_chunks_outside(session, topics, report.discovered)
+    chunked, produced = await chunk_documents(session, documents, data_dir, version, report)
+    logger.info("[chunk] %d documents -> %d chunks", chunked, produced)
     logger.info(
         "[store] +%d added, -%d removed, %d unchanged",
         report.chunks_added,

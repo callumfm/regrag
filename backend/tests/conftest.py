@@ -15,6 +15,7 @@ from tenacity import wait_none
 from app.core.clock import utc_now
 from app.core.config import config
 from app.core.db.session import async_session_factory
+from app.ingestion.chunk.chunker import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.enums import SectionKind
 from app.ingestion.fetch import corpus
@@ -174,3 +175,16 @@ def binding(celex: str, force: str | None = None, cons: str | None = None) -> di
 def payload(*bindings: dict) -> dict:
     """A SPARQL JSON response body wrapping the given result rows."""
     return {"results": {"bindings": list(bindings)}}
+
+
+def chunk(**overrides: Any) -> Chunk:
+    """The chunker's value object with sane defaults, overridable per field."""
+    defaults: dict[str, Any] = {
+        "ref": "32023R1805",
+        "topic": "fueleu",
+        "kind": SectionKind.PARAGRAPH,
+        "text": "The greenhouse gas intensity limit.",
+        "article": "4",
+        "paragraph": "1",
+    }
+    return Chunk(**{**defaults, **overrides})

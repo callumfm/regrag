@@ -32,8 +32,9 @@ def test_summary_counts_and_lists_non_empty_buckets():
     report.record(DocAction.UNCHANGED, "32015R0757")
     report.dropped.append("32014R0666")
     report.failed["32023R2917"] = "ResolutionError: no fetchable HTML"
+    report.unparsed["32023R2449"] = "ParseError: unrecognised EUR-Lex dialect"
     text = report.summary()
-    assert "run 7: 1 new, 0 changed, 1 unchanged, 1 dropped, 1 failed" in text
+    assert "run 7: 1 new, 0 changed, 1 unchanged, 1 dropped, 1 failed, 1 unparsed" in text
     assert "new: 32026R0394" in text
     assert "dropped: 32014R0666" in text
     assert "failed: 32023R2917 (ResolutionError: no fetchable HTML)" in text

@@ -1,4 +1,4 @@
-"""Pydantic models for the ingestion domain."""
+"""Ingestion domain values: run update body, chunk delta, and the run report."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -30,6 +30,7 @@ class RunReport:
 
     run_id: int
     corpus_version: str | None = None
+    discovered: list[str] = field(default_factory=list)
     new: list[str] = field(default_factory=list)
     changed: list[str] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
@@ -60,7 +61,7 @@ class RunReport:
         lines = [
             f"run {self.run_id}: {len(self.new)} new, {len(self.changed)} changed, "
             f"{len(self.unchanged)} unchanged, {len(self.dropped)} dropped, "
-            f"{len(self.failed)} failed",
+            f"{len(self.failed)} failed, {len(self.unparsed)} unparsed",
             f"  chunks: +{self.chunks_added} added, -{self.chunks_removed} removed, "
             f"{self.chunks_unchanged} unchanged",
             f"  corpus version: {self.corpus_version or '(not stamped)'}",
