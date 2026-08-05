@@ -20,12 +20,17 @@
 - Do not write inline comments. Prefer self-describing code; where
   explanation is genuinely needed, use a docstring of 1-2 lines max.
 - Package by capability, then by stage. Each capability (`ingestion`,
-  `retrieval`, ...) owns its `enums.py`, `models.py`, `service.py`, and
-  `router.py` where it has HTTP surface. A capability with pipeline stages
+  `retrieval`, ...) owns its `enums.py`, `models.py`, `service.py`, the
+  `schemas.py` of any table it owns outright (`ingestion` owns `ingest_runs`),
+  and `router.py` where it has HTTP surface. A capability with pipeline stages
   gives each stage a sub-package holding its own `models.py` and a `stage.py`
-  exposing `<verb>_document` and `<verb>_documents`; other modules in the
+  whose entry point is `<verb>_documents` — what the pipeline calls, returning
+  that stage's delta. Add a `<verb>_document` beside it only where one
+  document's work needs isolating, meaning I/O or per-document error capture;
+  `fetch/` and `parse/` have one, `chunk/` does not, because chunking is pure
+  and `chunk/chunker.py` already owns that name. Other modules in the
   sub-package hold how that stage does its work. A sub-package that owns a
-  database table also owns its `schemas.py` and `service.py` — `fetch/` owns
+  database table owns its `schemas.py` and `service.py` — `fetch/` owns
   `raw_documents`, `chunk/` owns `document_chunks`. Types describing the run
   as a whole, including every stage delta and the run report, live in the
   capability's `models.py`. `core/` holds infrastructure only, including its

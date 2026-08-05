@@ -11,6 +11,7 @@ from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import DiscoveredDocument
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.fetch.stage import (
     classify,
     download,
@@ -19,7 +20,7 @@ from app.ingestion.fetch.stage import (
     store,
 )
 from app.ingestion.models import FetchDelta
-from app.ingestion.service import create_ingest_run, get_baseline_docs
+from app.ingestion.service import create_ingest_run
 from tests.conftest import binding, payload
 
 pytestmark = pytest.mark.anyio
