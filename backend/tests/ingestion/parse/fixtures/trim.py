@@ -8,6 +8,7 @@ from pathlib import Path
 from selectolax.parser import HTMLParser, Node
 
 from app.core.config import config
+from app.ingestion.fetch.schemas import RawDocument
 
 FIXTURES = Path(__file__).parent
 KEEP: dict[str, tuple[str, ...]] = {
@@ -33,7 +34,7 @@ def shrink(node: Node) -> None:
 
 def trim(ref: str, ids: tuple[str, ...]) -> str:
     """Keep only the named subdivisions, with base64 image payloads stubbed out."""
-    tree = HTMLParser((config.RAW_DATA_DIR / f"{ref}.html").read_text(encoding="utf-8"))
+    tree = HTMLParser((config.RAW_DATA_DIR / RawDocument.filename(ref)).read_text(encoding="utf-8"))
     for image in tree.css("img"):
         if (image.attributes.get("src") or "").startswith("data:"):
             image.attrs["src"] = STUB

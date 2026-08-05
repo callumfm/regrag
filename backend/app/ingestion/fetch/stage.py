@@ -20,7 +20,6 @@ from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.models import FetchDelta
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import get_baseline_docs
-from app.ingestion.storage import raw_html_path
 
 
 def classify(prev_resolved_ref: str | None, resolved_ref: str) -> DocAction:
@@ -38,9 +37,9 @@ def dropped_refs(specs: Sequence[DiscoveredDocument], baseline_refs: Iterable[st
 
 
 def store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
-    """Write {ref}.html and return its (sha256, size_bytes)."""
+    """Write the document's source file and return its (sha256, size_bytes)."""
     data_dir.mkdir(parents=True, exist_ok=True)
-    raw_html_path(data_dir, ref).write_bytes(content)
+    (data_dir / RawDocument.filename(ref)).write_bytes(content)
     return hashlib.sha256(content).hexdigest(), len(content)
 
 

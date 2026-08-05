@@ -7,8 +7,17 @@ from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.models import ParseDelta
 from app.ingestion.parse.eurlex_html import parse_eurlex_html
-from app.ingestion.parse.models import ParsedDocument
-from app.ingestion.storage import raw_html_path
+from app.ingestion.parse.models import ParsedDocument, Parser
+
+PARSERS: dict[str, Parser] = {".html": parse_eurlex_html}
+
+
+def parse_document(path: Path, ref: str, topic: str) -> ParsedDocument:
+    """Parse one stored document, choosing the parser its file type calls for."""
+    parser = PARSERS.get(path.suffix)
+    if parser is None:
+        raise ParseError(f"{ref}: no parser for {path.suffix or 'a file with no extension'}")
+    return parser(path.read_text(encoding="utf-8"), ref, topic)
 
 
 def parse_documents(
@@ -19,8 +28,7 @@ def parse_documents(
     delta = ParseDelta()
     for document in documents:
         try:
-            html = raw_html_path(data_dir, document.ref).read_text(encoding="utf-8")
-            parsed.append(parse_eurlex_html(html, document.ref, document.topic))
+            parsed.append(parse_document(document.path(data_dir), document.ref, document.topic))
         except (ParseError, OSError, UnicodeDecodeError) as exc:
             delta.failed[document.ref] = f"{type(exc).__name__}: {exc}"
             continue
