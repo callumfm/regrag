@@ -15,7 +15,7 @@ from tenacity import wait_none
 from app.core.config import config
 from app.core.db.session import async_session_factory
 from app.ingestion.fetch.discover import discover
-from app.ingestion.fetch.download import download
+from app.ingestion.fetch.pipeline import download
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.main import configure_app
