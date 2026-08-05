@@ -1,0 +1,13 @@
+* text=auto
+*.sh text eol=lf
+
+# Ignore small support files in Language stats
+*.css linguist-vendored
+*.sh linguist-vendored
+Dockerfile linguist-vendored
+*.mako linguist-vendored
+*.html linguist-vendored
+*.sql linguist-vendored
+
+# Collapse the generated parse fixtures in diffs
+backend/tests/ingestion/parse/fixtures/*.html linguist-generated
