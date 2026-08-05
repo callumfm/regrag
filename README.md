@@ -8,21 +8,16 @@ Local dev: `docker compose up -d db`, then `uv run fastapi dev` in [backend/](ba
 
 ## Running the production stack locally
 
-Day-to-day development runs only Postgres in Docker:
-
-```bash
-docker compose up -d
-```
-
 To bring up the full production topology — Caddy terminating TLS in front of the
 API, with Postgres unpublished — copy the example environment file and use the
 prod overlay:
 
 ```bash
 cp .env.example .env.prod
-docker compose --env-file .env.prod -f compose.yaml -f compose.prod.yaml up -d --build db
-docker compose --env-file .env.prod -f compose.yaml -f compose.prod.yaml run --rm api alembic upgrade head
-docker compose --env-file .env.prod -f compose.yaml -f compose.prod.yaml up -d
+export COMPOSE_FILE=compose.yaml:compose.prod.yaml COMPOSE_ENV_FILES=.env.prod
+
+docker compose run --build --rm api alembic upgrade head
+docker compose up -d --wait
 
 curl -k https://localhost/api/health
 ```

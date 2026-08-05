@@ -1,4 +1,6 @@
-FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
+ARG PYTHON_VERSION=3.14
+
+FROM ghcr.io/astral-sh/uv:python${PYTHON_VERSION}-bookworm-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -11,14 +13,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 
 COPY app ./app
-COPY alembic.ini ./
-COPY migrations ./migrations
-
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 
+COPY alembic.ini ./
+COPY migrations ./migrations
 
-FROM python:3.14-slim-bookworm AS runtime
+FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 
 RUN useradd --create-home --uid 1000 regrag \
     && mkdir -p /data/raw \

@@ -1,8 +1,15 @@
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     ports: !reset null
     environment:
-      POSTGRES_PASSWORD: ${DB_PASS:?DB_PASS must be set}
+      POSTGRES_PASSWORD: ${DB_PASS:?}
+    logging: *logging
     restart: unless-stopped
 
   api:
@@ -10,21 +17,26 @@ services:
     build:
       context: ./backend
     env_file: .env.prod
+    environment:
+      FORWARDED_ALLOW_IPS: "*"
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - raw-data:/data/raw
+    logging: *logging
     healthcheck:
+      # /health returns 200 even when degraded, so assert on the body, not the status line.
       test:
         - CMD
         - python
         - -c
-        - import urllib.request; urllib.request.urlopen("http://localhost:8000/health")
+        - import json,urllib.request; assert json.load(urllib.request.urlopen("http://localhost:8000/health"))["status"] == "ok"
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 10s
+      start_interval: 1s
     restart: unless-stopped
 
   caddy:
@@ -33,15 +45,15 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      DOMAIN: ${DOMAIN:?DOMAIN must be set}
-      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set}
+      DOMAIN: ${DOMAIN:?}
+      ACME_EMAIL: ${ACME_EMAIL:?}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    logging: *logging
     depends_on:
-      api:
-        condition: service_healthy
+      - api
     restart: unless-stopped
 
 volumes:
