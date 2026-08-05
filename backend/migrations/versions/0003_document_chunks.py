@@ -66,9 +66,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("ref", "content_hash", "occurrence"),
     )
-    op.create_index(op.f("ix_document_chunks_ref"), "document_chunks", ["ref"])
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_document_chunks_ref"), table_name="document_chunks")
     op.drop_table("document_chunks")

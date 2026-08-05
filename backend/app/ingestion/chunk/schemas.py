@@ -15,7 +15,7 @@ class DocumentChunk(BaseSchema):
     __table_args__ = (UniqueConstraint("ref", "content_hash", "occurrence"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    ref: Mapped[str] = mapped_column(index=True)
+    ref: Mapped[str]
     topic: Mapped[str]
     content_hash: Mapped[str]
     occurrence: Mapped[int]
