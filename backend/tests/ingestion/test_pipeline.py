@@ -200,6 +200,7 @@ async def test_missing_source_file_is_recorded_not_raised(
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(report.unparsed) == ["32015R0757", "32023R2449"]
+    assert all("FileNotFoundError" in reason for reason in report.unparsed.values())
     assert not report.ok
 
 

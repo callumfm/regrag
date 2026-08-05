@@ -32,9 +32,11 @@ async def chunk_documents(
     for document in documents:
         try:
             parsed = parse_eurlex_html(
-                (data_dir / f"{document.ref}.html").read_text(), document.ref, document.topic
+                (data_dir / f"{document.ref}.html").read_text(encoding="utf-8"),
+                document.ref,
+                document.topic,
             )
-        except (ParseError, OSError) as exc:
+        except (ParseError, OSError, UnicodeDecodeError) as exc:
             report.unparsed[document.ref] = f"{type(exc).__name__}: {exc}"
             continue
         chunks = chunk_document(parsed)
