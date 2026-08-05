@@ -1,11 +1,9 @@
 """Cross-reference extraction over chunk text."""
 
 import re
-from collections.abc import Iterator
 
 from app.core.models import FrozenModel
-
-SECTOR = {"regulation": "R", "directive": "L", "decision": "D"}
+from app.ingestion import celex
 
 ARTICLE_REF = re.compile(r"Article\s+(\d+[a-z]?)(?:\((\d+[a-z]?)\))?")
 ANNEX_REF = re.compile(r"Annex\s+([IVXLC]+|\d+)")
@@ -29,27 +27,27 @@ class Reference(FrozenModel):
     annex: str | None = None
 
 
-def celex(kind: str, numbered: bool, first: str, second: str) -> str:
-    """CELEX id: 'No 765/2008' is number then year, '2015/757' is year then number."""
+def celex_ref(kind: str, numbered: bool, first: str, second: str) -> str:
+    """'No 765/2008' is number then year, '2015/757' is year then number."""
     number, year = (first, second) if numbered else (second, first)
-    return f"3{year}{SECTOR[kind.lower()]}{number.zfill(4)}"
+    return celex.build(kind, year, number)
 
 
 def instruments(text: str) -> list[tuple[Span, str]]:
     """Every instrument mention as its span and resolved CELEX id."""
     return [
-        (m.span(), celex(m.group(1), bool(m.group(2)), m.group(3), m.group(4)))
+        (m.span(), celex_ref(m.group(1), bool(m.group(2)), m.group(3), m.group(4)))
         for m in INSTRUMENT_REF.finditer(text)
     ]
 
 
-def divisions(text: str) -> Iterator[tuple[re.Match[str], dict[str, str | None]]]:
+def divisions(text: str) -> list[tuple[re.Match[str], dict[str, str | None]]]:
     """Article and annex mentions in order of appearance, with their Reference fields."""
     matches = [
         (m, {"article": m.group(1), "paragraph": m.group(2)}) for m in ARTICLE_REF.finditer(text)
     ]
     matches += [(m, {"annex": m.group(1)}) for m in ANNEX_REF.finditer(text)]
-    yield from sorted(matches, key=lambda pair: pair[0].start())
+    return sorted(matches, key=lambda pair: pair[0].start())
 
 
 def qualifies(text: str, division: re.Match[str], span: Span) -> bool:
@@ -60,19 +58,21 @@ def qualifies(text: str, division: re.Match[str], span: Span) -> bool:
 def extract_references(text: str) -> tuple[Reference, ...]:
     """Structured cross-references found in the text, deduplicated."""
     mentions = instruments(text)
-    found: dict[Reference, None] = {}
+    found: list[Reference] = []
     attributed: set[Span] = set()
 
     for match, fields in divisions(text):
         owner = next((pair for pair in mentions if qualifies(text, match, pair[0])), None)
         if owner is None:
-            found[Reference(raw=match.group(0), **fields)] = None
+            found.append(Reference(raw=match.group(0), **fields))
             continue
         (start, end), instrument = owner
         attributed.add((start, end))
-        found[Reference(raw=text[match.start() : end], instrument=instrument, **fields)] = None
+        found.append(Reference(raw=text[match.start() : end], instrument=instrument, **fields))
 
-    for (start, end), instrument in mentions:
-        if (start, end) not in attributed:
-            found[Reference(raw=text[start:end], instrument=instrument)] = None
-    return tuple(found)
+    found.extend(
+        Reference(raw=text[start:end], instrument=instrument)
+        for (start, end), instrument in mentions
+        if (start, end) not in attributed
+    )
+    return tuple(dict.fromkeys(found))
