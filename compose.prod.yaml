@@ -8,7 +8,9 @@ services:
   db:
     ports: !reset null
     environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASS:?}
+      POSTGRES_DB: ${DB_NAME:-regrag}
     logging: *logging
     restart: unless-stopped
 
