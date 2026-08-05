@@ -14,6 +14,8 @@ from tenacity import wait_none
 from app.core.clock import utc_now
 from app.core.config import config
 from app.core.db.session import async_session_factory
+from app.ingestion.chunk.schemas import DocumentChunk
+from app.ingestion.enums import SectionKind
 from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.pipeline import download
 from app.ingestion.fetch.resolve import resolve
@@ -53,6 +55,7 @@ async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, Non
     """Session bound to a transaction that is always rolled back, with ingest tables cleared."""
     async with db_engine.connect() as conn:
         trans = await conn.begin()
+        await conn.execute(delete(DocumentChunk))
         await conn.execute(delete(IngestedDocument))
         await conn.execute(delete(IngestRun))
         async with async_session_factory(bind=conn) as session:
@@ -78,6 +81,34 @@ def make_document() -> Callable[..., IngestedDocument]:
             "fetched_at": utc_now(),
         }
         return IngestedDocument(**{**defaults, **overrides})
+
+    return _make
+
+
+@pytest.fixture
+def make_chunk_row() -> Callable[..., DocumentChunk]:
+    """Build a persisted-chunk row with sane defaults, overridable per field."""
+
+    def _make(**overrides: Any) -> DocumentChunk:
+        defaults: dict[str, Any] = {
+            "ref": "32023R1805",
+            "topic": "fueleu",
+            "content_hash": "b" * 64,
+            "occurrence": 0,
+            "kind": SectionKind.PARAGRAPH,
+            "article": "4",
+            "annex": None,
+            "title": "Greenhouse gas intensity limit",
+            "paragraph": "1",
+            "heading_path": ["Chapter I", "Section 2"],
+            "part": 1,
+            "parts": 1,
+            "citation": "Article 4(1)",
+            "text": "The greenhouse gas intensity of the energy used on board.",
+            "references": [{"raw": "Annex I", "annex": "I"}],
+            "corpus_version": "2026-08-05-a3f9e21",
+        }
+        return DocumentChunk(**{**defaults, **overrides})
 
     return _make
 

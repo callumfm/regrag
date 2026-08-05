@@ -3,6 +3,7 @@
 Add new capability schemas here; the guard test fails if one is missing.
 """
 
+from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestedDocument, IngestRun
 
-__all__ = ["IngestRun", "IngestedDocument"]
+__all__ = ["DocumentChunk", "IngestRun", "IngestedDocument"]
