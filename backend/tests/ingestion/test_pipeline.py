@@ -8,10 +8,13 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.enums import IngestRunStatus
+from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch import corpus
+from app.ingestion.models import RunReport
+from app.ingestion.parse.eurlex_html import parse_eurlex_html
 from app.ingestion.pipeline import ingest
 from app.ingestion.schemas import IngestRun
 from tests.conftest import binding, payload
@@ -218,3 +221,65 @@ async def test_failed_fetch_still_chunks_what_was_downloaded(db_session, tmp_pat
     assert not report.ok
     assert report.corpus_version is None
     assert await chunk_rows(db_session, "32015R0757")
+
+
+FUELEU_SPARQL = httpx.Response(200, json=payload(binding("32023R1805", force="1")))
+
+
+async def ingest_fueleu(db_session, tmp_path, corpus_client) -> RunReport:
+    """Run the real pipeline over the saved FuelEU fixture, network stubbed."""
+    client, _ = corpus_client(
+        {"fueleu": FUELEU_SPARQL},
+        {"32023R1805": httpx.Response(200, content=FUELEU_HTML.encode())},
+    )
+    return await ingest(db_session, client, ["fueleu"], tmp_path)
+
+
+async def test_fueleu_chunks_have_correct_article_boundaries(db_session, tmp_path, corpus_client):
+    report = await ingest_fueleu(db_session, tmp_path, corpus_client)
+    assert report.ok
+
+    rows = await chunk_rows(db_session, "32023R1805")
+    boundaries = [(row.article, row.paragraph) for row in rows if row.article]
+    assert boundaries == [("4", str(n)) for n in range(1, 5)] + [
+        ("5", str(n)) for n in range(1, 11)
+    ]
+
+
+async def test_fueleu_chunks_carry_their_citations(db_session, tmp_path, corpus_client):
+    await ingest_fueleu(db_session, tmp_path, corpus_client)
+
+    rows = await chunk_rows(db_session, "32023R1805")
+    citations = {row.citation for row in rows}
+    assert "Article 4(1)" in citations
+    assert "Annex II" in citations
+
+
+async def test_fueleu_annex_table_is_persisted_as_its_own_chunk(
+    db_session, tmp_path, corpus_client
+):
+    await ingest_fueleu(db_session, tmp_path, corpus_client)
+
+    rows = await chunk_rows(db_session, "32023R1805")
+    tables = [row for row in rows if row.kind is SectionKind.TABLE]
+    assert len(tables) == 1
+    assert tables[0].citation == "Annex II"
+
+
+async def test_fueleu_chunks_are_stamped_and_topic_tagged(db_session, tmp_path, corpus_client):
+    report = await ingest_fueleu(db_session, tmp_path, corpus_client)
+
+    rows = await chunk_rows(db_session, "32023R1805")
+    assert {row.topic for row in rows} == {"fueleu"}
+    assert {row.corpus_version for row in rows} == {report.corpus_version}
+    # ty: ignore[no-matching-overload] — report.ok guarantees corpus_version is a str
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{7}", report.corpus_version)
+
+
+async def test_fueleu_chunk_count_matches_the_chunker(db_session, tmp_path, corpus_client):
+    await ingest_fueleu(db_session, tmp_path, corpus_client)
+
+    expected = chunk_document(parse_eurlex_html(FUELEU_HTML, "32023R1805", "fueleu"))
+    rows = await chunk_rows(db_session, "32023R1805")
+    assert len(rows) == len(expected)
+    assert [row.text for row in rows] == [c.text for c in expected]
