@@ -53,7 +53,8 @@ services:
       - caddy-config:/config
     logging: *logging
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
