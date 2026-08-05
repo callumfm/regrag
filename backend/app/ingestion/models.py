@@ -13,3 +13,11 @@ class IngestRunUpdate(BaseModel):
     status: IngestRunStatus | None = None
     corpus_version: str | None = None
     completed_at: datetime | None = None
+
+
+class ChunkDelta(BaseModel):
+    """What reconciling one document's chunks changed."""
+
+    added: int = 0
+    removed: int = 0
+    unchanged: int = 0
