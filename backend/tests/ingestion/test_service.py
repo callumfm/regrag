@@ -3,13 +3,16 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import utc_today
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.models import IngestRunUpdate
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import (
     complete_ingest_run,
+    corpus_fingerprint,
     create_ingest_run,
     get_baseline_docs,
+    next_corpus_version,
     update_ingest_run,
 )
 
@@ -35,6 +38,49 @@ async def test_complete_run_sets_status_and_timestamp(db_session: AsyncSession):
     await complete_ingest_run(db_session, run, IngestRunStatus.FAILED)
     assert run.status is IngestRunStatus.FAILED
     assert run.completed_at is not None
+
+
+async def test_fingerprint_ignores_document_order(db_session: AsyncSession, make_document):
+    run = IngestRun(status=IngestRunStatus.COMPLETED)
+    docs = [make_document(run, "32015R0757"), make_document(run, "32023R1805")]
+    assert corpus_fingerprint(docs) == corpus_fingerprint(list(reversed(docs)))
+
+
+async def test_fingerprint_changes_when_a_document_content_hash_changes(
+    db_session: AsyncSession, make_document
+):
+    run = IngestRun(status=IngestRunStatus.COMPLETED)
+    before = [make_document(run, "32015R0757")]
+    after = [make_document(run, "32015R0757", sha256="b" * 64)]
+    assert corpus_fingerprint(before) != corpus_fingerprint(after)
+
+
+async def test_first_version_is_dated_today(db_session: AsyncSession, make_document):
+    run = IngestRun(status=IngestRunStatus.COMPLETED)
+    version = await next_corpus_version(db_session, [make_document(run, "32015R0757")])
+    assert version == f"{utc_today()}-{corpus_fingerprint([make_document(run, '32015R0757')])}"
+
+
+async def test_unchanged_corpus_keeps_the_previous_version(db_session: AsyncSession, make_document):
+    run = IngestRun(status=IngestRunStatus.COMPLETED)
+    docs = [make_document(run, "32015R0757")]
+    stamped = IngestRun(
+        status=IngestRunStatus.COMPLETED,
+        corpus_version=f"2020-01-01-{corpus_fingerprint(docs)}",
+    )
+    db_session.add(stamped)
+    await db_session.flush()
+
+    assert await next_corpus_version(db_session, docs) == stamped.corpus_version
+
+
+async def test_changed_corpus_gets_a_freshly_dated_version(db_session: AsyncSession, make_document):
+    run = IngestRun(status=IngestRunStatus.COMPLETED)
+    db_session.add(IngestRun(status=IngestRunStatus.COMPLETED, corpus_version="2020-01-01-0000000"))
+    await db_session.flush()
+
+    version = await next_corpus_version(db_session, [make_document(run, "32015R0757")])
+    assert version.startswith(f"{utc_today()}-")
 
 
 async def test_baseline_empty_when_no_prior_runs(db_session: AsyncSession):

@@ -1,13 +1,14 @@
 """CRUD operations for the ingestion domain."""
 
-from collections.abc import Sequence
-from typing import Any
+import hashlib
+import json
+from collections.abc import Iterable, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.core.clock import utc_now
+from app.core.clock import utc_now, utc_today
 from app.core.db.crud import create_record, update_record
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.models import IngestRunUpdate
@@ -33,10 +34,11 @@ async def complete_ingest_run(
     corpus_version: str | None = None,
 ) -> IngestRun:
     """Close out a run with its terminal status, completion time and corpus version."""
-    fields: dict[str, Any] = {"status": status, "completed_at": utc_now()}
-    if corpus_version is not None:
-        fields["corpus_version"] = corpus_version
-    return await update_ingest_run(session, run, IngestRunUpdate(**fields))
+    return await update_ingest_run(
+        session,
+        run,
+        IngestRunUpdate(status=status, completed_at=utc_now(), corpus_version=corpus_version),
+    )
 
 
 async def get_latest_corpus_version(session: AsyncSession) -> str | None:
@@ -47,6 +49,21 @@ async def get_latest_corpus_version(session: AsyncSession) -> str | None:
         .order_by(IngestRun.id.desc())
         .limit(1)
     )
+
+
+def corpus_fingerprint(documents: Iterable[IngestedDocument]) -> str:
+    """Content hash of a run's documents; an identical corpus fingerprints identically."""
+    content = sorted((doc.ref, doc.resolved_ref, doc.sha256) for doc in documents)
+    return hashlib.sha256(json.dumps(content).encode()).hexdigest()[:7]
+
+
+async def next_corpus_version(session: AsyncSession, documents: Iterable[IngestedDocument]) -> str:
+    """Date the corpus last changed plus its fingerprint; unchanged corpora keep their version."""
+    fingerprint = corpus_fingerprint(documents)
+    previous = await get_latest_corpus_version(session)
+    if previous is not None and previous.endswith(f"-{fingerprint}"):
+        return previous
+    return f"{utc_today()}-{fingerprint}"
 
 
 async def get_baseline_docs(
