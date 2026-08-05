@@ -1,6 +1,7 @@
 """EUR-Lex HTML parser: one traversal over the OJ and consolidated dialects."""
 
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from selectolax.parser import HTMLParser, Node
@@ -21,79 +22,54 @@ LEADING_NUMBER = re.compile(r"^(\d+[a-z]?)\.\s*")
 HEADING_LEVEL = re.compile(r"title-gr-seq-level-(\d+)")
 MARKERS = re.compile(r"[▼►]\s*[A-Z]+\d*|◄")
 EMPTY_PARENS = re.compile(r"\s*\(\s*\)")
+MARKER_GLYPHS = "▼►◄"
 FOOTNOTE_REF = "span.superscript, span.oj-super"
 FOOTNOTE = "p.footnote, p.oj-note, div[id^=fnp]"
+DROP = ("p.modref", FOOTNOTE_REF, FOOTNOTE)
 
 ARTICLE = "div.eli-subdivision[id^=art_]"
 ANNEX = "div[id^=anx_]"
 ARTICLE_TITLE = "div.eli-title p"
+CELL = "td, th"
 
 OJ_PARAGRAPH = "div[id]"
+OJ_ANNEX_LABEL = "p.oj-doc-ti"
 CONS_PARAGRAPH = "div.norm"
 CONS_PARAGRAPH_NUMBER = "span.no-parag"
 CONS_PARAGRAPH_TEXT = "div.norm.inline-element"
+CONS_ANNEX_TITLE = "p.title-gr-seq-level-1"
 CONS_ANNEX_HEADING = 'p[class^="title-gr-seq-level-"]'
 DATA_TABLE = "table.oj-table"
-GRID_CONTAINER = "grid-container"
+GRID_CONTAINER = "div.grid-container"
 GRID_MARKER = "div.grid-list-column-1"
 GRID_BODY = "div.grid-list-column-2"
 
 
-@dataclass(frozen=True)
-class Selectors:
-    """The CSS vocabulary one EUR-Lex dialect shares with the other."""
-
-    article_heading: str
-    annex_label: str
-    annex_title: str
-
-
-OJ = Selectors(
-    article_heading="p.oj-ti-art",
-    annex_label="p.oj-doc-ti",
-    annex_title="p.oj-doc-ti",
-)
-
-CONS = Selectors(
-    article_heading="p.title-article-norm",
-    annex_label="p.title-annex-1",
-    annex_title="p.title-gr-seq-level-1",
-)
-
-
 def clean(text: str) -> str:
     """Normalise whitespace, dropping amendment glyphs and emptied footnote brackets."""
-    return normalise(EMPTY_PARENS.sub("", MARKERS.sub(" ", text)))
-
-
-def detect(tree: HTMLParser) -> Selectors:
-    """OJ documents carry oj-* classes; consolidated ones carry norm."""
-    if tree.css_first(".oj-normal") is not None:
-        return OJ
-    if tree.css_first("p.norm, div.norm") is not None:
-        return CONS
-    raise ParseError("unrecognised EUR-Lex dialect")
+    if any(glyph in text for glyph in MARKER_GLYPHS):
+        text = MARKERS.sub(" ", text)
+    if "(" in text:
+        text = EMPTY_PARENS.sub("", text)
+    return normalise(text)
 
 
 def prepare(html: str) -> HTMLParser:
-    """Placeholder every base64 image and drop amendment banner blocks."""
+    """Placeholder every base64 image and drop the non-prose furniture."""
     tree = HTMLParser(html)
     for image in tree.css("img"):
         if (image.attributes.get("src") or "").startswith("data:"):
             image.replace_with(FORMULA_PLACEHOLDER)
-    for banner in tree.css("p.modref"):
-        banner.decompose()
-    for marker in tree.css(FOOTNOTE_REF):
-        marker.decompose()
-    for footnote in tree.css(FOOTNOTE):
-        footnote.decompose()
+    for selector in DROP:
+        for node in tree.css(selector):
+            node.decompose()
     return tree
 
 
 def table_rows(node: Node) -> tuple[tuple[str, ...], ...]:
     rows = []
     for row in node.css("tr"):
-        cells = tuple(clean(cell.text()) for cell in row.css("td, th"))
+        cells = tuple(clean(cell.text()) for cell in row.css(CELL))
         if cells:
             rows.append(cells)
     return tuple(rows)
@@ -104,29 +80,33 @@ def extract_tables(node: Node) -> tuple[Section, ...]:
     tables = node.css(DATA_TABLE)
     sections = tuple(
         Section(kind=SectionKind.TABLE, rows=rows)
-        for rows in (table_rows(table) for table in tables)
-        if rows
+        for table in tables
+        if (rows := table_rows(table))
     )
     for table in tables:
         table.decompose()
     return sections
 
 
+def join_texts(nodes: Iterable[Node | None]) -> str:
+    """Clean each node's text and join the non-empty ones with a space."""
+    return " ".join(text for text in (clean(n.text()) for n in nodes if n is not None) if text)
+
+
 def grid_line(node: Node) -> str:
     """A consolidated list row: the '(a)' marker column joined to its text column."""
-    columns = (node.css_first(GRID_MARKER), node.css_first(GRID_BODY))
-    return " ".join(clean(c.text()) for c in columns if c is not None and clean(c.text()))
+    return join_texts((node.css_first(GRID_MARKER), node.css_first(GRID_BODY)))
 
 
 def row_line(node: Node) -> str:
     """A layout table row: its cells joined, so a bullet stays with the text it marks."""
-    return " ".join(text for text in (clean(c.text()) for c in node.css("td, th")) if text)
+    return join_texts(node.css(CELL))
 
 
 def collect_lines(node: Node, lines: list[str]) -> None:
     """Walk in document order, emitting one line per block and per flattened list row."""
     for child in node.iter(include_text=False):
-        if GRID_CONTAINER in (child.attributes.get("class") or ""):
+        if child.css_matches(GRID_CONTAINER):
             line = grid_line(child)
         elif child.tag == "tr":
             line = row_line(child)
@@ -144,6 +124,12 @@ def block_text(node: Node) -> str:
     lines: list[str] = []
     collect_lines(node, lines)
     return "\n".join(lines) if lines else clean(node.text())
+
+
+def prose_lines(node: Node, *headings: str) -> list[str]:
+    """The node's text lines, minus any line that repeats one of its own heading lines."""
+    skip = {clean(n.text()) for selector in headings for n in node.css(selector)}
+    return [line for line in block_text(node).split("\n") if line and line not in skip]
 
 
 def oj_paragraphs(node: Node) -> list[Node]:
@@ -180,24 +166,67 @@ def cons_paragraph(node: Node) -> Section:
     )
 
 
-def article_body_text(node: Node, selectors: Selectors) -> str:
-    """Article text with its heading and title lines removed, for unnumbered articles."""
-    skip = {clean(n.text()) for n in node.css(selectors.article_heading)}
-    skip |= {clean(n.text()) for n in node.css(ARTICLE_TITLE)}
-    lines = [line for line in block_text(node).split("\n") if line and line not in skip]
-    return "\n".join(lines)
+def oj_annex_title(node: Node) -> str | None:
+    """OJ annexes repeat the same class for the label and the title that follows it."""
+    labels = node.css(OJ_ANNEX_LABEL)
+    return clean(labels[1].text()) if len(labels) > 1 else None
 
 
-def paragraph_sections(node: Node, selectors: Selectors) -> tuple[Section, ...]:
+def cons_annex_title(node: Node) -> str | None:
+    title = node.css_first(CONS_ANNEX_TITLE)
+    return clean(title.text()) if title is not None else None
+
+
+@dataclass(frozen=True)
+class Dialect:
+    """One EUR-Lex markup dialect: how to recognise it and where it keeps each part."""
+
+    signature: str
+    article_heading: str
+    annex_label: str
+    annex_title: Callable[[Node], str | None]
+    paragraphs: Callable[[Node], list[Node]]
+    paragraph: Callable[[Node], Section]
+    annex_headings: str | None = None
+
+
+OJ = Dialect(
+    signature=".oj-normal",
+    article_heading="p.oj-ti-art",
+    annex_label=OJ_ANNEX_LABEL,
+    annex_title=oj_annex_title,
+    paragraphs=oj_paragraphs,
+    paragraph=oj_paragraph,
+)
+
+CONS = Dialect(
+    signature="p.norm, div.norm",
+    article_heading="p.title-article-norm",
+    annex_label="p.title-annex-1",
+    annex_title=cons_annex_title,
+    paragraphs=cons_paragraphs,
+    paragraph=cons_paragraph,
+    annex_headings=CONS_ANNEX_HEADING,
+)
+
+DIALECTS = (OJ, CONS)
+
+
+def detect(tree: HTMLParser) -> Dialect:
+    """OJ documents carry oj-* classes; consolidated ones carry norm."""
+    for dialect in DIALECTS:
+        if tree.css_first(dialect.signature) is not None:
+            return dialect
+    raise ParseError("unrecognised EUR-Lex dialect")
+
+
+def paragraph_sections(node: Node, dialect: Dialect) -> tuple[Section, ...]:
     """Numbered paragraphs, falling back to one unnumbered paragraph for the whole article."""
-    if selectors is OJ:
-        sections = [oj_paragraph(child) for child in oj_paragraphs(node)]
-    else:
-        sections = [cons_paragraph(child) for child in cons_paragraphs(node)]
+    sections = [dialect.paragraph(child) for child in dialect.paragraphs(node)]
     if sections:
         return tuple(sections)
-    body = article_body_text(node, selectors)
-    return (Section(kind=SectionKind.PARAGRAPH, text=body),) if body else ()
+    lines = prose_lines(node, dialect.article_heading, ARTICLE_TITLE)
+    return (Section(kind=SectionKind.PARAGRAPH, text="\n".join(lines)),) if lines else ()
 
 
 def heading_number(node: Node, selector: str, pattern: re.Pattern[str]) -> str | None:
@@ -208,70 +237,63 @@ def heading_number(node: Node, selector: str, pattern: re.Pattern[str]) -> str |
     return match.group(1) if match else None
 
 
-def article_section(node: Node, selectors: Selectors) -> Section:
+def article_section(node: Node, dialect: Dialect) -> Section:
     title = node.css_first(ARTICLE_TITLE)
     return Section(
         kind=SectionKind.ARTICLE,
-        number=heading_number(node, selectors.article_heading, ARTICLE_NUMBER),
+        number=heading_number(node, dialect.article_heading, ARTICLE_NUMBER),
         title=clean(title.text()) if title else None,
-        children=paragraph_sections(node, selectors),
+        children=paragraph_sections(node, dialect),
     )
 
 
-def cons_heading_tree(node: Node) -> tuple[Section, ...]:
+def heading_tree(node: Node, selector: str) -> tuple[Section, ...]:
     """Nest title-gr-seq-level-N headings, where level 1 is the annex title itself."""
     stack: list[tuple[int, list[Section], str | None]] = [(1, [], None)]
-    for heading in node.css(CONS_ANNEX_HEADING):
-        match = HEADING_LEVEL.search(heading.attributes.get("class") or "")
-        level = int(match.group(1)) if match else 1
-        if level < 2:
-            continue
+
+    def close(level: int) -> None:
         while stack[-1][0] >= level:
             _, children, title = stack.pop()
             stack[-1][1].append(
                 Section(kind=SectionKind.HEADING, title=title, children=tuple(children))
             )
+
+    for heading in node.css(selector):
+        match = HEADING_LEVEL.search(heading.attributes.get("class") or "")
+        level = int(match.group(1)) if match else 1
+        if level < 2:
+            continue
+        close(level)
         stack.append((level, [], clean(heading.text())))
-    while len(stack) > 1:
-        _, children, title = stack.pop()
-        stack[-1][1].append(
-            Section(kind=SectionKind.HEADING, title=title, children=tuple(children))
-        )
+    close(2)
     return tuple(stack[0][1])
 
 
-def annex_body(node: Node, selectors: Selectors) -> tuple[Section, ...]:
+def annex_body(node: Node, dialect: Dialect) -> tuple[Section, ...]:
     """The annex prose, with its own label, title and sub-heading lines removed."""
-    skip = {clean(n.text()) for n in node.css(selectors.annex_label)}
-    skip |= {clean(n.text()) for n in node.css(selectors.annex_title)}
-    skip |= {clean(n.text()) for n in node.css(CONS_ANNEX_HEADING)}
-    lines = [line for line in block_text(node).split("\n") if line and line not in skip]
+    headings = (dialect.annex_headings,) if dialect.annex_headings else ()
+    lines = prose_lines(node, dialect.annex_label, *headings)
     return (Section(kind=SectionKind.PARAGRAPH, text="\n".join(lines)),) if lines else ()
 
 
-def annex_section(node: Node, selectors: Selectors) -> Section:
+def annex_section(node: Node, dialect: Dialect) -> Section:
     """OJ annexes are flat; consolidated ones nest by title-gr-seq level."""
-    labels = node.css(selectors.annex_label)
-    number = None
-    if labels:
-        match = ANNEX_NUMBER.search(clean(labels[0].text()))
-        number = match.group(1) if match else None
-    if selectors is OJ:
-        title = clean(labels[1].text()) if len(labels) > 1 else None
-    else:
-        title_node = node.css_first(selectors.annex_title)
-        title = clean(title_node.text()) if title_node else None
     tables = extract_tables(node)
-    children = tables + annex_body(node, selectors) + cons_heading_tree(node)
-    return Section(kind=SectionKind.ANNEX, number=number, title=title, children=children)
+    headings = heading_tree(node, dialect.annex_headings) if dialect.annex_headings else ()
+    return Section(
+        kind=SectionKind.ANNEX,
+        number=heading_number(node, dialect.annex_label, ANNEX_NUMBER),
+        title=dialect.annex_title(node),
+        children=tables + annex_body(node, dialect) + headings,
+    )
 
 
 def parse_eurlex_html(html: str, ref: str, topic: str) -> ParsedDocument:
     """Parse one EUR-Lex document into the format-neutral section tree."""
     tree = prepare(html)
-    selectors = detect(tree)
-    articles = [article_section(node, selectors) for node in tree.css(ARTICLE)]
+    dialect = detect(tree)
+    articles = [article_section(node, dialect) for node in tree.css(ARTICLE)]
     if not articles:
         raise ParseError(f"{ref}: no articles found")
-    annexes = [annex_section(node, selectors) for node in tree.css(ANNEX)]
+    annexes = [annex_section(node, dialect) for node in tree.css(ANNEX)]
     return ParsedDocument(ref=ref, topic=topic, sections=tuple(articles + annexes))

@@ -26,8 +26,16 @@ def mrv():
     return parse_eurlex_html(MRV, "32015R0757", "mrv")
 
 
+def of_kind(sections, kind):
+    return [s for s in sections if s.kind is kind]
+
+
 def articles(document):
-    return [s for s in document.sections if s.kind is SectionKind.ARTICLE]
+    return of_kind(document.sections, SectionKind.ARTICLE)
+
+
+def annexes(document):
+    return of_kind(document.sections, SectionKind.ANNEX)
 
 
 def test_carries_identity_from_the_ingest_record():
@@ -185,10 +193,6 @@ def all_sections(sections):
         yield from all_sections(section.children)
 
 
-def annexes(document):
-    return [s for s in document.sections if s.kind is SectionKind.ANNEX]
-
-
 def test_oj_annex_label_and_title():
     annex = annexes(fueleu())[0]
     assert annex.number == "II"
@@ -203,18 +207,18 @@ def test_consolidated_annex_label_and_title():
 
 def test_consolidated_annex_headings_nest_by_level():
     annex = annexes(mrv())[0]
-    top = [c for c in annex.children if c.kind is SectionKind.HEADING]
+    top = of_kind(annex.children, SectionKind.HEADING)
     assert top
     assert top[0].title.startswith("A.")
-    nested = [c for c in top[0].children if c.kind is SectionKind.HEADING]
+    nested = of_kind(top[0].children, SectionKind.HEADING)
     assert nested
     assert nested[0].title.startswith("1.")
 
 
 def test_oj_annexes_are_flat():
     annex = annexes(fueleu())[0]
-    assert all(c.kind is not SectionKind.HEADING for c in annex.children)
-    assert any(c.kind is SectionKind.TABLE for c in annex.children)
+    assert not of_kind(annex.children, SectionKind.HEADING)
+    assert of_kind(annex.children, SectionKind.TABLE)
 
 
 def test_annexes_follow_articles_in_document_order():
@@ -247,7 +251,7 @@ def test_footnote_blocks_are_removed_from_the_tree():
 
 def test_oj_annex_prose_is_kept_alongside_its_tables():
     annex = annexes(fueleu())[0]
-    prose = [c for c in annex.children if c.kind is SectionKind.PARAGRAPH]
+    prose = of_kind(annex.children, SectionKind.PARAGRAPH)
     assert prose
     assert "The default emission factors contained in the table below" in prose[0].text
     assert "Fuel Class" not in prose[0].text
@@ -255,7 +259,7 @@ def test_oj_annex_prose_is_kept_alongside_its_tables():
 
 def test_consolidated_annex_prose_excludes_its_heading_lines():
     annex = annexes(mrv())[0]
-    prose = [c for c in annex.children if c.kind is SectionKind.PARAGRAPH]
+    prose = of_kind(annex.children, SectionKind.PARAGRAPH)
     assert prose
     assert "Methods for monitoring greenhouse gas emissions" not in prose[0].text
     assert "companies shall apply the following formula" in prose[0].text
