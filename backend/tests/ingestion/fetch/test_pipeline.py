@@ -6,10 +6,17 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app.ingestion import fetch
-from app.ingestion.discover import SEEDS, DiscoveryError, DocumentSpec
 from app.ingestion.enums import DocAction, IngestRunStatus
-from app.ingestion.fetch import RunReport, classify, download, dropped_refs, fetch_topics, store
+from app.ingestion.fetch import pipeline
+from app.ingestion.fetch.discover import SEEDS, DiscoveryError, DocumentSpec
+from app.ingestion.fetch.pipeline import (
+    RunReport,
+    classify,
+    download,
+    dropped_refs,
+    fetch_topics,
+    store,
+)
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import get_baseline_docs
 
@@ -75,7 +82,7 @@ def test_summary_counts_and_lists_non_empty_buckets():
 def paces(monkeypatch):
     """Count pacing delays instead of sleeping through them."""
     calls = []
-    monkeypatch.setattr(fetch, "pace", lambda: calls.append(fetch.PACE_SECONDS))
+    monkeypatch.setattr(pipeline, "pace", lambda: calls.append(pipeline.PACE_SECONDS))
     return calls
 
 
@@ -279,4 +286,4 @@ async def test_paces_between_documents(db_session, tmp_path, paces):
     }
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch_topics(db_session, client, ["mrv"], tmp_path)
-    assert paces == [fetch.PACE_SECONDS]
+    assert paces == [pipeline.PACE_SECONDS]

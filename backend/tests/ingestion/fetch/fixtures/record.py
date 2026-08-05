@@ -1,6 +1,6 @@
 """Dev-time fixture recorder; the only code here that touches the network.
 
-Run from backend/: PYTHONPATH=. uv run python tests/ingestion/fixtures/record.py
+Run from backend/: PYTHONPATH=. uv run python tests/ingestion/fetch/fixtures/record.py
 """
 
 import json
@@ -8,8 +8,8 @@ import time
 from pathlib import Path
 
 from app.core.http import http_client
-from app.ingestion.discover import SEEDS, SPARQL_ENDPOINT, parse_topic_response, topic_query
-from app.ingestion.eurlex import resolve
+from app.ingestion.fetch.discover import SEEDS, SPARQL_ENDPOINT, parse_topic_response, topic_query
+from app.ingestion.fetch.resolve import resolve
 
 FIXTURES = Path(__file__).parent
 

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.core.http import transient_retry
-from app.ingestion.discover import DocumentSpec
+from app.ingestion.fetch.discover import DocumentSpec
 
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}"
 MISSING_MARKER = "The requested document does not exist."

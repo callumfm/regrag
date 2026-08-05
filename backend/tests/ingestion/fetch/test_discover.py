@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.ingestion.discover import (
+from app.ingestion.fetch.discover import (
     SEEDS,
     DiscoveryError,
     DocumentSpec,
@@ -13,7 +13,7 @@ from app.ingestion.discover import (
     parse_topic_response,
     topic_query,
 )
-from app.ingestion.eurlex import resolve
+from app.ingestion.fetch.resolve import resolve
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

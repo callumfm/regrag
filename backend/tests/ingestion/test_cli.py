@@ -5,9 +5,9 @@ import pytest
 
 from app.ingestion import cli
 from app.ingestion.cli import main
-from app.ingestion.discover import SEEDS, DiscoveryError
 from app.ingestion.enums import DocAction
-from app.ingestion.fetch import RunReport
+from app.ingestion.fetch.discover import SEEDS, DiscoveryError
+from app.ingestion.fetch.pipeline import RunReport
 
 
 @pytest.fixture

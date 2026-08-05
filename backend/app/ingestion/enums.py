@@ -17,3 +17,13 @@ class DocAction(StrEnum):
     NEW = "new"
     CHANGED = "changed"
     UNCHANGED = "unchanged"
+
+
+class SectionKind(StrEnum):
+    """Node types in a parsed document tree."""
+
+    ARTICLE = "article"
+    PARAGRAPH = "paragraph"
+    ANNEX = "annex"
+    HEADING = "heading"
+    TABLE = "table"
