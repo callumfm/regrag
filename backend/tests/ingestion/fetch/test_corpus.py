@@ -16,8 +16,8 @@ from app.ingestion.fetch.corpus import (
     fetch_corpus,
     store,
 )
-from app.ingestion.fetch.models import DocumentSpec, FetchDelta
-from app.ingestion.schemas import IngestedDocument
+from app.ingestion.fetch.models import DiscoveredDocument, FetchDelta
+from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.service import create_ingest_run, get_baseline_docs
 from tests.conftest import binding, payload
 
@@ -25,7 +25,7 @@ pytestmark = pytest.mark.anyio
 
 
 def spec(ref, topic="mrv"):
-    return DocumentSpec(topic=topic, source="eurlex", ref=ref, candidate_ref=None)
+    return DiscoveredDocument(topic=topic, source="eurlex", ref=ref, candidate_ref=None)
 
 
 def test_classify_no_baseline_is_new():
@@ -87,7 +87,7 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
     } | (overrides or {})
 
 
-async def fetch(db_session, client, topics, data_dir) -> tuple[FetchDelta, list[IngestedDocument]]:
+async def fetch(db_session, client, topics, data_dir) -> tuple[FetchDelta, list[RawDocument]]:
     """Drive the fetch stage alone, with the run the orchestrator would supply."""
     run = await create_ingest_run(db_session)
     documents, delta = await fetch_corpus(db_session, client, topics, data_dir, run)
@@ -102,7 +102,7 @@ async def test_first_run_ingests_all_as_new(db_session, tmp_path, corpus_client)
     assert report.ok
     assert (tmp_path / "32015R0757.html").read_bytes() == b"<html>mrv</html>"
     rows = await get_baseline_docs(db_session, ["mrv"])
-    assert rows["32023R2449"].name == "32023R2449"
+    assert rows["32023R2449"].ref == "32023R2449"
     assert rows["32023R2449"].resolved_ref == "32023R2449"
 
 
@@ -116,7 +116,7 @@ async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path
 
     assert sorted(second.unchanged) == ["32015R0757", "32023R2449"]
     assert calls.count("32015R0757") == 1
-    firsts = {r.name: r.sha256 for r in (await get_baseline_docs(db_session, ["mrv"])).values()}
+    firsts = {r.ref: r.sha256 for r in (await get_baseline_docs(db_session, ["mrv"])).values()}
     assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
 
 

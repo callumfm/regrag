@@ -24,7 +24,8 @@ from app.ingestion.fetch import corpus
 from app.ingestion.fetch.corpus import download
 from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.resolve import resolve
-from app.ingestion.schemas import IngestedDocument, IngestRun
+from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 
 RETRIED = (discover, resolve, download)
@@ -61,7 +62,7 @@ async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, Non
     async with db_engine.connect() as conn:
         trans = await conn.begin()
         await conn.execute(delete(DocumentChunk))
-        await conn.execute(delete(IngestedDocument))
+        await conn.execute(delete(RawDocument))
         await conn.execute(delete(IngestRun))
         async with async_session_factory(bind=conn) as session:
             yield session
@@ -69,13 +70,12 @@ async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, Non
 
 
 @pytest.fixture
-def make_document() -> Callable[..., IngestedDocument]:
-    """Build an IngestedDocument whose identity fields derive from ref, overridable per field."""
+def make_document() -> Callable[..., RawDocument]:
+    """Build a RawDocument whose identity fields derive from ref, overridable per field."""
 
-    def _make(run: IngestRun, ref: str = "32023R1805", **overrides: Any) -> IngestedDocument:
+    def _make(run: IngestRun, ref: str = "32023R1805", **overrides: Any) -> RawDocument:
         defaults: dict[str, Any] = {
             "run": run,
-            "name": ref,
             "source": "eurlex",
             "ref": ref,
             "resolved_ref": ref,
@@ -85,7 +85,7 @@ def make_document() -> Callable[..., IngestedDocument]:
             "size_bytes": 758462,
             "fetched_at": utc_now(),
         }
-        return IngestedDocument(**{**defaults, **overrides})
+        return RawDocument(**{**defaults, **overrides})
 
     return _make
 

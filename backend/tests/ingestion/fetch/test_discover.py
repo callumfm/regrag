@@ -12,7 +12,7 @@ from app.ingestion.fetch.discover import (
     parse_topic_response,
     topic_query,
 )
-from app.ingestion.fetch.models import DocumentSpec
+from app.ingestion.fetch.models import DiscoveredDocument
 from app.ingestion.fetch.resolve import resolve
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -89,7 +89,7 @@ def test_no_consolidations_gives_none_candidate():
 def test_specs_carry_topic_and_source():
     p = payload(binding("32023R1805", force="1"))
     spec = parse_topic_response("fueleu", p)[0]
-    assert spec == DocumentSpec(
+    assert spec == DiscoveredDocument(
         topic="fueleu", source="eurlex", ref="32023R1805", candidate_ref=None
     )
 

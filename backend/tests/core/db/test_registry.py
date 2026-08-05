@@ -23,9 +23,7 @@ def test_registry_imports_every_capability_schema_module():
 
 
 def test_registry_covers_the_ingest_tables():
-    assert {"ingest_runs", "ingested_documents", "document_chunks"} <= set(
-        BaseSchema.metadata.tables
-    )
+    assert {"ingest_runs", "raw_documents", "document_chunks"} <= set(BaseSchema.metadata.tables)
 
 
 def test_all_mappers_configure():

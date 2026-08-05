@@ -14,9 +14,10 @@ from app.ingestion.constants import SEEDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
 from app.ingestion.fetch.discover import discover
-from app.ingestion.fetch.models import DocumentSpec, FetchDelta
+from app.ingestion.fetch.models import DiscoveredDocument, FetchDelta
 from app.ingestion.fetch.resolve import resolve
-from app.ingestion.schemas import IngestedDocument, IngestRun
+from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.schemas import IngestRun
 from app.ingestion.service import get_baseline_docs
 from app.ingestion.storage import raw_html_path
 
@@ -29,7 +30,7 @@ def classify(prev_resolved_ref: str | None, resolved_ref: str) -> DocAction:
     return DocAction.UNCHANGED
 
 
-def dropped_refs(specs: Sequence[DocumentSpec], baseline_refs: Iterable[str]) -> list[str]:
+def dropped_refs(specs: Sequence[DiscoveredDocument], baseline_refs: Iterable[str]) -> list[str]:
     """Baseline refs no longer present in discovery (repealed or out of force)."""
     discovered = {spec.ref for spec in specs}
     return sorted(set(baseline_refs) - discovered)
@@ -42,9 +43,9 @@ def store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
     return hashlib.sha256(content).hexdigest(), len(content)
 
 
-def discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DocumentSpec]:
+def discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DiscoveredDocument]:
     """Discover all topics, deduped by ref (first topic wins), wrapping parse errors."""
-    by_ref: dict[str, DocumentSpec] = {}
+    by_ref: dict[str, DiscoveredDocument] = {}
     for topic in topics:
         try:
             specs = discover(client, topic, SEEDS[topic])
@@ -57,11 +58,11 @@ def discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[Documen
 
 def ingest_document(
     client: httpx.Client,
-    spec: DocumentSpec,
-    prev: IngestedDocument | None,
+    spec: DiscoveredDocument,
+    prev: RawDocument | None,
     run: IngestRun,
     data_dir: Path,
-) -> tuple[IngestedDocument, DocAction]:
+) -> tuple[RawDocument, DocAction]:
     """Resolve one act, download it unless unchanged, and build its row."""
     resolution = resolve(client, spec)
     action = classify(prev.resolved_ref if prev else None, resolution.resolved_ref)
@@ -70,9 +71,8 @@ def ingest_document(
     else:
         sha256, size_bytes = store(data_dir, spec.ref, download(client, resolution.url))
         fetched_at = utc_now()
-    document = IngestedDocument(
+    document = RawDocument(
         run=run,
-        name=spec.ref,
         source=spec.source,
         ref=spec.ref,
         resolved_ref=resolution.resolved_ref,
@@ -87,12 +87,12 @@ def ingest_document(
 
 def ingest_documents(
     client: httpx.Client,
-    specs: Sequence[DocumentSpec],
-    baseline: Mapping[str, IngestedDocument],
+    specs: Sequence[DiscoveredDocument],
+    baseline: Mapping[str, RawDocument],
     run: IngestRun,
     data_dir: Path,
     delta: FetchDelta,
-) -> list[IngestedDocument]:
+) -> list[RawDocument]:
     """Ingest each spec in turn, recording its outcome (or its error) on the delta."""
     documents = []
     for idx, spec in enumerate(specs):
@@ -114,7 +114,7 @@ async def fetch_corpus(
     topics: Sequence[str],
     data_dir: Path,
     run: IngestRun,
-) -> tuple[list[IngestedDocument], FetchDelta]:
+) -> tuple[list[RawDocument], FetchDelta]:
     """Discover, resolve and download the corpus for topics, recording a row per document."""
     delta = FetchDelta()
     specs = discover_topics(client, topics)

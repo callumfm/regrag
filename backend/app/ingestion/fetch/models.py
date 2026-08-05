@@ -7,8 +7,8 @@ from app.ingestion.enums import DocAction
 from app.ingestion.stage import IngestStageDelta
 
 
-class DocumentSpec(FrozenModel):
-    """One discovered corpus document; transient wire data between discover and fetch."""
+class DiscoveredDocument(FrozenModel):
+    """One document discovery found: what to fetch, and which version to try first."""
 
     topic: str
     source: str

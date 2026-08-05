@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.ingestion.exceptions import ResolutionError
-from app.ingestion.fetch.models import DocumentSpec, Resolution
+from app.ingestion.fetch.models import DiscoveredDocument, Resolution
 from app.ingestion.fetch.resolve import (
     MISSING_MARKER,
     is_missing_document,
@@ -19,7 +19,7 @@ MISSING_HTML_PAGE = (FIXTURES / "missing.html").read_text()
 
 
 def spec(ref="32015R0757", candidate=None):
-    return DocumentSpec(topic="mrv", source="eurlex", ref=ref, candidate_ref=candidate)
+    return DiscoveredDocument(topic="mrv", source="eurlex", ref=ref, candidate_ref=candidate)
 
 
 def transport(responses):
