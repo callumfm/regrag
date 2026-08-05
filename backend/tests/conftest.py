@@ -20,11 +20,11 @@ from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
 from app.ingestion.enums import SectionKind
-from app.ingestion.fetch import corpus
-from app.ingestion.fetch.corpus import download
+from app.ingestion.fetch import stage
 from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.resolve import resolve
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.stage import download
 from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 
@@ -135,7 +135,7 @@ def client(app: FastAPI) -> TestClient:
 def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """Count pacing delays instead of sleeping through them."""
     calls: list[float] = []
-    monkeypatch.setattr(corpus, "pace", lambda: calls.append(PACE_SECONDS))
+    monkeypatch.setattr(stage, "pace", lambda: calls.append(PACE_SECONDS))
     return calls
 
 

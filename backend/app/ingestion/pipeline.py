@@ -8,11 +8,11 @@ from pathlib import Path
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ingestion.chunk.corpus import chunk_corpus
+from app.ingestion.chunk.stage import chunk_documents
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.corpus import fetch_corpus
+from app.ingestion.fetch.stage import fetch_documents
 from app.ingestion.models import RunReport
-from app.ingestion.parse.corpus import parse_corpus
+from app.ingestion.parse.stage import parse_documents
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run, next_corpus_version
 
@@ -35,13 +35,17 @@ async def ingest(
 ) -> RunReport:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as run:
-        documents, fetched = await fetch_corpus(session, client, topics, data_dir, run)
+        documents, fetched = await fetch_documents(session, client, topics, data_dir, run)
         logger.info("[fetch] %s", fetched.summary())
+
         version = await next_corpus_version(session)
-        parsed, parse_delta = parse_corpus(documents, data_dir)
+
+        parsed, parse_delta = parse_documents(documents, data_dir)
         logger.info("[parse] %s", parse_delta.summary())
-        chunked = await chunk_corpus(session, parsed, version, topics, fetched.discovered)
+
+        chunked = await chunk_documents(session, parsed, version, topics, fetched.discovered)
         logger.info("[chunk] %s", chunked.summary())
+
         report = RunReport(run_id=run.id, fetch=fetched, parse=parse_delta, chunk=chunked)
         report.corpus_version = version if report.ok else None
         await complete_ingest_run(session, run, report.status, report.corpus_version)

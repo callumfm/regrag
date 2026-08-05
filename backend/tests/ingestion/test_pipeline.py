@@ -12,7 +12,7 @@ from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import DiscoveryError
-from app.ingestion.fetch import corpus
+from app.ingestion.fetch import stage
 from app.ingestion.models import RunReport
 from app.ingestion.parse.eurlex_html import parse_eurlex_html
 from app.ingestion.pipeline import ingest
@@ -116,7 +116,7 @@ async def test_a_failure_after_fetch_still_marks_the_run_failed(
     async def explode(*args, **kwargs):
         raise RuntimeError("chunking blew up")
 
-    monkeypatch.setattr("app.ingestion.pipeline.chunk_corpus", explode)
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_documents", explode)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(RuntimeError):
         await ingest(db_session, client, ["mrv"], tmp_path)
@@ -217,7 +217,7 @@ async def test_missing_source_file_is_recorded_not_raised(
     db_session, tmp_path, corpus_client, monkeypatch
 ):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    monkeypatch.setattr(corpus, "store", lambda data_dir, ref, content: ("a" * 64, len(content)))
+    monkeypatch.setattr(stage, "store", lambda data_dir, ref, content: ("a" * 64, len(content)))
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(report.parse.failed) == ["32015R0757", "32023R2449"]

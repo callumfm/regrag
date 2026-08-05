@@ -11,7 +11,7 @@ from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.storage import raw_html_path
 
 
-def parse_corpus(
+def parse_documents(
     documents: Sequence[RawDocument], data_dir: Path
 ) -> tuple[list[ParsedDocument], ParseDelta]:
     """Parse every fetched document, recording the ones that would not parse."""

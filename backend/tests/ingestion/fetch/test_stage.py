@@ -8,16 +8,16 @@ import pytest
 from app.core.http import PACE_SECONDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import ParseError
-from app.ingestion.fetch import corpus
-from app.ingestion.fetch.corpus import (
+from app.ingestion.fetch import stage
+from app.ingestion.fetch.models import DiscoveredDocument
+from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.stage import (
     classify,
     download,
     dropped_refs,
-    fetch_corpus,
+    fetch_documents,
     store,
 )
-from app.ingestion.fetch.models import DiscoveredDocument
-from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.models import FetchDelta
 from app.ingestion.service import create_ingest_run, get_baseline_docs
 from tests.conftest import binding, payload
@@ -91,7 +91,7 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 async def fetch(db_session, client, topics, data_dir) -> tuple[FetchDelta, list[RawDocument]]:
     """Drive the fetch stage alone, with the run the orchestrator would supply."""
     run = await create_ingest_run(db_session)
-    documents, delta = await fetch_corpus(db_session, client, topics, data_dir, run)
+    documents, delta = await fetch_documents(db_session, client, topics, data_dir, run)
     return delta, documents
 
 
@@ -176,7 +176,7 @@ async def test_any_ingestion_error_is_recorded_per_document(
     def unparseable(*args, **kwargs):
         raise ParseError("unrecognised EUR-Lex dialect")
 
-    monkeypatch.setattr(corpus, "ingest_document", unparseable)
+    monkeypatch.setattr(stage, "fetch_document", unparseable)
     report, _ = await fetch(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(report.failed) == ["32015R0757", "32023R2449"]

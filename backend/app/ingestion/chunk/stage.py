@@ -10,7 +10,7 @@ from app.ingestion.models import ChunkDelta
 from app.ingestion.parse.models import ParsedDocument
 
 
-async def chunk_corpus(
+async def chunk_documents(
     session: AsyncSession,
     documents: Sequence[ParsedDocument],
     corpus_version: str,

@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import httpx
@@ -57,7 +57,7 @@ def discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[Discove
     return list(by_ref.values())
 
 
-def ingest_document(
+def fetch_document(
     client: httpx.Client,
     spec: DiscoveredDocument,
     prev: RawDocument | None,
@@ -86,30 +86,7 @@ def ingest_document(
     return document, action
 
 
-def ingest_documents(
-    client: httpx.Client,
-    specs: Sequence[DiscoveredDocument],
-    baseline: Mapping[str, RawDocument],
-    run: IngestRun,
-    data_dir: Path,
-    delta: FetchDelta,
-) -> list[RawDocument]:
-    """Ingest each spec in turn, recording its outcome (or its error) on the delta."""
-    documents = []
-    for idx, spec in enumerate(specs):
-        if idx > 0:
-            pace()
-        try:
-            document, action = ingest_document(client, spec, baseline.get(spec.ref), run, data_dir)
-        except (IngestionError, httpx.HTTPError) as exc:
-            delta.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
-            continue
-        documents.append(document)
-        delta.record(action, spec.ref)
-    return documents
-
-
-async def fetch_corpus(
+async def fetch_documents(
     session: AsyncSession,
     client: httpx.Client,
     topics: Sequence[str],
@@ -117,12 +94,22 @@ async def fetch_corpus(
     run: IngestRun,
 ) -> tuple[list[RawDocument], FetchDelta]:
     """Discover, resolve and download the corpus for topics, recording a row per document."""
-    delta = FetchDelta()
     specs = discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
-    delta.discovered = [spec.ref for spec in specs]
-    delta.dropped = dropped_refs(specs, baseline)
-    documents = ingest_documents(client, specs, baseline, run, data_dir, delta)
+    delta = FetchDelta(
+        discovered=[spec.ref for spec in specs], dropped=dropped_refs(specs, baseline)
+    )
+    documents = []
+    for index, spec in enumerate(specs):
+        if index > 0:
+            pace()
+        try:
+            document, action = fetch_document(client, spec, baseline.get(spec.ref), run, data_dir)
+        except (IngestionError, httpx.HTTPError) as exc:
+            delta.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
+            continue
+        documents.append(document)
+        delta.record(action, spec.ref)
     session.add_all(documents)
     await session.flush()
     return documents, delta
