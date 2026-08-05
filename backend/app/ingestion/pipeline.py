@@ -8,6 +8,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.chunker import chunk_document
+from app.ingestion.chunk.models import ChunkDelta
 from app.ingestion.chunk.service import delete_chunks_outside, upsert_document_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import DiscoveryError, ParseError
@@ -38,15 +39,14 @@ async def chunk_documents(
                 document.topic,
             )
         except (ParseError, OSError, UnicodeDecodeError) as exc:
-            report.unparsed[document.ref] = f"{type(exc).__name__}: {exc}"
+            report.parse.failed[document.ref] = f"{type(exc).__name__}: {exc}"
             continue
+        report.parse.parsed.append(document.ref)
         chunks = chunk_document(parsed)
         chunked += 1
         produced += len(chunks)
         delta = await upsert_document_chunks(session, document.ref, chunks, corpus_version)
-        report.chunks_added += delta.added
-        report.chunks_removed += delta.removed
-        report.chunks_unchanged += delta.unchanged
+        report.chunk += delta
     return chunked, produced
 
 
@@ -60,28 +60,18 @@ async def ingest(
     run = await create_ingest_run(session)
     report = RunReport(run_id=run.id)
     try:
-        documents = await fetch_documents(session, client, topics, data_dir, run, report)
+        documents = await fetch_documents(session, client, topics, data_dir, run, report.fetch)
     except (DiscoveryError, httpx.HTTPError):
         await complete_ingest_run(session, run, IngestRunStatus.FAILED)
         raise
-    logger.info(
-        "[fetch] %d new, %d changed, %d unchanged, %d dropped, %d failed",
-        len(report.new),
-        len(report.changed),
-        len(report.unchanged),
-        len(report.dropped),
-        len(report.failed),
-    )
+    logger.info("[fetch] %s", report.fetch.summary())
     version = await next_corpus_version(session)
-    report.chunks_removed += await delete_chunks_outside(session, topics, report.discovered)
+    report.chunk += ChunkDelta(
+        removed=await delete_chunks_outside(session, topics, report.fetch.discovered)
+    )
     chunked, produced = await chunk_documents(session, documents, data_dir, version, report)
     logger.info("[chunk] %d documents -> %d chunks", chunked, produced)
-    logger.info(
-        "[store] +%d added, -%d removed, %d unchanged",
-        report.chunks_added,
-        report.chunks_removed,
-        report.chunks_unchanged,
-    )
+    logger.info("[chunk] %s", report.chunk.summary())
     report.corpus_version = version if report.ok else None
     await complete_ingest_run(session, run, report.status, report.corpus_version)
     return report

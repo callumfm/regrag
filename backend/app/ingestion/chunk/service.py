@@ -7,9 +7,8 @@ from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.identity import keyed
-from app.ingestion.chunk.models import Chunk
+from app.ingestion.chunk.models import Chunk, ChunkDelta
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.models import ChunkDelta
 
 
 def to_chunk_row(chunk: Chunk, digest: str, occurrence: int, corpus_version: str) -> DocumentChunk:

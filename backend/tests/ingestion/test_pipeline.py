@@ -123,7 +123,7 @@ async def test_run_persists_chunks_for_every_document(db_session, tmp_path, corp
 
     rows = await chunk_rows(db_session)
     assert report.ok
-    assert report.chunks_added == len(rows) > 0
+    assert report.chunk.added == len(rows) > 0
     assert {row.ref for row in rows} == {"32015R0757", "32023R2449"}
     assert {row.corpus_version for row in rows} == {report.corpus_version}
 
@@ -137,8 +137,8 @@ async def test_second_identical_run_adds_and_removes_nothing(db_session, tmp_pat
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     second = await ingest(db_session, client, ["mrv"], tmp_path)
 
-    assert (second.chunks_added, second.chunks_removed) == (0, 0)
-    assert second.chunks_unchanged == len(before)
+    assert (second.chunk.added, second.chunk.removed) == (0, 0)
+    assert second.chunk.unchanged == len(before)
     assert {row.id for row in await chunk_rows(db_session)} == before
 
 
@@ -154,7 +154,7 @@ async def test_dropped_document_loses_its_chunks(db_session, tmp_path, corpus_cl
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, docs)
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
-    assert report.dropped == ["32023R2449"]
+    assert report.fetch.dropped == ["32023R2449"]
     assert await chunk_rows(db_session, "32023R2449") == []
     assert await chunk_rows(db_session, "32015R0757")
 
@@ -175,7 +175,7 @@ async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fet
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, mrv_docs())
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
-    assert report.dropped == []
+    assert report.fetch.dropped == []
     assert await chunk_rows(db_session, "32023R2449") == []
     assert await chunk_rows(db_session, "32015R0757")
 
@@ -189,7 +189,7 @@ async def test_unparseable_document_is_recorded_and_others_persist(
     )
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
-    assert "32023R2449" in report.unparsed
+    assert "32023R2449" in report.parse.failed
     assert not report.ok
     assert await chunk_rows(db_session, "32015R0757")
     assert await chunk_rows(db_session, "32023R2449") == []
@@ -204,8 +204,8 @@ async def test_missing_source_file_is_recorded_not_raised(
     monkeypatch.setattr(corpus, "store", lambda data_dir, ref, content: ("a" * 64, len(content)))
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
-    assert sorted(report.unparsed) == ["32015R0757", "32023R2449"]
-    assert all("FileNotFoundError" in reason for reason in report.unparsed.values())
+    assert sorted(report.parse.failed) == ["32015R0757", "32023R2449"]
+    assert all("FileNotFoundError" in reason for reason in report.parse.failed.values())
     assert not report.ok
 
 
@@ -215,7 +215,7 @@ async def test_failed_fetch_still_chunks_what_was_downloaded(db_session, tmp_pat
     )
     report = await ingest(db_session, client, ["mrv"], tmp_path)
 
-    assert "32023R2449" in report.failed
+    assert "32023R2449" in report.fetch.failed
     assert not report.ok
     assert report.corpus_version is None
     assert await chunk_rows(db_session, "32015R0757")

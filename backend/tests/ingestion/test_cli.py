@@ -46,23 +46,23 @@ def test_unknown_topic_rejected(fake_ingest, capsys):
 
 def test_prints_summary_and_exits_zero_when_clean(fake_ingest, capsys):
     _, report = fake_ingest
-    report.record(DocAction.NEW, "32023R1805")
+    report.fetch.record(DocAction.NEW, "32023R1805")
     assert main([]) == 0
     assert "1 new" in capsys.readouterr().out
 
 
 def test_exits_nonzero_when_documents_failed(fake_ingest, capsys):
     _, report = fake_ingest
-    report.failed["32023R2917"] = "ResolutionError: no fetchable HTML"
+    report.fetch.failed["32023R2917"] = "ResolutionError: no fetchable HTML"
     assert main([]) == 1
-    assert "failed: 32023R2917" in capsys.readouterr().out
+    assert "fetch failed: 32023R2917" in capsys.readouterr().out
 
 
 def test_exits_nonzero_when_a_document_failed_to_parse(fake_ingest, capsys):
     _, report = fake_ingest
-    report.unparsed["32023R2449"] = "ParseError: unrecognised EUR-Lex dialect"
+    report.parse.failed["32023R2449"] = "ParseError: unrecognised EUR-Lex dialect"
     assert main([]) == 1
-    assert "unparsed: 32023R2449" in capsys.readouterr().out
+    assert "parse failed: 32023R2449" in capsys.readouterr().out
 
 
 def test_abort_prints_error_and_exits_nonzero(monkeypatch, capsys):

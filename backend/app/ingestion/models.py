@@ -1,11 +1,14 @@
-"""Ingestion domain values: run update body, chunk delta, and the run report."""
+"""Ingestion domain values: run update body and the composed run report."""
 
-from dataclasses import dataclass, field
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.ingestion.enums import DocAction, IngestRunStatus
+from app.ingestion.chunk.models import ChunkDelta
+from app.ingestion.enums import IngestRunStatus
+from app.ingestion.fetch.models import FetchDelta
+from app.ingestion.parse.models import ParseDelta
+from app.ingestion.stage import IngestStageDelta
 
 
 class IngestRunUpdate(BaseModel):
@@ -16,65 +19,37 @@ class IngestRunUpdate(BaseModel):
     completed_at: datetime | None = None
 
 
-class ChunkDelta(BaseModel):
-    """What reconciling one document's chunks changed."""
-
-    added: int = 0
-    removed: int = 0
-    unchanged: int = 0
-
-
-@dataclass
-class RunReport:
-    """Outcome of one ingest run, bucketed for the CLI diff."""
+class RunReport(BaseModel):
+    """Outcome of one ingest run: one delta per stage."""
 
     run_id: int
     corpus_version: str | None = None
-    discovered: list[str] = field(default_factory=list)
-    new: list[str] = field(default_factory=list)
-    changed: list[str] = field(default_factory=list)
-    unchanged: list[str] = field(default_factory=list)
-    dropped: list[str] = field(default_factory=list)
-    failed: dict[str, str] = field(default_factory=dict)
-    chunks_added: int = 0
-    chunks_removed: int = 0
-    chunks_unchanged: int = 0
-    unparsed: dict[str, str] = field(default_factory=dict)
+    fetch: FetchDelta = Field(default_factory=FetchDelta)
+    parse: ParseDelta = Field(default_factory=ParseDelta)
+    chunk: ChunkDelta = Field(default_factory=ChunkDelta)
+
+    @property
+    def stages(self) -> dict[str, IngestStageDelta]:
+        return {name: value for name, value in self if isinstance(value, IngestStageDelta)}
 
     @property
     def ok(self) -> bool:
-        return not self.failed and not self.unparsed
+        return all(delta.ok for delta in self.stages.values())
 
     @property
     def status(self) -> IngestRunStatus:
         return IngestRunStatus.COMPLETED if self.ok else IngestRunStatus.FAILED
 
-    def record(self, action: DocAction, ref: str) -> None:
-        bucket = {
-            DocAction.NEW: self.new,
-            DocAction.CHANGED: self.changed,
-            DocAction.UNCHANGED: self.unchanged,
-        }
-        bucket[action].append(ref)
-
     def summary(self) -> str:
-        lines = [
-            f"run {self.run_id}: {len(self.new)} new, {len(self.changed)} changed, "
-            f"{len(self.unchanged)} unchanged, {len(self.dropped)} dropped, "
-            f"{len(self.failed)} failed, {len(self.unparsed)} unparsed",
-            f"  chunks: +{self.chunks_added} added, -{self.chunks_removed} removed, "
-            f"{self.chunks_unchanged} unchanged",
-            f"  corpus version: {self.corpus_version or '(not stamped)'}",
-        ]
-        for label, refs in (
-            ("new", self.new),
-            ("changed", self.changed),
-            ("dropped", self.dropped),
-        ):
-            if refs:
-                lines.append(f"  {label}: {', '.join(sorted(refs))}")
-        for ref, error in sorted(self.failed.items()):
-            lines.append(f"  failed: {ref} ({error})")
-        for ref, error in sorted(self.unparsed.items()):
-            lines.append(f"  unparsed: {ref} ({error})")
-        return "\n".join(lines)
+        """The run as the CLI prints it: a line per stage, then the per-ref detail."""
+        return "\n".join(
+            [
+                f"run {self.run_id} ({self.corpus_version or 'not stamped'})",
+                *(f"  [{name}] {delta.summary()}" for name, delta in self.stages.items()),
+                *(
+                    f"  {name} {line}"
+                    for name, delta in self.stages.items()
+                    for line in delta.details()
+                ),
+            ]
+        )

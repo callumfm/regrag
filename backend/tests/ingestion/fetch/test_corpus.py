@@ -15,8 +15,7 @@ from app.ingestion.fetch.corpus import (
     fetch_documents,
     store,
 )
-from app.ingestion.fetch.models import DocumentSpec
-from app.ingestion.models import RunReport
+from app.ingestion.fetch.models import DocumentSpec, FetchDelta
 from app.ingestion.schemas import IngestedDocument
 from app.ingestion.service import create_ingest_run, get_baseline_docs
 from tests.conftest import binding, payload
@@ -87,12 +86,12 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
     } | (overrides or {})
 
 
-async def fetch(db_session, client, topics, data_dir) -> tuple[RunReport, list[IngestedDocument]]:
-    """Drive the fetch stage alone, with the run and report the orchestrator would supply."""
+async def fetch(db_session, client, topics, data_dir) -> tuple[FetchDelta, list[IngestedDocument]]:
+    """Drive the fetch stage alone, with the run and delta the orchestrator would supply."""
     run = await create_ingest_run(db_session)
-    report = RunReport(run_id=run.id)
-    documents = await fetch_documents(db_session, client, topics, data_dir, run, report)
-    return report, documents
+    delta = FetchDelta()
+    documents = await fetch_documents(db_session, client, topics, data_dir, run, delta)
+    return delta, documents
 
 
 async def test_first_run_ingests_all_as_new(db_session, tmp_path, corpus_client):

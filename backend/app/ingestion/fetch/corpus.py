@@ -14,9 +14,8 @@ from app.core.http import transient_retry
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
 from app.ingestion.fetch.discover import SEEDS, discover
-from app.ingestion.fetch.models import DocumentSpec
+from app.ingestion.fetch.models import DocumentSpec, FetchDelta
 from app.ingestion.fetch.resolve import resolve
-from app.ingestion.models import RunReport
 from app.ingestion.schemas import IngestedDocument, IngestRun
 from app.ingestion.service import get_baseline_docs
 
@@ -105,9 +104,9 @@ def ingest_documents(
     baseline: Mapping[str, IngestedDocument],
     run: IngestRun,
     data_dir: Path,
-    report: RunReport,
+    delta: FetchDelta,
 ) -> list[IngestedDocument]:
-    """Ingest each spec in turn, recording its outcome (or its error) on the report."""
+    """Ingest each spec in turn, recording its outcome (or its error) on the delta."""
     documents = []
     for idx, spec in enumerate(specs):
         if idx > 0:
@@ -115,10 +114,10 @@ def ingest_documents(
         try:
             document, action = ingest_document(client, spec, baseline.get(spec.ref), run, data_dir)
         except (IngestionError, httpx.HTTPError) as exc:
-            report.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
+            delta.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
             continue
         documents.append(document)
-        report.record(action, spec.ref)
+        delta.record(action, spec.ref)
     return documents
 
 
@@ -128,14 +127,14 @@ async def fetch_documents(
     topics: Sequence[str],
     data_dir: Path,
     run: IngestRun,
-    report: RunReport,
+    delta: FetchDelta,
 ) -> list[IngestedDocument]:
     """Discover, resolve and download the corpus for topics, recording a row per document."""
     specs = discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
-    report.discovered = [spec.ref for spec in specs]
-    report.dropped = dropped_refs(specs, baseline)
-    documents = ingest_documents(client, specs, baseline, run, data_dir, report)
+    delta.discovered = [spec.ref for spec in specs]
+    delta.dropped = dropped_refs(specs, baseline)
+    documents = ingest_documents(client, specs, baseline, run, data_dir, delta)
     session.add_all(documents)
     await session.flush()
     return documents
