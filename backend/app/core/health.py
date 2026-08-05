@@ -47,9 +47,10 @@ router = APIRouter(tags=["health"])
 async def get_health(db: SessionDep) -> HealthResponse:
     try:
         await db.execute(text("SELECT 1"))
-        database = ServiceStatus.OK
+    except Exception:
+        return HealthResponse(database=ServiceStatus.ERROR)
+    try:
         corpus_version = await get_latest_corpus_version(db)
     except Exception:
-        database = ServiceStatus.ERROR
         corpus_version = None
-    return HealthResponse(database=database, corpus_version=corpus_version)
+    return HealthResponse(database=ServiceStatus.OK, corpus_version=corpus_version)

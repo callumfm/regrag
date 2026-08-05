@@ -148,6 +148,14 @@ MRV_SPARQL = httpx.Response(
 )
 
 
+def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
+    """The two-document mrv corpus, with per-ref responses overridable."""
+    return {
+        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
+        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
+    } | (overrides or {})
+
+
 async def test_first_run_ingests_all_as_new(db_session, tmp_path):
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL},
@@ -258,13 +266,7 @@ async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path):
 
 
 async def test_completed_run_is_stamped_with_a_dated_corpus_version(db_session, tmp_path):
-    client, _ = corpus_client(
-        {"mrv": MRV_SPARQL},
-        {
-            "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
-            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-        },
-    )
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
     run = await db_session.get(IngestRun, report.run_id)
@@ -272,10 +274,7 @@ async def test_completed_run_is_stamped_with_a_dated_corpus_version(db_session, 
 
 
 async def test_unchanged_corpus_keeps_the_previous_corpus_version(db_session, tmp_path):
-    docs = {
-        "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
-        "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-    }
+    docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     first = await fetch_topics(db_session, client, ["mrv"], tmp_path)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
@@ -289,10 +288,7 @@ async def test_unchanged_corpus_keeps_the_previous_corpus_version(db_session, tm
 async def test_changed_document_produces_a_new_corpus_version(db_session, tmp_path):
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL},
-        {
-            "32015R0757": httpx.Response(200, content=b"<html>v1</html>"),
-            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-        },
+        mrv_docs({"32015R0757": httpx.Response(200, content=b"<html>v1</html>")}),
     )
     first = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
@@ -305,10 +301,7 @@ async def test_changed_document_produces_a_new_corpus_version(db_session, tmp_pa
     )
     client, _ = corpus_client(
         {"mrv": consolidated},
-        {
-            "02015R0757-20250101": httpx.Response(200, content=b"<html>v2</html>"),
-            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-        },
+        mrv_docs({"02015R0757-20250101": httpx.Response(200, content=b"<html>v2</html>")}),
     )
     second = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
@@ -318,11 +311,7 @@ async def test_changed_document_produces_a_new_corpus_version(db_session, tmp_pa
 
 async def test_failed_run_is_not_stamped_with_a_corpus_version(db_session, tmp_path):
     client, _ = corpus_client(
-        {"mrv": MRV_SPARQL},
-        {
-            "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
-            "32023R2449": httpx.Response(400, text="bad"),
-        },
+        {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
     )
     report = await fetch_topics(db_session, client, ["mrv"], tmp_path)
 
@@ -333,13 +322,7 @@ async def test_failed_run_is_not_stamped_with_a_corpus_version(db_session, tmp_p
 
 async def test_any_ingestion_error_is_recorded_per_document(db_session, tmp_path, monkeypatch):
     """The per-document loop catches the whole IngestionError family, not just resolution."""
-    client, _ = corpus_client(
-        {"mrv": MRV_SPARQL},
-        {
-            "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
-            "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
-        },
-    )
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
 
     def unparseable(*args, **kwargs):
         raise ParseError("unrecognised EUR-Lex dialect")

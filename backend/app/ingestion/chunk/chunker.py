@@ -3,6 +3,8 @@
 import re
 from collections.abc import Iterator
 
+from pydantic import computed_field
+
 from app.core.models import FrozenModel
 from app.ingestion.chunk.references import Reference, extract_references
 from app.ingestion.enums import SectionKind
@@ -22,32 +24,28 @@ class Locator(FrozenModel):
     heading_path: tuple[str, ...] = ()
 
 
-class Chunk(FrozenModel):
+class Chunk(Locator):
     """One retrievable unit of a regulation, with its citation and cross-references."""
 
     ref: str
     topic: str
     kind: SectionKind
     text: str
-    citation: str
-    article: str | None = None
-    annex: str | None = None
     paragraph: str | None = None
-    title: str | None = None
-    heading_path: tuple[str, ...] = ()
     part: int = 1
     parts: int = 1
     references: tuple[Reference, ...] = ()
 
-
-def citation(locator: Locator, paragraph: str | None) -> str:
-    """The locator as a lawyer would cite it: 'Article 6(2)', 'Annex I'."""
-    if locator.article is not None:
-        suffix = f"({paragraph})" if paragraph else ""
-        return f"Article {locator.article}{suffix}"
-    if locator.annex is not None:
-        return f"Annex {locator.annex}"
-    return locator.title or ""
+    @computed_field
+    @property
+    def citation(self) -> str:
+        """The locator as a lawyer would cite it: 'Article 6(2)', 'Annex I'."""
+        if self.article is not None:
+            suffix = f"({self.paragraph})" if self.paragraph else ""
+            return f"Article {self.article}{suffix}"
+        if self.annex is not None:
+            return f"Annex {self.annex}"
+        return self.title or ""
 
 
 def descend(section: Section, locator: Locator) -> Locator:
@@ -82,9 +80,11 @@ def pack(parts: list[str], max_chars: int, joiner: str) -> list[str]:
 def segments(text: str, max_chars: int) -> list[str]:
     """Text as pieces within max_chars, splitting on line then sentence boundaries."""
     lines: list[str] = []
-    for line in (line for line in text.split("\n") if line):
-        too_long = len(line) > max_chars
-        lines.extend(pack(SENTENCE.split(line), max_chars, " ") if too_long else [line])
+    for line in filter(None, text.split("\n")):
+        if len(line) > max_chars:
+            lines.extend(pack(SENTENCE.split(line), max_chars, " "))
+        else:
+            lines.append(line)
     return pack(lines, max_chars, "\n")
 
 
@@ -96,18 +96,13 @@ def build(
     part: int,
     parts: int,
 ) -> Chunk:
-    paragraph = section.number if section.kind is SectionKind.PARAGRAPH else None
     return Chunk(
+        **locator.model_dump(),
         ref=document.ref,
         topic=document.topic,
         kind=section.kind,
         text=text,
-        citation=citation(locator, paragraph),
-        article=locator.article,
-        annex=locator.annex,
-        paragraph=paragraph,
-        title=locator.title,
-        heading_path=locator.heading_path,
+        paragraph=section.number if section.kind is SectionKind.PARAGRAPH else None,
         part=part,
         parts=parts,
         references=extract_references(text),
