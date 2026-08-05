@@ -1,7 +1,6 @@
 """Shared test fixtures."""
 
 from collections.abc import AsyncGenerator, Callable
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -12,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
+from app.core.clock import utc_now
 from app.core.config import config
 from app.core.db.session import async_session_factory
 from app.ingestion.fetch.discover import discover
@@ -75,7 +75,7 @@ def make_document() -> Callable[..., IngestedDocument]:
             "url": f"https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}",
             "sha256": "a" * 64,
             "size_bytes": 758462,
-            "fetched_at": datetime.now(UTC),
+            "fetched_at": utc_now(),
         }
         return IngestedDocument(**{**defaults, **overrides})
 

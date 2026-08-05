@@ -5,12 +5,12 @@ import json
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import utc_now, utc_today
 from app.core.http import transient_retry
 from app.ingestion.enums import DocAction, IngestRunStatus
 from app.ingestion.exceptions import DiscoveryError, IngestionError
@@ -96,7 +96,7 @@ def corpus_version(fingerprint: str, previous: str | None) -> str:
     """Date the corpus last changed plus its fingerprint; unchanged corpora keep their version."""
     if previous is not None and previous.endswith(f"-{fingerprint}"):
         return previous
-    return f"{datetime.now(UTC).date()}-{fingerprint}"
+    return f"{utc_today()}-{fingerprint}"
 
 
 def pace() -> None:
@@ -145,7 +145,7 @@ def ingest_document(
         sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at
     else:
         sha256, size_bytes = store(data_dir, spec.ref, download(client, resolution.url))
-        fetched_at = datetime.now(UTC)
+        fetched_at = utc_now()
     document = IngestedDocument(
         run=run,
         name=spec.ref,

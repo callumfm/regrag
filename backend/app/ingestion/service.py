@@ -1,13 +1,13 @@
 """CRUD operations for the ingestion domain."""
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.clock import utc_now
 from app.core.db.crud import create_record, update_record
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.models import IngestRunUpdate
@@ -33,7 +33,7 @@ async def complete_ingest_run(
     corpus_version: str | None = None,
 ) -> IngestRun:
     """Close out a run with its terminal status, completion time and corpus version."""
-    fields: dict[str, Any] = {"status": status, "completed_at": datetime.now(UTC)}
+    fields: dict[str, Any] = {"status": status, "completed_at": utc_now()}
     if corpus_version is not None:
         fields["corpus_version"] = corpus_version
     return await update_ingest_run(session, run, IngestRunUpdate(**fields))
