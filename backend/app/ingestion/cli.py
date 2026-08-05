@@ -11,7 +11,8 @@ from app.core.db.session import get_session
 from app.core.http import http_client
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch.discover import SEEDS
-from app.ingestion.fetch.pipeline import RunReport, fetch_topics
+from app.ingestion.fetch.pipeline import fetch_topics
+from app.ingestion.models import RunReport
 
 
 def build_parser() -> argparse.ArgumentParser:

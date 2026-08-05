@@ -8,7 +8,7 @@ from app.ingestion.cli import main
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch.discover import SEEDS
-from app.ingestion.fetch.pipeline import RunReport
+from app.ingestion.models import RunReport
 
 
 @pytest.fixture

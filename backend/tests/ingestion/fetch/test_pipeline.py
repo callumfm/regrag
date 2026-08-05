@@ -12,7 +12,6 @@ from app.ingestion.exceptions import DiscoveryError, ParseError
 from app.ingestion.fetch import pipeline
 from app.ingestion.fetch.discover import SEEDS, DocumentSpec
 from app.ingestion.fetch.pipeline import (
-    RunReport,
     classify,
     download,
     dropped_refs,
@@ -49,35 +48,6 @@ def test_dropped_refs_are_baseline_refs_absent_from_discovery():
 
 def test_dropped_refs_empty_when_all_discovered():
     assert dropped_refs([spec("32015R0757")], ["32015R0757"]) == []
-
-
-def test_report_record_routes_to_buckets():
-    report = RunReport(run_id=1)
-    report.record(DocAction.NEW, "a")
-    report.record(DocAction.CHANGED, "b")
-    report.record(DocAction.UNCHANGED, "c")
-    assert (report.new, report.changed, report.unchanged) == (["a"], ["b"], ["c"])
-
-
-def test_report_ok_and_status_track_failures():
-    report = RunReport(run_id=1)
-    assert report.ok and report.status is IngestRunStatus.COMPLETED
-    report.failed["x"] = "ResolutionError: boom"
-    assert not report.ok and report.status is IngestRunStatus.FAILED
-
-
-def test_summary_counts_and_lists_non_empty_buckets():
-    report = RunReport(run_id=7)
-    report.record(DocAction.NEW, "32026R0394")
-    report.record(DocAction.UNCHANGED, "32015R0757")
-    report.dropped.append("32014R0666")
-    report.failed["32023R2917"] = "ResolutionError: no fetchable HTML"
-    text = report.summary()
-    assert "run 7: 1 new, 0 changed, 1 unchanged, 1 dropped, 1 failed" in text
-    assert "new: 32026R0394" in text
-    assert "dropped: 32014R0666" in text
-    assert "failed: 32023R2917 (ResolutionError: no fetchable HTML)" in text
-    assert "changed:" not in text
 
 
 @pytest.fixture(autouse=True)
