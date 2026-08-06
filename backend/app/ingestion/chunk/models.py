@@ -2,14 +2,14 @@
 
 import hashlib
 import json
-from typing import Self
+from typing import ClassVar, Self
 
 from pydantic import computed_field
 
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
 from app.ingestion.models import StageRunResult
-from app.ingestion.parse.models import ParsedDocument, Section
+from app.ingestion.parse.models import Section
 
 
 class Reference(FrozenModel):
@@ -48,6 +48,9 @@ class Locator(FrozenModel):
 class Chunk(Locator):
     """One retrievable unit of a regulation, with its citation and cross-references."""
 
+    NOT_IDENTITY: ClassVar[set[str]] = {"topic", "citation", "references"}
+    """Fields outside content_hash: topic is provenance, the rest derive from what is hashed."""
+
     ref: str
     topic: str
     kind: SectionKind
@@ -70,47 +73,9 @@ class Chunk(Locator):
 
     @property
     def content_hash(self) -> str:
-        """Hash of everything that makes a chunk what it is; topic is provenance, not identity."""
-        payload = json.dumps(
-            [
-                self.ref,
-                self.kind,
-                self.article,
-                self.annex,
-                self.title,
-                list(self.heading_path),
-                self.paragraph,
-                self.part,
-                self.parts,
-                self.text,
-            ]
-        )
-        return hashlib.sha256(payload.encode()).hexdigest()
-
-    @classmethod
-    def build(
-        cls,
-        document: ParsedDocument,
-        section: Section,
-        *,
-        locator: Locator,
-        text: str,
-        part: int,
-        parts: int,
-        references: tuple[Reference, ...] = (),
-    ) -> "Chunk":
-        """One chunk of a section's text, carrying the locator it sits under."""
-        return cls(
-            **locator.model_dump(),
-            ref=document.ref,
-            topic=document.topic,
-            kind=section.kind,
-            text=text,
-            paragraph=section.number if section.kind is SectionKind.PARAGRAPH else None,
-            part=part,
-            parts=parts,
-            references=references,
-        )
+        """Hash of every field bar the exclusions, so a new field counts towards identity."""
+        payload = self.model_dump(mode="json", exclude=self.NOT_IDENTITY)
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
 class ChunkRunResult(StageRunResult):
@@ -119,6 +84,3 @@ class ChunkRunResult(StageRunResult):
     added: int = 0
     removed: int = 0
     unchanged: int = 0
-
-    def counts(self) -> dict[str, int]:
-        return {"added": self.added, "removed": self.removed, "unchanged": self.unchanged}

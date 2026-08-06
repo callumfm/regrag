@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from app.ingestion.chunk.models import Chunk, Locator
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.constants import MAX_CHARS
+from app.ingestion.enums import SectionKind
 from app.ingestion.parse.models import ParsedDocument, Section
 
 CELL_SEPARATOR = " | "
@@ -64,10 +65,12 @@ def walk(
     inherited = locator.descend(section)
     split = pieces(section, max_chars)
     for index, piece in enumerate(split, start=1):
-        yield Chunk.build(
-            document,
-            section,
-            locator=inherited,
+        yield Chunk(
+            **inherited.model_dump(),
+            ref=document.ref,
+            topic=document.topic,
+            kind=section.kind,
+            paragraph=section.number if section.kind is SectionKind.PARAGRAPH else None,
             text=piece,
             part=index,
             parts=len(split),

@@ -1,5 +1,7 @@
 """Fetch-stage values: what discovery found, what resolution turned it into, what the run did."""
 
+from typing import ClassVar
+
 from pydantic import Field
 
 from app.core.models import FrozenModel
@@ -26,19 +28,13 @@ class Resolution(FrozenModel):
 class FetchRunResult(StageRunResult):
     """The corpus diff one fetch produced against the previous run."""
 
+    UNCOUNTED: ClassVar[frozenset[str]] = StageRunResult.UNCOUNTED | {"discovered"}
+
     discovered: list[str] = Field(default_factory=list)
     new: list[str] = Field(default_factory=list)
     changed: list[str] = Field(default_factory=list)
     unchanged: list[str] = Field(default_factory=list)
     dropped: list[str] = Field(default_factory=list)
-
-    def counts(self) -> dict[str, int]:
-        return {
-            "new": len(self.new),
-            "changed": len(self.changed),
-            "unchanged": len(self.unchanged),
-            "dropped": len(self.dropped),
-        }
 
     def details(self) -> list[str]:
         listed = [
@@ -53,10 +49,5 @@ class FetchRunResult(StageRunResult):
         return listed + super().details()
 
     def record(self, action: DocAction, ref: str) -> None:
-        """Route a document's fetch outcome to its bucket."""
-        bucket = {
-            DocAction.NEW: self.new,
-            DocAction.CHANGED: self.changed,
-            DocAction.UNCHANGED: self.unchanged,
-        }
-        bucket[action].append(ref)
+        """Route a document's fetch outcome to the bucket its action names."""
+        getattr(self, action).append(ref)

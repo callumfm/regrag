@@ -1,5 +1,7 @@
 """The shared stage-result base: reporting, and how two results combine."""
 
+from typing import ClassVar
+
 import pytest
 from pydantic import Field
 
@@ -12,9 +14,6 @@ class Result(StageRunResult):
     added: int = 0
     refs: list[str] = Field(default_factory=list)
 
-    def counts(self) -> dict[str, int]:
-        return {"added": self.added, "refs": len(self.refs)}
-
 
 class OtherResult(StageRunResult):
     """A second subclass with different field names, to prove __add__ rejects a type mismatch."""
@@ -22,17 +21,11 @@ class OtherResult(StageRunResult):
     removed: int = 0
     tags: list[str] = Field(default_factory=list)
 
-    def counts(self) -> dict[str, int]:
-        return {"removed": self.removed, "tags": len(self.tags)}
-
 
 class StrFieldResult(StageRunResult):
     """A subclass with an unmergeable str field."""
 
     note: str = ""
-
-    def counts(self) -> dict[str, int]:
-        return {}
 
 
 class BoolFieldResult(StageRunResult):
@@ -40,18 +33,28 @@ class BoolFieldResult(StageRunResult):
 
     flag: bool = False
 
-    def counts(self) -> dict[str, int]:
-        return {}
-
 
 def test_ok_is_true_until_something_fails() -> None:
     assert Result().ok
     assert not Result(failed={"32023R1805": "ParseError: no body"}).ok
 
 
-def test_counts_must_be_filled_in_by_the_subclass() -> None:
-    with pytest.raises(NotImplementedError):
-        StageRunResult().summary()
+def test_counts_covers_every_declared_field_but_the_uncounted_ones() -> None:
+    assert Result(added=3, refs=["a", "b"], failed={"c": "boom"}).counts() == {
+        "added": 3,
+        "refs": 2,
+    }
+
+
+def test_counts_skips_a_field_the_subclass_declares_uncounted() -> None:
+    class Quiet(Result):
+        UNCOUNTED: ClassVar[frozenset[str]] = Result.UNCOUNTED | {"refs"}
+
+    assert Quiet(added=3, refs=["a", "b"]).counts() == {"added": 3}
+
+
+def test_a_stage_with_no_buckets_still_reports_its_failures() -> None:
+    assert StageRunResult(failed={"c": "boom"}).summary() == "1 failed"
 
 
 def test_summary_renders_counts_in_order_then_the_failure_count() -> None:

@@ -36,6 +36,11 @@ def test_chunk_carries_document_identity() -> None:
     assert (chunk.ref, chunk.topic) == ("32023R1805", "fueleu")
 
 
+def test_a_non_paragraph_section_leaves_paragraph_unset() -> None:
+    doc = document(article("4", "Limits", Section(kind=SectionKind.HEADING, text="Preamble.")))
+    assert chunk_document(doc)[0].paragraph is None
+
+
 def test_citation_combines_article_and_paragraph() -> None:
     doc = document(article("11a", "Reporting", paragraph("3", "Text.")))
     assert chunk_document(doc)[0].citation == "Article 11a(3)"

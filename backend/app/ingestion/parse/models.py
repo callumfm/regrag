@@ -36,6 +36,3 @@ class ParseRunResult(StageRunResult):
     """Which fetched documents yielded a section tree."""
 
     parsed: list[str] = Field(default_factory=list)
-
-    def counts(self) -> dict[str, int]:
-        return {"parsed": len(self.parsed)}

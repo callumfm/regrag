@@ -1,6 +1,6 @@
-from app.ingestion.chunk.models import Chunk, Locator, Reference
+from app.ingestion.chunk.models import Locator
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.models import ParsedDocument, Section
+from app.ingestion.parse.models import Section
 from tests.conftest import chunk
 
 
@@ -24,47 +24,6 @@ def test_descend_into_a_heading_extends_the_heading_path() -> None:
 def test_descend_into_a_paragraph_changes_nothing() -> None:
     locator = Locator(article="6")
     assert locator.descend(Section(kind=SectionKind.PARAGRAPH, number="2")) == locator
-
-
-def test_build_combines_document_identity_locator_and_text() -> None:
-    document = ParsedDocument(ref="32023R1805", topic="fueleu", sections=())
-    section = Section(kind=SectionKind.PARAGRAPH, number="2")
-    chunk = Chunk.build(
-        document, section, locator=Locator(article="6"), text="The yearly average", part=1, parts=3
-    )
-    assert (chunk.ref, chunk.topic) == ("32023R1805", "fueleu")
-    assert (chunk.article, chunk.paragraph, chunk.citation) == ("6", "2", "Article 6(2)")
-    assert (chunk.part, chunk.parts, chunk.text) == (1, 3, "The yearly average")
-
-
-def test_build_leaves_paragraph_unset_for_a_non_paragraph_section() -> None:
-    document = ParsedDocument(ref="32023R1805", topic="fueleu", sections=())
-    section = Section(kind=SectionKind.ARTICLE, number="6")
-    built = Chunk.build(document, section, locator=Locator(), text="text", part=1, parts=1)
-    assert built.paragraph is None
-
-
-def test_build_carries_the_references_it_is_given() -> None:
-    document = ParsedDocument(ref="32023R1805", topic="fueleu", sections=())
-    section = Section(kind=SectionKind.PARAGRAPH, number="2")
-    reference = Reference(raw="Annex I", annex="I")
-    chunk = Chunk.build(
-        document,
-        section,
-        locator=Locator(),
-        text="text",
-        part=1,
-        parts=1,
-        references=(reference,),
-    )
-    assert chunk.references == (reference,)
-
-
-def test_build_defaults_to_no_references() -> None:
-    document = ParsedDocument(ref="32023R1805", topic="fueleu", sections=())
-    section = Section(kind=SectionKind.PARAGRAPH, number="2")
-    built = Chunk.build(document, section, locator=Locator(), text="text", part=1, parts=1)
-    assert built.references == ()
 
 
 def test_hash_is_stable_for_identical_content():
