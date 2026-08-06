@@ -4,7 +4,7 @@ from collections import Counter
 from collections.abc import Collection, Iterable, Iterator, Sequence
 from typing import cast
 
-from sqlalchemy import CursorResult, delete, select, update
+from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.models import Chunk, ChunkRunResult
@@ -21,30 +21,19 @@ def keyed(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
 
 
 def to_chunk_row(
-    chunk: Chunk, *, digest: str, occurrence: int, corpus_version: str | None
+    chunk: Chunk, *, digest: str, occurrence: int, ingest_run_id: int
 ) -> DocumentChunk:
-    """The chunk itself, plus what only persistence knows: hash, duplicate index, version."""
+    """The chunk itself, plus what only persistence knows: hash, duplicate index, run."""
     return DocumentChunk(
         **chunk.model_dump(mode="json"),
         content_hash=digest,
         occurrence=occurrence,
-        corpus_version=corpus_version,
-    )
-
-
-async def _stamp_unversioned(
-    session: AsyncSession, row_ids: Collection[int], corpus_version: str
-) -> None:
-    """Backfill rows a partial run left unstamped, now that a real corpus version exists."""
-    await session.execute(
-        update(DocumentChunk)
-        .where(DocumentChunk.id.in_(row_ids), DocumentChunk.corpus_version.is_(None))
-        .values(corpus_version=corpus_version)
+        ingest_run_id=ingest_run_id,
     )
 
 
 async def upsert_document_chunks(
-    session: AsyncSession, *, ref: str, chunks: Sequence[Chunk], corpus_version: str | None
+    session: AsyncSession, *, ref: str, chunks: Sequence[Chunk], ingest_run_id: int
 ) -> ChunkRunResult:
     """Reconcile a document's chunks by content hash, leaving matched rows otherwise untouched."""
     incoming = {(digest, occurrence): chunk for chunk, digest, occurrence in keyed(chunks)}
@@ -63,10 +52,8 @@ async def upsert_document_chunks(
         await session.execute(
             delete(DocumentChunk).where(DocumentChunk.id.in_([existing[key] for key in gone]))
         )
-    if matched and corpus_version is not None:
-        await _stamp_unversioned(session, [existing[key] for key in matched], corpus_version)
     session.add_all(
-        to_chunk_row(incoming[key], digest=key[0], occurrence=key[1], corpus_version=corpus_version)
+        to_chunk_row(incoming[key], digest=key[0], occurrence=key[1], ingest_run_id=ingest_run_id)
         for key in added
     )
     await session.flush()

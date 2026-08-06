@@ -18,7 +18,7 @@ from app.ingestion.parse.eurlex_html import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.pipeline import IngestRunResult, ingest
 from app.ingestion.schemas import IngestRun
-from tests.conftest import MRV_SPARQL, binding, chunk_rows, payload
+from tests.conftest import MRV_SPARQL, binding, chunk_rows, chunk_versions, payload
 
 pytestmark = pytest.mark.anyio
 
@@ -179,7 +179,8 @@ async def test_run_persists_chunks_for_every_document(db_session, tmp_path, corp
     assert report.ok
     assert report.chunk.added == len(rows) > 0
     assert {row.ref for row in rows} == {"32015R0757", "32023R2449"}
-    assert {row.corpus_version for row in rows} == {report.corpus_version}
+    assert {row.ingest_run_id for row in rows} == {report.run_id}
+    assert await chunk_versions(db_session) == {report.corpus_version}
 
 
 async def test_second_identical_run_adds_and_removes_nothing(db_session, tmp_path, corpus_client):
@@ -417,24 +418,28 @@ async def test_partial_fetch_leaves_its_chunks_unstamped(db_session, tmp_path, c
     report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
     assert report.corpus_version is None
-    assert {row.corpus_version for row in await chunk_rows(db_session, "32015R0757")} == {None}
+    assert await chunk_versions(db_session, "32015R0757") == {None}
 
 
-async def test_a_whole_corpus_run_backfills_chunks_left_unstamped(
+async def test_chunks_stay_attributed_to_the_run_that_first_stored_them(
     db_session, tmp_path, corpus_client
 ):
+    """A later whole-corpus run leaves matched chunks pointing at the run they came from.
+
+    Those chunks resolve to no corpus version, because the run that stored them failed.
+    """
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
     )
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    partial = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
     assert report.corpus_version is not None
-    assert {row.corpus_version for row in await chunk_rows(db_session, "32015R0757")} == {
-        report.corpus_version
-    }
+    rows = await chunk_rows(db_session, "32015R0757")
+    assert {row.ingest_run_id for row in rows} == {partial.run_id}
+    assert await chunk_versions(db_session, "32015R0757") == {None}
 
 
 async def test_failed_fetch_still_chunks_what_was_downloaded(db_session, tmp_path, corpus_client):
@@ -497,7 +502,7 @@ async def test_fueleu_chunks_are_stamped_and_topic_tagged(db_session, tmp_path, 
 
     rows = await chunk_rows(db_session, "32023R1805")
     assert {row.topic for row in rows} == {"fueleu"}
-    assert {row.corpus_version for row in rows} == {report.corpus_version}
+    assert await chunk_versions(db_session, "32023R1805") == {report.corpus_version}
     assert report.corpus_version is not None
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{7}", report.corpus_version)
 

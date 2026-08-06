@@ -19,7 +19,7 @@ from app.core.http import download
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
-from app.ingestion.enums import SectionKind
+from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.resolve import resolve_version
@@ -95,11 +95,30 @@ def make_document() -> Callable[..., RawDocument]:
 
 
 @pytest.fixture
+async def ingest_run(db_session: AsyncSession) -> IngestRun:
+    """A flushed run for chunks to hang off, since their ingest_run_id is a real FK."""
+    run = IngestRun(status=IngestRunStatus.RUNNING)
+    db_session.add(run)
+    await db_session.flush()
+    return run
+
+
+@pytest.fixture
+async def later_run(db_session: AsyncSession, ingest_run: IngestRun) -> IngestRun:
+    """A second run, ordered after ingest_run, for tests about which run a chunk belongs to."""
+    run = IngestRun(status=IngestRunStatus.RUNNING)
+    db_session.add(run)
+    await db_session.flush()
+    return run
+
+
+@pytest.fixture
 def make_chunk_row() -> Callable[..., DocumentChunk]:
     """Build a persisted-chunk row with sane defaults, overridable per field."""
 
-    def _make(**overrides: Any) -> DocumentChunk:
+    def _make(run: IngestRun, **overrides: Any) -> DocumentChunk:
         defaults: dict[str, Any] = {
+            "run": run,
             "ref": "32023R1805",
             "topic": "fueleu",
             "content_hash": "b" * 64,
@@ -115,7 +134,6 @@ def make_chunk_row() -> Callable[..., DocumentChunk]:
             "citation": "Article 4(1)",
             "text": "The greenhouse gas intensity of the energy used on board.",
             "references": [{"raw": "Annex I", "annex": "I"}],
-            "corpus_version": "2026-08-05-a3f9e21",
         }
         return DocumentChunk(**{**defaults, **overrides})
 
@@ -186,6 +204,16 @@ def payload(*bindings: dict) -> dict:
 MRV_SPARQL = httpx.Response(
     200, json=payload(binding("32015R0757", force="1"), binding("32023R2449", force="1"))
 )
+
+
+async def chunk_versions(session: AsyncSession, ref: str | None = None) -> set[str | None]:
+    """The corpus versions the stored chunks resolve to through the run that stored them."""
+    stmt = select(IngestRun.corpus_version).join(
+        DocumentChunk, DocumentChunk.ingest_run_id == IngestRun.id
+    )
+    if ref is not None:
+        stmt = stmt.where(DocumentChunk.ref == ref)
+    return set(await session.scalars(stmt))
 
 
 async def chunk_rows(session: AsyncSession, ref: str | None = None) -> list[DocumentChunk]:

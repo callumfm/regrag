@@ -16,7 +16,7 @@ async def chunk_documents(
     session: AsyncSession,
     documents: Sequence[ParsedDocument],
     *,
-    corpus_version: str | None,
+    ingest_run_id: int,
     keep_refs: Collection[str] | None,
 ) -> ChunkRunResult:
     """Reconcile each document's chunks; with a keep list, drop chunks of every ref outside it.
@@ -31,7 +31,7 @@ async def chunk_documents(
                     session,
                     ref=document.ref,
                     chunks=chunk_document(document),
-                    corpus_version=corpus_version,
+                    ingest_run_id=ingest_run_id,
                 )
         except (IngestionError, SQLAlchemyError) as exc:
             result.failed[document.ref] = f"{type(exc).__name__}: {exc}"

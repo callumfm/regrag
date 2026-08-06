@@ -20,12 +20,7 @@ from app.ingestion.models import StageRunResult
 from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.parse.stage import parse_documents
 from app.ingestion.schemas import IngestRun
-from app.ingestion.service import (
-    complete_ingest_run,
-    create_ingest_run,
-    get_latest_corpus_version,
-    next_corpus_version,
-)
+from app.ingestion.service import complete_ingest_run, create_ingest_run, next_corpus_version
 
 logger = logging.getLogger(__name__)
 
@@ -76,13 +71,6 @@ async def _mark_failed(session: AsyncSession, run: IngestRun) -> None:
         logger.exception("run %s could not be marked failed", run_id)
 
 
-async def _corpus_version(session: AsyncSession, fetched: FetchRunResult) -> str | None:
-    """Mint a version only from a whole corpus; a partial fetch keeps the last good one."""
-    if fetched.ok:
-        return await next_corpus_version(session)
-    return await get_latest_corpus_version(session)
-
-
 @asynccontextmanager
 async def ingest_run(session: AsyncSession) -> AsyncIterator[IngestRun]:
     """Open a run, and mark it failed if the pipeline raises or is interrupted."""
@@ -108,8 +96,6 @@ async def ingest(
         )
         logger.info("[fetch] %s", fetched.summary())
 
-        version = await _corpus_version(session, fetched)
-
         parsed, parse_result = parse_documents(documents, data_dir=data_dir)
         logger.info("[parse] %s", parse_result.summary())
 
@@ -117,11 +103,12 @@ async def ingest(
         if fetched.ok and parse_result.ok:
             keep = set(fetched.discovered) | await get_other_topic_refs(session, topics)
 
-        chunked = await chunk_documents(session, parsed, corpus_version=version, keep_refs=keep)
+        chunked = await chunk_documents(session, parsed, ingest_run_id=run.id, keep_refs=keep)
         logger.info("[chunk] %s", chunked.summary())
 
         result = IngestRunResult(run_id=run.id, fetch=fetched, parse=parse_result, chunk=chunked)
-        result.corpus_version = version if result.ok else None
+        if result.ok:
+            result.corpus_version = await next_corpus_version(session)
         await complete_ingest_run(
             session, run, status=result.status, corpus_version=result.corpus_version
         )
