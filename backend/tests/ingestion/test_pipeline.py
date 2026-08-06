@@ -5,7 +5,8 @@ from pathlib import Path
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import ProgrammingError
 
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.models import ChunkRunResult
@@ -260,6 +261,97 @@ async def test_missing_source_file_is_recorded_not_raised(
     assert sorted(report.parse.failed) == ["32015R0757", "32023R2449"]
     assert all("FileNotFoundError" in reason for reason in report.parse.failed.values())
     assert not report.ok
+
+
+async def test_a_source_file_lost_from_disk_is_downloaded_again(
+    db_session, tmp_path, corpus_client
+):
+    docs = mrv_docs()
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    for path in tmp_path.glob("*.html"):
+        path.unlink()
+
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    assert (tmp_path / "32015R0757.html").exists()
+    assert report.ok
+
+
+async def test_a_disk_error_is_recorded_not_raised(
+    db_session, tmp_path, corpus_client, monkeypatch
+):
+    def full_disk(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(stage, "_store", full_disk)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    assert sorted(report.fetch.failed) == ["32015R0757", "32023R2449"]
+    assert all("OSError" in reason for reason in report.fetch.failed.values())
+    assert not report.ok
+
+
+async def test_an_interrupt_still_marks_the_run_failed(
+    db_session, tmp_path, corpus_client, monkeypatch
+):
+    async def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_documents", interrupt)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    with pytest.raises(KeyboardInterrupt):
+        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    run = (await db_session.scalars(select(IngestRun))).one()
+    assert run.status is IngestRunStatus.FAILED
+    assert run.completed_at is not None
+
+
+async def test_a_database_failure_does_not_mask_itself(
+    db_session, tmp_path, corpus_client, monkeypatch
+):
+    """The failure handler must roll back first, or its own commit raises over the real cause."""
+
+    async def explode(*args, **kwargs):
+        await db_session.execute(text("SELECT * FROM no_such_table"))
+
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_documents", explode)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    with pytest.raises(ProgrammingError):
+        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    run = (await db_session.scalars(select(IngestRun))).one()
+    assert run.status is IngestRunStatus.FAILED
+
+
+async def test_partial_fetch_leaves_its_chunks_unstamped(db_session, tmp_path, corpus_client):
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
+    )
+    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    assert report.corpus_version is None
+    assert {row.corpus_version for row in await chunk_rows(db_session, "32015R0757")} == {None}
+
+
+async def test_a_whole_corpus_run_backfills_chunks_left_unstamped(
+    db_session, tmp_path, corpus_client
+):
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
+    )
+    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    assert report.corpus_version is not None
+    assert {row.corpus_version for row in await chunk_rows(db_session, "32015R0757")} == {
+        report.corpus_version
+    }
 
 
 async def test_failed_fetch_still_chunks_what_was_downloaded(db_session, tmp_path, corpus_client):
