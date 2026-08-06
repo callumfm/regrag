@@ -8,8 +8,8 @@ from pydantic import computed_field
 
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
+from app.ingestion.models import StageRunResult
 from app.ingestion.parse.models import ParsedDocument, Section
-from app.ingestion.stage import StageRunResult
 
 
 class Reference(FrozenModel):

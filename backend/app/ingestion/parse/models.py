@@ -6,7 +6,7 @@ from pydantic import Field
 
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
-from app.ingestion.stage import StageRunResult
+from app.ingestion.models import StageRunResult
 
 
 class Section(FrozenModel):

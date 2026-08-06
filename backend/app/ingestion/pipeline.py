@@ -6,17 +6,57 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.chunk.stage import chunk_documents
 from app.ingestion.enums import IngestRunStatus
+from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.fetch.stage import fetch_documents
-from app.ingestion.models import IngestRunResult
+from app.ingestion.models import StageRunResult
+from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.parse.stage import parse_documents
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run, next_corpus_version
 
 logger = logging.getLogger(__name__)
+
+
+class IngestRunResult(BaseModel):
+    """Outcome of one ingest run: one result per stage."""
+
+    run_id: int
+    corpus_version: str | None = None
+    fetch: FetchRunResult = Field(default_factory=FetchRunResult)
+    parse: ParseRunResult = Field(default_factory=ParseRunResult)
+    chunk: ChunkRunResult = Field(default_factory=ChunkRunResult)
+
+    @property
+    def stages(self) -> dict[str, StageRunResult]:
+        return {"fetch": self.fetch, "parse": self.parse, "chunk": self.chunk}
+
+    @property
+    def ok(self) -> bool:
+        return all(result.ok for result in self.stages.values())
+
+    @property
+    def status(self) -> IngestRunStatus:
+        return IngestRunStatus.COMPLETED if self.ok else IngestRunStatus.FAILED
+
+    def summary(self) -> str:
+        """The run as the CLI prints it: a line per stage, then the per-ref detail."""
+        return "\n".join(
+            [
+                f"run {self.run_id} ({self.corpus_version or 'not stamped'})",
+                *(f"  [{name}] {result.summary()}" for name, result in self.stages.items()),
+                *(
+                    f"  {name} {line}"
+                    for name, result in self.stages.items()
+                    for line in result.details()
+                ),
+            ]
+        )
 
 
 @asynccontextmanager

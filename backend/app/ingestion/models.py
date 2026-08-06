@@ -1,14 +1,51 @@
-"""Ingestion domain values describing a run as a whole."""
+"""Ingestion values every stage shares: what a stage changed, and what it could not do."""
 
 from datetime import datetime
+from typing import Any, Self
 
 from pydantic import BaseModel, Field
 
-from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.models import FetchRunResult
-from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.stage import StageRunResult
+
+
+class StageRunResult(BaseModel):
+    """One ingest stage's outcome; subclasses declare their buckets and fill counts()."""
+
+    failed: dict[str, str] = Field(default_factory=dict)
+
+    @property
+    def ok(self) -> bool:
+        return not self.failed
+
+    def counts(self) -> dict[str, int]:
+        """This stage's outcome buckets, in reporting order."""
+        raise NotImplementedError
+
+    def summary(self) -> str:
+        """One line of counts, always closing with the failure count."""
+        counted = [f"{value} {label}" for label, value in self.counts().items()]
+        return ", ".join([*counted, f"{len(self.failed)} failed"])
+
+    def details(self) -> list[str]:
+        """The per-ref lines the summary is too short to carry."""
+        return [f"failed: {ref} ({error})" for ref, error in sorted(self.failed.items())]
+
+    def __add__(self, other: Self) -> Self:
+        """Combine same-type operands field by field; fields must be int, list or dict."""
+        if type(other) is not type(self):
+            return NotImplemented
+        merged: dict[str, Any] = {}
+        for name in type(self).model_fields:
+            mine, theirs = getattr(self, name), getattr(other, name)
+            if isinstance(mine, dict):
+                merged[name] = {**mine, **theirs}
+            elif isinstance(mine, list | int) and not isinstance(mine, bool):
+                merged[name] = mine + theirs
+            else:
+                raise TypeError(
+                    f"{type(self).__name__}.{name}: result fields must be int, list or dict"
+                )
+        return type(self)(**merged)
 
 
 class IngestRunUpdate(BaseModel):
@@ -17,39 +54,3 @@ class IngestRunUpdate(BaseModel):
     status: IngestRunStatus | None = None
     corpus_version: str | None = None
     completed_at: datetime | None = None
-
-
-class IngestRunResult(BaseModel):
-    """Outcome of one ingest run: one result per stage."""
-
-    run_id: int
-    corpus_version: str | None = None
-    fetch: FetchRunResult = Field(default_factory=FetchRunResult)
-    parse: ParseRunResult = Field(default_factory=ParseRunResult)
-    chunk: ChunkRunResult = Field(default_factory=ChunkRunResult)
-
-    @property
-    def stages(self) -> dict[str, StageRunResult]:
-        return {"fetch": self.fetch, "parse": self.parse, "chunk": self.chunk}
-
-    @property
-    def ok(self) -> bool:
-        return all(result.ok for result in self.stages.values())
-
-    @property
-    def status(self) -> IngestRunStatus:
-        return IngestRunStatus.COMPLETED if self.ok else IngestRunStatus.FAILED
-
-    def summary(self) -> str:
-        """The run as the CLI prints it: a line per stage, then the per-ref detail."""
-        return "\n".join(
-            [
-                f"run {self.run_id} ({self.corpus_version or 'not stamped'})",
-                *(f"  [{name}] {result.summary()}" for name, result in self.stages.items()),
-                *(
-                    f"  {name} {line}"
-                    for name, result in self.stages.items()
-                    for line in result.details()
-                ),
-            ]
-        )

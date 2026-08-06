@@ -12,8 +12,7 @@ from app.core.http import http_client
 from app.core.logger import setup_logging
 from app.ingestion.constants import SEEDS
 from app.ingestion.exceptions import DiscoveryError
-from app.ingestion.models import IngestRunResult
-from app.ingestion.pipeline import ingest
+from app.ingestion.pipeline import IngestRunResult, ingest
 
 
 def build_parser() -> argparse.ArgumentParser:
