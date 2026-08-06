@@ -73,16 +73,10 @@ async def upsert_document_chunks(
     return ChunkRunResult(added=len(added), removed=len(gone), unchanged=len(matched))
 
 
-async def delete_chunks_outside(
-    session: AsyncSession, *, topics: Sequence[str], discovered_refs: Collection[str]
-) -> int:
-    """Drop chunks of documents no longer discovered for the topics being ingested."""
-    if not topics or not discovered_refs:
+async def delete_chunks_outside(session: AsyncSession, *, keep_refs: Collection[str]) -> int:
+    """Drop chunks of documents no topic holds; the keep list decides, not the topic tag."""
+    if not keep_refs:
         return 0
-    result = await session.execute(
-        delete(DocumentChunk).where(
-            DocumentChunk.topic.in_(topics), DocumentChunk.ref.notin_(discovered_refs)
-        )
-    )
+    result = await session.execute(delete(DocumentChunk).where(DocumentChunk.ref.notin_(keep_refs)))
     await session.flush()
     return cast(CursorResult, result).rowcount

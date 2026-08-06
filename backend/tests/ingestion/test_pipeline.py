@@ -234,6 +234,89 @@ async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fet
     assert await chunk_rows(db_session, "32015R0757")
 
 
+WIDE_REFS = ["32015R0757", "32023R2449", "32026R0001", "32026R0002", "32026R0003"]
+WIDE_SPARQL = httpx.Response(200, json=payload(*(binding(ref, force="1") for ref in WIDE_REFS)))
+
+
+def wide_docs() -> dict[str, httpx.Response]:
+    """A five-document mrv corpus, enough that losing most of it is implausible."""
+    return {ref: httpx.Response(200, content=FUELEU_HTML.encode()) for ref in WIDE_REFS}
+
+
+async def test_discovery_losing_most_of_the_corpus_aborts_and_deletes_nothing(
+    db_session, tmp_path, corpus_client
+):
+    """A truncated result set reads exactly like a mass repeal, so refuse to act on it."""
+    client, _ = corpus_client({"mrv": WIDE_SPARQL}, wide_docs())
+    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    before = {row.id for row in await chunk_rows(db_session)}
+    assert before
+
+    client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, wide_docs())
+    with pytest.raises(DiscoveryError, match="lost 4 of 5"):
+        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    assert {row.id for row in await chunk_rows(db_session)} == before
+
+
+async def test_a_plausible_repeal_still_prunes(db_session, tmp_path, corpus_client):
+    """One document out of five is an ordinary repeal, not a truncated response."""
+    client, _ = corpus_client({"mrv": WIDE_SPARQL}, wide_docs())
+    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    kept = [binding(ref, force="1") for ref in WIDE_REFS if ref != "32026R0003"]
+    client, _ = corpus_client({"mrv": httpx.Response(200, json=payload(*kept))}, wide_docs())
+    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    assert report.fetch.dropped == ["32026R0003"]
+    assert await chunk_rows(db_session, "32026R0003") == []
+
+
+async def test_an_incomplete_run_prunes_nothing(db_session, tmp_path, corpus_client):
+    """A run that could not fetch its whole corpus has no business declaring anything obsolete."""
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    assert await chunk_rows(db_session, "32023R2449")
+
+    client, _ = corpus_client(
+        {"mrv": ONLY_SEED_SPARQL},
+        mrv_docs({"32015R0757": httpx.Response(400, text="bad")}),
+    )
+    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    assert report.fetch.dropped == ["32023R2449"]
+    assert not report.ok
+    assert report.chunk.removed == 0
+    assert await chunk_rows(db_session, "32023R2449")
+
+
+FUELEU_PLUS_SHARED = httpx.Response(
+    200, json=payload(binding("32023R1805", force="1"), binding("32015R0757", force="1"))
+)
+
+
+async def test_a_ref_another_topic_still_holds_survives_being_dropped(
+    db_session, tmp_path, corpus_client
+):
+    """32015R0757 is tagged fueleu because fueleu saw it first; mrv still wanting it must win."""
+    shared_docs = {
+        "32023R1805": httpx.Response(200, content=FUELEU_HTML.encode()),
+        "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
+    }
+    client, _ = corpus_client({"fueleu": FUELEU_PLUS_SHARED}, shared_docs)
+    await ingest(db_session, client=client, topics=["fueleu"], data_dir=tmp_path)
+    assert {row.topic for row in await chunk_rows(db_session, "32015R0757")} == {"fueleu"}
+
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    client, _ = corpus_client({"fueleu": FUELEU_SPARQL}, shared_docs)
+    report = await ingest(db_session, client=client, topics=["fueleu"], data_dir=tmp_path)
+
+    assert report.fetch.dropped == ["32015R0757"]
+    assert await chunk_rows(db_session, "32015R0757")
+
+
 async def test_unparseable_document_is_recorded_and_others_persist(
     db_session, tmp_path, corpus_client
 ):

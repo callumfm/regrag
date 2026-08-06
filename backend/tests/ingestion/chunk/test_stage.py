@@ -24,7 +24,7 @@ async def test_reconciles_each_document_and_sums_one_result(db_session: AsyncSes
         sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
     )
     result = await chunk_documents(
-        db_session, [document], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
+        db_session, [document], corpus_version="v1", keep_refs=["32023R1805"]
     )
     assert (result.added, result.removed, result.unchanged) == (1, 0, 0)
 
@@ -37,11 +37,9 @@ async def test_a_second_identical_run_changes_nothing(
         topic="fueleu",
         sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
     )
-    await chunk_documents(
-        db_session, [document], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
-    )
+    await chunk_documents(db_session, [document], corpus_version="v1", keep_refs=["32023R1805"])
     result = await chunk_documents(
-        db_session, [document], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
+        db_session, [document], corpus_version="v1", keep_refs=["32023R1805"]
     )
     assert (result.added, result.removed, result.unchanged) == (0, 0, 1)
 
@@ -68,8 +66,7 @@ async def test_a_document_that_will_not_chunk_is_recorded_and_the_rest_persist(
         db_session,
         [parsed("broken"), parsed("32023R1805")],
         corpus_version="v1",
-        topics=["fueleu"],
-        discovered=["broken", "32023R1805"],
+        keep_refs=["broken", "32023R1805"],
     )
     assert "broken" in result.failed
     assert result.added == 1
@@ -92,8 +89,7 @@ async def test_a_database_failure_on_one_document_does_not_abort_the_rest(
         db_session,
         [parsed("broken"), parsed("32023R1805")],
         corpus_version="v1",
-        topics=["fueleu"],
-        discovered=["broken", "32023R1805"],
+        keep_refs=["broken", "32023R1805"],
     )
     assert "IntegrityError" in result.failed["broken"]
     assert result.added == 1
@@ -104,7 +100,5 @@ async def test_chunks_of_a_ref_no_longer_discovered_are_dropped(
 ) -> None:
     db_session.add(make_chunk_row(ref="repealed", topic="fueleu"))
     await db_session.flush()
-    result = await chunk_documents(
-        db_session, [], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
-    )
+    result = await chunk_documents(db_session, [], corpus_version="v1", keep_refs=["32023R1805"])
     assert result.removed == 1

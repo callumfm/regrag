@@ -127,48 +127,41 @@ async def seed_two_topics(session: AsyncSession) -> None:
     )
 
 
-async def test_delete_chunks_outside_removes_undiscovered_documents(db_session: AsyncSession):
+async def test_delete_chunks_outside_removes_documents_off_the_keep_list(
+    db_session: AsyncSession,
+):
     await seed_two_topics(db_session)
 
-    removed = await delete_chunks_outside(
-        db_session, topics=["fueleu"], discovered_refs=["32026R0394"]
-    )
+    removed = await delete_chunks_outside(db_session, keep_refs=["32015R0757"])
 
     assert removed == 1
     assert await chunk_rows(db_session, "32023R1805") == []
 
 
-async def test_delete_chunks_outside_keeps_discovered_documents(db_session: AsyncSession):
+async def test_delete_chunks_outside_keeps_documents_on_the_keep_list(db_session: AsyncSession):
     await seed_two_topics(db_session)
 
-    assert (
-        await delete_chunks_outside(db_session, topics=["fueleu"], discovered_refs=["32023R1805"])
-        == 0
-    )
+    assert await delete_chunks_outside(db_session, keep_refs=["32023R1805", "32015R0757"]) == 0
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
 
 
-async def test_delete_chunks_outside_never_touches_another_topic(db_session: AsyncSession):
+async def test_delete_chunks_outside_spares_a_ref_another_topic_still_holds(
+    db_session: AsyncSession,
+):
+    """The keep list, not the topic tag, decides: a shared ref survives on any topic's say-so."""
     await seed_two_topics(db_session)
 
-    await delete_chunks_outside(db_session, topics=["fueleu"], discovered_refs=["32026R0394"])
+    await delete_chunks_outside(db_session, keep_refs=["32015R0757"])
 
     assert len(await chunk_rows(db_session, "32015R0757")) == 1
 
 
-async def test_delete_chunks_outside_refuses_to_wipe_a_topic_on_empty_discovery(
+async def test_delete_chunks_outside_refuses_to_wipe_everything_on_an_empty_keep_list(
     db_session: AsyncSession,
 ):
     await seed_two_topics(db_session)
 
-    assert await delete_chunks_outside(db_session, topics=["fueleu"], discovered_refs=[]) == 0
-    assert len(await chunk_rows(db_session, "32023R1805")) == 1
-
-
-async def test_delete_chunks_outside_with_no_topics_is_a_noop(db_session: AsyncSession):
-    await seed_two_topics(db_session)
-
-    assert await delete_chunks_outside(db_session, topics=[], discovered_refs=["32026R0394"]) == 0
+    assert await delete_chunks_outside(db_session, keep_refs=[]) == 0
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
 
 

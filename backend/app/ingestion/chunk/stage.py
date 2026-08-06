@@ -17,10 +17,12 @@ async def chunk_documents(
     documents: Sequence[ParsedDocument],
     *,
     corpus_version: str | None,
-    topics: Sequence[str],
-    discovered: Collection[str],
+    keep_refs: Collection[str] | None,
 ) -> ChunkRunResult:
-    """Reconcile each document's chunks, then drop chunks of refs no longer discovered."""
+    """Reconcile each document's chunks; with a keep list, drop chunks of every ref outside it.
+
+    keep_refs is None when the run is incomplete, and an incomplete run prunes nothing.
+    """
     result = ChunkRunResult()
     for document in documents:
         try:
@@ -33,5 +35,7 @@ async def chunk_documents(
                 )
         except (IngestionError, SQLAlchemyError) as exc:
             result.failed[document.ref] = f"{type(exc).__name__}: {exc}"
-    dropped = await delete_chunks_outside(session, topics=topics, discovered_refs=discovered)
+    if keep_refs is None:
+        return result
+    dropped = await delete_chunks_outside(session, keep_refs=keep_refs)
     return result + ChunkRunResult(removed=dropped)

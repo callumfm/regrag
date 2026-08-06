@@ -14,6 +14,7 @@ from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.chunk.stage import chunk_documents
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.fetch.models import FetchRunResult
+from app.ingestion.fetch.service import get_other_topic_refs
 from app.ingestion.fetch.stage import fetch_documents
 from app.ingestion.models import StageRunResult
 from app.ingestion.parse.models import ParseRunResult
@@ -112,13 +113,11 @@ async def ingest(
         parsed, parse_result = parse_documents(documents, data_dir=data_dir)
         logger.info("[parse] %s", parse_result.summary())
 
-        chunked = await chunk_documents(
-            session,
-            parsed,
-            corpus_version=version,
-            topics=topics,
-            discovered=fetched.discovered,
-        )
+        keep = None
+        if fetched.ok and parse_result.ok:
+            keep = set(fetched.discovered) | await get_other_topic_refs(session, topics)
+
+        chunked = await chunk_documents(session, parsed, corpus_version=version, keep_refs=keep)
         logger.info("[chunk] %s", chunked.summary())
 
         result = IngestRunResult(run_id=run.id, fetch=fetched, parse=parse_result, chunk=chunked)
