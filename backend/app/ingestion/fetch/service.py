@@ -28,6 +28,12 @@ async def get_corpus_docs(session: AsyncSession) -> Sequence[RawDocument]:
     return (await session.scalars(latest_run_docs())).all()
 
 
+async def get_other_topic_refs(session: AsyncSession, topics: Sequence[str]) -> set[str]:
+    """Refs still held by the topics this run is not ingesting."""
+    rows = await session.scalars(latest_run_docs().where(RawDocument.topic.notin_(topics)))
+    return {row.ref for row in rows}
+
+
 async def get_baseline_docs(session: AsyncSession, topics: Sequence[str]) -> dict[str, RawDocument]:
     """Rows from each topic's own latest recorded run, keyed by ref."""
     rows = await session.scalars(

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.http import download, pace
-from app.ingestion.constants import PACE_SECONDS, SEEDS
+from app.ingestion.constants import MAX_DROP_RATIO, MIN_SUSPICIOUS_DROPS, PACE_SECONDS, SEEDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
 from app.ingestion.fetch.discover import discover
@@ -30,9 +30,18 @@ def _classify(prev_resolved_ref: str | None, resolved_ref: str) -> DocAction:
 
 
 def _dropped_refs(specs: Sequence[DiscoveredDocument], baseline_refs: Iterable[str]) -> list[str]:
-    """Baseline refs no longer present in discovery (repealed or out of force)."""
+    """Baseline refs discovery no longer returns; losing an implausible share of them is an error.
+
+    A truncated result set is indistinguishable from a mass repeal, so refuse to call it one.
+    """
     discovered = {spec.ref for spec in specs}
-    return sorted(set(baseline_refs) - discovered)
+    baseline = set(baseline_refs)
+    dropped = sorted(baseline - discovered)
+    if len(dropped) >= MIN_SUSPICIOUS_DROPS and len(dropped) > MAX_DROP_RATIO * len(baseline):
+        raise DiscoveryError(
+            f"discovery lost {len(dropped)} of {len(baseline)} documents: {', '.join(dropped)}"
+        )
+    return dropped
 
 
 def _store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
@@ -125,9 +134,10 @@ async def fetch_documents(
     """Discover, resolve and download the corpus for topics, recording a row per document."""
     specs = _discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
+    dropped = _dropped_refs(specs, baseline)
     documents, result = _download_documents(
         client, specs, baseline=baseline, run=run, data_dir=data_dir
     )
     session.add_all(documents)
     await session.flush()
-    return documents, result + FetchRunResult(dropped=_dropped_refs(specs, baseline))
+    return documents, result + FetchRunResult(dropped=dropped)
