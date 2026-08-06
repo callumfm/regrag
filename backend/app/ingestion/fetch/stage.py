@@ -71,10 +71,10 @@ def _fetch_document(
     run: IngestRun,
     data_dir: Path,
 ) -> tuple[RawDocument, DocAction]:
-    """Resolve one act, download it unless unchanged, and build its row."""
+    """Resolve one act, download it unless unchanged and still on disk, and build its row."""
     resolution = resolve_version(client, spec)
     action = _classify(prev.resolved_ref if prev else None, resolution.resolved_ref)
-    if action is DocAction.UNCHANGED and prev is not None:
+    if action is DocAction.UNCHANGED and prev is not None and prev.path(data_dir).exists():
         sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at
     else:
         sha256, size_bytes = _store(data_dir, spec.ref, download(client, resolution.url))
@@ -106,7 +106,7 @@ def _download_documents(
             document, action = _fetch_document(
                 client, spec, prev=baseline.get(spec.ref), run=run, data_dir=data_dir
             )
-        except (IngestionError, httpx.HTTPError) as exc:
+        except (IngestionError, httpx.HTTPError, OSError) as exc:
             result.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
             continue
         documents.append(document)
