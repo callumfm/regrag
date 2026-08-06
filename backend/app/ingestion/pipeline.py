@@ -20,7 +20,7 @@ from app.ingestion.models import StageRunResult
 from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.parse.stage import parse_documents
 from app.ingestion.schemas import IngestRun
-from app.ingestion.service import complete_ingest_run, create_ingest_run, next_corpus_version
+from app.ingestion.service import complete_ingest_run, create_ingest_run
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +107,6 @@ async def ingest(
         logger.info("[chunk] %s", chunked.summary())
 
         result = IngestRunResult(run_id=run.id, fetch=fetched, parse=parse_result, chunk=chunked)
-        if result.ok:
-            result.corpus_version = await next_corpus_version(session)
-        await complete_ingest_run(
-            session, run, status=result.status, corpus_version=result.corpus_version
-        )
+        await complete_ingest_run(session, run, status=result.status)
+        result.corpus_version = run.corpus_version
         return result
