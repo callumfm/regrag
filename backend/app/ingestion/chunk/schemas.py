@@ -30,4 +30,4 @@ class DocumentChunk(BaseSchema):
     citation: Mapped[str]
     text: Mapped[str]
     references: Mapped[list[dict]] = mapped_column(JSONB)
-    corpus_version: Mapped[str]
+    corpus_version: Mapped[str | None]

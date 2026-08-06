@@ -50,7 +50,7 @@ def upgrade() -> None:
         sa.Column("citation", sa.String(), nullable=False),
         sa.Column("text", sa.String(), nullable=False),
         sa.Column("references", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("corpus_version", sa.String(), nullable=False),
+        sa.Column("corpus_version", sa.String(), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
