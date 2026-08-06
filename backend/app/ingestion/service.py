@@ -28,21 +28,6 @@ async def update_ingest_run(
     return await update_record(session, run, update_in)
 
 
-async def complete_ingest_run(
-    session: AsyncSession,
-    run: IngestRun,
-    *,
-    status: IngestRunStatus,
-    corpus_version: str | None = None,
-) -> IngestRun:
-    """Close out a run with its terminal status, completion time and corpus version."""
-    return await update_ingest_run(
-        session,
-        run,
-        IngestRunUpdate(status=status, completed_at=utc_now(), corpus_version=corpus_version),
-    )
-
-
 async def get_latest_corpus_version(session: AsyncSession) -> str | None:
     """The corpus version of the most recent run that was stamped with one."""
     return await session.scalar(
@@ -70,3 +55,15 @@ async def next_corpus_version(session: AsyncSession) -> str:
     if previous is not None and previous.endswith(f"-{fingerprint}"):
         return previous
     return f"{utc_today()}-{fingerprint}"
+
+
+async def complete_ingest_run(
+    session: AsyncSession, run: IngestRun, *, status: IngestRunStatus
+) -> IngestRun:
+    """Close out a run, minting a corpus version for it only if every stage succeeded."""
+    version = await next_corpus_version(session) if status is IngestRunStatus.COMPLETED else None
+    return await update_ingest_run(
+        session,
+        run,
+        IngestRunUpdate(status=status, completed_at=utc_now(), corpus_version=version),
+    )

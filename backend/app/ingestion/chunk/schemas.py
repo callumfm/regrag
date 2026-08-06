@@ -1,11 +1,12 @@
 """Persisted chunks: one row per retrievable unit of a regulation."""
 
-from sqlalchemy import ARRAY, String, UniqueConstraint
+from sqlalchemy import ARRAY, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db.schema import BaseSchema
 from app.ingestion.enums import SectionKind
+from app.ingestion.schemas import IngestRun
 
 
 class DocumentChunk(BaseSchema):
@@ -15,6 +16,7 @@ class DocumentChunk(BaseSchema):
     __table_args__ = (UniqueConstraint("ref", "content_hash", "occurrence"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    ingest_run_id: Mapped[int] = mapped_column(ForeignKey("ingest_runs.id", ondelete="CASCADE"))
     ref: Mapped[str]
     topic: Mapped[str]
     content_hash: Mapped[str]
@@ -30,4 +32,5 @@ class DocumentChunk(BaseSchema):
     citation: Mapped[str]
     text: Mapped[str]
     references: Mapped[list[dict]] = mapped_column(JSONB)
-    corpus_version: Mapped[str | None]
+
+    run: Mapped[IngestRun] = relationship()

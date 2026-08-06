@@ -20,12 +20,7 @@ from app.ingestion.models import StageRunResult
 from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.parse.stage import parse_documents
 from app.ingestion.schemas import IngestRun
-from app.ingestion.service import (
-    complete_ingest_run,
-    create_ingest_run,
-    get_latest_corpus_version,
-    next_corpus_version,
-)
+from app.ingestion.service import complete_ingest_run, create_ingest_run
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +71,20 @@ async def _mark_failed(session: AsyncSession, run: IngestRun) -> None:
         logger.exception("run %s could not be marked failed", run_id)
 
 
-async def _corpus_version(session: AsyncSession, fetched: FetchRunResult) -> str | None:
-    """Mint a version only from a whole corpus; a partial fetch keeps the last good one."""
-    if fetched.ok:
-        return await next_corpus_version(session)
-    return await get_latest_corpus_version(session)
+async def _known_corpus_refs(
+    session: AsyncSession,
+    *,
+    fetch_result: FetchRunResult,
+    parse_result: ParseRunResult,
+    topics: Sequence[str],
+) -> set[str] | None:
+    """The refs the corpus consists of after this run: what it discovered, plus other topics'.
+
+    None when any stage failed: pruning is irreversible, so a run with errors does not earn it.
+    """
+    if not (fetch_result.ok and parse_result.ok):
+        return None
+    return set(fetch_result.discovered) | await get_other_topic_refs(session, topics)
 
 
 @asynccontextmanager
@@ -103,26 +107,25 @@ async def ingest(
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as run:
-        documents, fetched = await fetch_documents(
+        documents, fetch_result = await fetch_documents(
             session, client=client, topics=topics, data_dir=data_dir, run=run
         )
-        logger.info("[fetch] %s", fetched.summary())
-
-        version = await _corpus_version(session, fetched)
+        logger.info("[fetch] %s", fetch_result.summary())
 
         parsed, parse_result = parse_documents(documents, data_dir=data_dir)
         logger.info("[parse] %s", parse_result.summary())
 
-        keep = None
-        if fetched.ok and parse_result.ok:
-            keep = set(fetched.discovered) | await get_other_topic_refs(session, topics)
-
-        chunked = await chunk_documents(session, parsed, corpus_version=version, keep_refs=keep)
-        logger.info("[chunk] %s", chunked.summary())
-
-        result = IngestRunResult(run_id=run.id, fetch=fetched, parse=parse_result, chunk=chunked)
-        result.corpus_version = version if result.ok else None
-        await complete_ingest_run(
-            session, run, status=result.status, corpus_version=result.corpus_version
+        corpus_refs = await _known_corpus_refs(
+            session, fetch_result=fetch_result, parse_result=parse_result, topics=topics
         )
+        chunk_result = await chunk_documents(
+            session, parsed, ingest_run_id=run.id, corpus_refs=corpus_refs
+        )
+        logger.info("[chunk] %s", chunk_result.summary())
+
+        result = IngestRunResult(
+            run_id=run.id, fetch=fetch_result, parse=parse_result, chunk=chunk_result
+        )
+        await complete_ingest_run(session, run, status=result.status)
+        result.corpus_version = run.corpus_version
         return result
