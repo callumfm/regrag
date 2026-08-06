@@ -71,7 +71,7 @@ async def _mark_failed(session: AsyncSession, run: IngestRun) -> None:
         logger.exception("run %s could not be marked failed", run_id)
 
 
-async def _corpus_refs(
+async def _known_corpus_refs(
     session: AsyncSession,
     *,
     fetch_result: FetchRunResult,
@@ -80,7 +80,7 @@ async def _corpus_refs(
 ) -> set[str] | None:
     """The refs the corpus consists of after this run: what it discovered, plus other topics'.
 
-    None when fetch or parse fell short, since a partial corpus cannot justify deletions.
+    None when any stage failed: pruning is irreversible, so a run with errors does not earn it.
     """
     if not (fetch_result.ok and parse_result.ok):
         return None
@@ -115,7 +115,7 @@ async def ingest(
         parsed, parse_result = parse_documents(documents, data_dir=data_dir)
         logger.info("[parse] %s", parse_result.summary())
 
-        corpus_refs = await _corpus_refs(
+        corpus_refs = await _known_corpus_refs(
             session, fetch_result=fetch_result, parse_result=parse_result, topics=topics
         )
         chunk_result = await chunk_documents(

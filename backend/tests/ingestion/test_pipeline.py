@@ -16,7 +16,7 @@ from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.parse.eurlex_html import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.pipeline import IngestRunResult, _corpus_refs, ingest
+from app.ingestion.pipeline import IngestRunResult, _known_corpus_refs, ingest
 from app.ingestion.schemas import IngestRun
 from tests.conftest import MRV_SPARQL, binding, chunk_rows, chunk_versions, payload
 
@@ -81,12 +81,14 @@ def test_summary_lists_each_stage_s_failures() -> None:
     assert "  parse failed: b (ParseError: no body)" in result.summary()
 
 
-async def test_corpus_refs_unions_this_run_with_the_topics_it_left_alone(db_session, make_document):
+async def test_known_corpus_refs_unions_this_run_with_the_topics_it_left_alone(
+    db_session, make_document
+):
     other = IngestRun(status=IngestRunStatus.COMPLETED)
     db_session.add(make_document(other, "32015R0757", topic="mrv"))
     await db_session.flush()
 
-    refs = await _corpus_refs(
+    refs = await _known_corpus_refs(
         db_session,
         fetch_result=FetchRunResult(discovered=["32023R1805"]),
         parse_result=ParseRunResult(parsed=["32023R1805"]),
@@ -97,7 +99,7 @@ async def test_corpus_refs_unions_this_run_with_the_topics_it_left_alone(db_sess
 
 
 async def test_a_partial_fetch_leaves_the_corpus_unknown(db_session):
-    refs = await _corpus_refs(
+    refs = await _known_corpus_refs(
         db_session,
         fetch_result=FetchRunResult(discovered=["32023R1805"], failed={"32015R0757": "404"}),
         parse_result=ParseRunResult(parsed=["32023R1805"]),
@@ -108,7 +110,7 @@ async def test_a_partial_fetch_leaves_the_corpus_unknown(db_session):
 
 
 async def test_a_document_that_would_not_parse_leaves_the_corpus_unknown(db_session):
-    refs = await _corpus_refs(
+    refs = await _known_corpus_refs(
         db_session,
         fetch_result=FetchRunResult(discovered=["32023R1805"]),
         parse_result=ParseRunResult(failed={"32023R1805": "ParseError"}),
