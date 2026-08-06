@@ -27,7 +27,7 @@ class EmbedInput(StrEnum):
 
 
 class LLMError(DomainError):
-    """A model provider call failed after its retries were exhausted."""
+    """A model provider call failed, or returned a response we cannot trust."""
 
     status_code = status.HTTP_502_BAD_GATEWAY
 
