@@ -14,11 +14,10 @@ from app.ingestion.constants import PACE_SECONDS, SEEDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
 from app.ingestion.fetch.discover import discover
-from app.ingestion.fetch.models import DiscoveredDocument
+from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.resolve import resolve_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
-from app.ingestion.models import FetchDelta
 from app.ingestion.schemas import IngestRun
 
 
@@ -101,21 +100,21 @@ def _download_documents(
     baseline: Mapping[str, RawDocument],
     run: IngestRun,
     data_dir: Path,
-) -> tuple[list[RawDocument], FetchDelta]:
+) -> tuple[list[RawDocument], FetchRunResult]:
     """Fetch every discovered document, recording the ones that would not download."""
     documents: list[RawDocument] = []
-    delta = FetchDelta(discovered=[spec.ref for spec in specs])
+    result = FetchRunResult(discovered=[spec.ref for spec in specs])
     for spec in _paced(specs):
         try:
             document, action = _fetch_document(
                 client, spec, prev=baseline.get(spec.ref), run=run, data_dir=data_dir
             )
         except (IngestionError, httpx.HTTPError) as exc:
-            delta.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
+            result.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
             continue
         documents.append(document)
-        delta.record(action, spec.ref)
-    return documents, delta
+        result.record(action, spec.ref)
+    return documents, result
 
 
 async def fetch_documents(
@@ -125,13 +124,13 @@ async def fetch_documents(
     topics: Sequence[str],
     data_dir: Path,
     run: IngestRun,
-) -> tuple[list[RawDocument], FetchDelta]:
+) -> tuple[list[RawDocument], FetchRunResult]:
     """Discover, resolve and download the corpus for topics, recording a row per document."""
     specs = _discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
-    documents, delta = _download_documents(
+    documents, result = _download_documents(
         client, specs, baseline=baseline, run=run, data_dir=data_dir
     )
     session.add_all(documents)
     await session.flush()
-    return documents, delta + FetchDelta(dropped=_dropped_refs(specs, baseline))
+    return documents, result + FetchRunResult(dropped=_dropped_refs(specs, baseline))

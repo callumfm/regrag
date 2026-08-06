@@ -7,9 +7,8 @@ from typing import cast
 from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ingestion.chunk.models import Chunk
+from app.ingestion.chunk.models import Chunk, ChunkRunResult
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.models import ChunkDelta
 
 
 def keyed(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
@@ -47,7 +46,7 @@ def to_chunk_row(
 
 async def upsert_document_chunks(
     session: AsyncSession, *, ref: str, chunks: Sequence[Chunk], corpus_version: str
-) -> ChunkDelta:
+) -> ChunkRunResult:
     """Reconcile a document's chunks by content hash, leaving matched rows untouched."""
     incoming = {(digest, occurrence): chunk for chunk, digest, occurrence in keyed(chunks)}
     existing = {
@@ -69,7 +68,7 @@ async def upsert_document_chunks(
         for key in added
     )
     await session.flush()
-    return ChunkDelta(
+    return ChunkRunResult(
         added=len(added), removed=len(gone), unchanged=len(existing.keys() & incoming.keys())
     )
 

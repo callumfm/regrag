@@ -8,14 +8,14 @@ from app.ingestion.cli import main
 from app.ingestion.constants import SEEDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError
-from app.ingestion.models import RunReport
+from app.ingestion.models import IngestRunResult
 
 
 @pytest.fixture
 def fake_ingest(monkeypatch):
     """Replace the DB+network coroutine with a stub recording requested topics."""
     calls = []
-    report = RunReport(run_id=1)
+    report = IngestRunResult(run_id=1)
 
     async def _fake(topics):
         calls.append(list(topics))

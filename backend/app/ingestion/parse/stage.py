@@ -5,9 +5,8 @@ from pathlib import Path
 
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.models import ParseDelta
 from app.ingestion.parse.eurlex_html import parse_eurlex_html
-from app.ingestion.parse.models import ParsedDocument, Parser
+from app.ingestion.parse.models import ParsedDocument, Parser, ParseRunResult
 
 PARSERS: dict[str, Parser] = {".html": parse_eurlex_html}
 
@@ -22,17 +21,17 @@ def _parse_document(path: Path, *, ref: str, topic: str) -> ParsedDocument:
 
 def parse_documents(
     documents: Sequence[RawDocument], *, data_dir: Path
-) -> tuple[list[ParsedDocument], ParseDelta]:
+) -> tuple[list[ParsedDocument], ParseRunResult]:
     """Parse every fetched document, recording the ones that would not parse."""
     parsed: list[ParsedDocument] = []
-    delta = ParseDelta()
+    result = ParseRunResult()
     for document in documents:
         try:
             parsed.append(
                 _parse_document(document.path(data_dir), ref=document.ref, topic=document.topic)
             )
         except (ParseError, OSError, UnicodeDecodeError) as exc:
-            delta.failed[document.ref] = f"{type(exc).__name__}: {exc}"
+            result.failed[document.ref] = f"{type(exc).__name__}: {exc}"
             continue
-        delta.parsed.append(document.ref)
-    return parsed, delta
+        result.parsed.append(document.ref)
+    return parsed, result

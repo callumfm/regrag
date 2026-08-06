@@ -12,7 +12,7 @@ from app.core.http import http_client
 from app.core.logger import setup_logging
 from app.ingestion.constants import SEEDS
 from app.ingestion.exceptions import DiscoveryError
-from app.ingestion.models import RunReport
+from app.ingestion.models import IngestRunResult
 from app.ingestion.pipeline import ingest
 
 
@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _ingest(topics: list[str]) -> RunReport:
+async def _ingest(topics: list[str]) -> IngestRunResult:
     with http_client() as client:
         async with get_session(auto_commit=False) as session:
             return await ingest(session, client=client, topics=topics, data_dir=config.RAW_DATA_DIR)

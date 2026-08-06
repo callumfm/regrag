@@ -11,7 +11,7 @@ from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch import stage
-from app.ingestion.models import RunReport
+from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.eurlex_html import parse_eurlex_html
 from app.ingestion.pipeline import ingest
 from app.ingestion.schemas import IngestRun
@@ -227,7 +227,7 @@ async def test_failed_fetch_still_chunks_what_was_downloaded(db_session, tmp_pat
 FUELEU_SPARQL = httpx.Response(200, json=payload(binding("32023R1805", force="1")))
 
 
-async def ingest_fueleu(db_session, tmp_path, corpus_client) -> RunReport:
+async def ingest_fueleu(db_session, tmp_path, corpus_client) -> IngestRunResult:
     """Run the real pipeline over the saved FuelEU fixture, network stubbed."""
     client, _ = corpus_client(
         {"fueleu": FUELEU_SPARQL},

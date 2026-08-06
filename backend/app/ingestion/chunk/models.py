@@ -9,6 +9,7 @@ from pydantic import computed_field
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.models import ParsedDocument, Section
+from app.ingestion.stage import StageRunResult
 
 
 class Reference(FrozenModel):
@@ -110,3 +111,14 @@ class Chunk(Locator):
             parts=parts,
             references=references,
         )
+
+
+class ChunkRunResult(StageRunResult):
+    """What reconciling chunks changed, per document or summed across a run."""
+
+    added: int = 0
+    removed: int = 0
+    unchanged: int = 0
+
+    def counts(self) -> dict[str, int]:
+        return {"added": self.added, "removed": self.removed, "unchanged": self.unchanged}

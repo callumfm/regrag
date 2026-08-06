@@ -9,11 +9,10 @@ from app.ingestion.constants import PACE_SECONDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
-from app.ingestion.fetch.models import DiscoveredDocument
+from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.fetch.stage import _classify, _dropped_refs, _store, fetch_documents
-from app.ingestion.models import FetchDelta
 from app.ingestion.service import create_ingest_run
 from tests.conftest import MRV_SPARQL, binding, payload
 
@@ -62,13 +61,13 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
     } | (overrides or {})
 
 
-async def fetch(db_session, client, topics, data_dir) -> tuple[FetchDelta, list[RawDocument]]:
+async def fetch(db_session, client, topics, data_dir) -> tuple[FetchRunResult, list[RawDocument]]:
     """Drive the fetch stage alone, with the run the orchestrator would supply."""
     run = await create_ingest_run(db_session)
-    documents, delta = await fetch_documents(
+    documents, result = await fetch_documents(
         db_session, client=client, topics=topics, data_dir=data_dir, run=run
     )
-    return delta, documents
+    return result, documents
 
 
 async def test_first_run_ingests_all_as_new(db_session, tmp_path, corpus_client):

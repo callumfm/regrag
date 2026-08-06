@@ -12,13 +12,13 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_first_upsert_inserts_every_chunk(db_session: AsyncSession):
-    delta = await upsert_document_chunks(
+    result = await upsert_document_chunks(
         db_session,
         ref="32023R1805",
         chunks=[chunk(), chunk(article="5")],
         corpus_version="2026-08-05-aaaaaaa",
     )
-    assert (delta.added, delta.removed, delta.unchanged) == (2, 0, 0)
+    assert (result.added, result.removed, result.unchanged) == (2, 0, 0)
     assert len(await chunk_rows(db_session)) == 2
 
 
@@ -29,11 +29,11 @@ async def test_repeat_upsert_changes_nothing(db_session: AsyncSession):
     )
     before = {row.id for row in await chunk_rows(db_session)}
 
-    delta = await upsert_document_chunks(
+    result = await upsert_document_chunks(
         db_session, ref="32023R1805", chunks=chunks, corpus_version="2026-08-06-bbbbbbb"
     )
 
-    assert (delta.added, delta.removed, delta.unchanged) == (0, 0, 2)
+    assert (result.added, result.removed, result.unchanged) == (0, 0, 2)
     assert {row.id for row in await chunk_rows(db_session)} == before
 
 
@@ -53,14 +53,14 @@ async def test_edited_chunk_is_replaced_not_duplicated(db_session: AsyncSession)
         db_session, ref="32023R1805", chunks=[chunk()], corpus_version="2026-08-05-aaaaaaa"
     )
 
-    delta = await upsert_document_chunks(
+    result = await upsert_document_chunks(
         db_session,
         ref="32023R1805",
         chunks=[chunk(text="Reworded entirely.")],
         corpus_version="2026-08-06-bbbbbbb",
     )
 
-    assert (delta.added, delta.removed, delta.unchanged) == (1, 1, 0)
+    assert (result.added, result.removed, result.unchanged) == (1, 1, 0)
     rows = await chunk_rows(db_session)
     assert [row.text for row in rows] == ["Reworded entirely."]
     assert rows[0].corpus_version == "2026-08-06-bbbbbbb"
@@ -81,10 +81,10 @@ async def test_upsert_touches_only_its_own_document(db_session: AsyncSession):
 
 
 async def test_duplicate_chunks_persist_as_separate_occurrences(db_session: AsyncSession):
-    delta = await upsert_document_chunks(
+    result = await upsert_document_chunks(
         db_session, ref="32023R1805", chunks=[chunk(), chunk()], corpus_version="2026-08-05-aaaaaaa"
     )
-    assert delta.added == 2
+    assert result.added == 2
     assert sorted(row.occurrence for row in await chunk_rows(db_session)) == [0, 1]
 
 

@@ -13,16 +13,16 @@ from app.ingestion.parse.models import ParsedDocument, Section
 pytestmark = pytest.mark.anyio
 
 
-async def test_reconciles_each_document_and_sums_one_delta(db_session: AsyncSession) -> None:
+async def test_reconciles_each_document_and_sums_one_result(db_session: AsyncSession) -> None:
     document = ParsedDocument(
         ref="32023R1805",
         topic="fueleu",
         sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
     )
-    delta = await chunk_documents(
+    result = await chunk_documents(
         db_session, [document], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
     )
-    assert (delta.added, delta.removed, delta.unchanged) == (1, 0, 0)
+    assert (result.added, result.removed, result.unchanged) == (1, 0, 0)
 
 
 async def test_a_second_identical_run_changes_nothing(
@@ -36,10 +36,10 @@ async def test_a_second_identical_run_changes_nothing(
     await chunk_documents(
         db_session, [document], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
     )
-    delta = await chunk_documents(
+    result = await chunk_documents(
         db_session, [document], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
     )
-    assert (delta.added, delta.removed, delta.unchanged) == (0, 0, 1)
+    assert (result.added, result.removed, result.unchanged) == (0, 0, 1)
 
 
 async def test_chunks_of_a_ref_no_longer_discovered_are_dropped(
@@ -47,7 +47,7 @@ async def test_chunks_of_a_ref_no_longer_discovered_are_dropped(
 ) -> None:
     db_session.add(make_chunk_row(ref="repealed", topic="fueleu"))
     await db_session.flush()
-    delta = await chunk_documents(
+    result = await chunk_documents(
         db_session, [], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
     )
-    assert delta.removed == 1
+    assert result.removed == 1

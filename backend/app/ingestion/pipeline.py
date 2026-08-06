@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ingestion.chunk.stage import chunk_documents
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.fetch.stage import fetch_documents
-from app.ingestion.models import RunReport
+from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.stage import parse_documents
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run, next_corpus_version
@@ -36,7 +36,7 @@ async def ingest(
     client: httpx.Client,
     topics: Sequence[str],
     data_dir: Path,
-) -> RunReport:
+) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as run:
         documents, fetched = await fetch_documents(
@@ -46,8 +46,8 @@ async def ingest(
 
         version = await next_corpus_version(session)
 
-        parsed, parse_delta = parse_documents(documents, data_dir=data_dir)
-        logger.info("[parse] %s", parse_delta.summary())
+        parsed, parse_result = parse_documents(documents, data_dir=data_dir)
+        logger.info("[parse] %s", parse_result.summary())
 
         chunked = await chunk_documents(
             session,
@@ -58,9 +58,9 @@ async def ingest(
         )
         logger.info("[chunk] %s", chunked.summary())
 
-        report = RunReport(run_id=run.id, fetch=fetched, parse=parse_delta, chunk=chunked)
-        report.corpus_version = version if report.ok else None
+        result = IngestRunResult(run_id=run.id, fetch=fetched, parse=parse_result, chunk=chunked)
+        result.corpus_version = version if result.ok else None
         await complete_ingest_run(
-            session, run, status=report.status, corpus_version=report.corpus_version
+            session, run, status=result.status, corpus_version=result.corpus_version
         )
-        return report
+        return result
