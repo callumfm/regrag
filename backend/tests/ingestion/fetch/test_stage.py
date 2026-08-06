@@ -5,23 +5,17 @@ import hashlib
 import httpx
 import pytest
 
-from app.core.http import PACE_SECONDS
+from app.ingestion.constants import PACE_SECONDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import DiscoveredDocument
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
-from app.ingestion.fetch.stage import (
-    _classify,
-    _dropped_refs,
-    _store,
-    download,
-    fetch_documents,
-)
+from app.ingestion.fetch.stage import _classify, _dropped_refs, _store, fetch_documents
 from app.ingestion.models import FetchDelta
 from app.ingestion.service import create_ingest_run
-from tests.conftest import binding, payload
+from tests.conftest import MRV_SPARQL, binding, payload
 
 pytestmark = pytest.mark.anyio
 
@@ -52,33 +46,12 @@ def test_dropped_refs_empty_when_all_discovered():
     assert _dropped_refs([spec("32015R0757")], ["32015R0757"]) == []
 
 
-def one_shot_client(response):
-    """Client serving a single canned response to any request."""
-    return httpx.Client(transport=httpx.MockTransport(lambda request: response))
-
-
-def test_download_returns_content_bytes():
-    client = one_shot_client(httpx.Response(200, content=b"<html>act</html>"))
-    assert download(client, "https://example.eu/doc") == b"<html>act</html>"
-
-
-def test_download_raises_on_error_status():
-    client = one_shot_client(httpx.Response(500))
-    with pytest.raises(httpx.HTTPStatusError):
-        download(client, "https://example.eu/doc")
-
-
 def test_store_writes_file_and_returns_sha_and_size(tmp_path):
     content = b"<html>act</html>"
     sha256, size = _store(tmp_path / "raw", "32023R1805", content)
     assert (tmp_path / "raw" / "32023R1805.html").read_bytes() == content
     assert sha256 == hashlib.sha256(content).hexdigest()
     assert size == len(content)
-
-
-MRV_SPARQL = httpx.Response(
-    200, json=payload(binding("32015R0757", force="1"), binding("32023R2449", force="1"))
-)
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:

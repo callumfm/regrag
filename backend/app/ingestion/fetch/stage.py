@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.http import download, pace
-from app.ingestion.constants import SEEDS
+from app.ingestion.constants import PACE_SECONDS, SEEDS
 from app.ingestion.enums import DocAction
 from app.ingestion.exceptions import DiscoveryError, IngestionError
 from app.ingestion.fetch.discover import discover
@@ -60,7 +60,7 @@ def _paced(specs: Sequence[DiscoveredDocument]) -> Iterator[DiscoveredDocument]:
     """Yield each spec, waiting between them to stay within the source's rate limit."""
     for index, spec in enumerate(specs):
         if index > 0:
-            pace()
+            pace(PACE_SECONDS)
         yield spec
 
 

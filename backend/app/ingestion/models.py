@@ -126,7 +126,7 @@ class RunReport(BaseModel):
 
     @property
     def stages(self) -> dict[str, IngestStageDelta]:
-        return {name: value for name, value in self if isinstance(value, IngestStageDelta)}
+        return {"fetch": self.fetch, "parse": self.parse, "chunk": self.chunk}
 
     @property
     def ok(self) -> bool:

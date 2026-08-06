@@ -45,8 +45,6 @@ transient_retry = retry(
 )
 """Decorator retrying transient HTTP failures with exponential backoff."""
 
-PACE_SECONDS = 1.0
-
 
 @transient_retry
 def download(client: httpx.Client, url: str) -> bytes:
@@ -56,6 +54,6 @@ def download(client: httpx.Client, url: str) -> bytes:
     return response.content
 
 
-def pace(seconds: float = PACE_SECONDS) -> None:
+def pace(seconds: float) -> None:
     """Space out requests to an upstream host."""
     time.sleep(seconds)

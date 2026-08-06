@@ -2,3 +2,4 @@
 
 SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
 MAX_CHARS = 2000
+PACE_SECONDS = 1.0

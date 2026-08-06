@@ -7,7 +7,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from tenacity import wait_none
@@ -15,7 +15,7 @@ from tenacity import wait_none
 from app.core.clock import utc_now
 from app.core.config import config
 from app.core.db.session import async_session_factory
-from app.core.http import PACE_SECONDS
+from app.core.http import download
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
@@ -24,7 +24,6 @@ from app.ingestion.fetch import stage
 from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.resolve import resolve_version
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.fetch.stage import download
 from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 
@@ -133,9 +132,9 @@ def client(app: FastAPI) -> TestClient:
 
 @pytest.fixture(autouse=True)
 def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    """Count pacing delays instead of sleeping through them."""
+    """Record pacing delays instead of sleeping through them."""
     calls: list[float] = []
-    monkeypatch.setattr(stage, "pace", lambda: calls.append(PACE_SECONDS))
+    monkeypatch.setattr(stage, "pace", calls.append)
     return calls
 
 
@@ -177,6 +176,19 @@ def binding(celex: str, force: str | None = None, cons: str | None = None) -> di
 def payload(*bindings: dict) -> dict:
     """A SPARQL JSON response body wrapping the given result rows."""
     return {"results": {"bindings": list(bindings)}}
+
+
+MRV_SPARQL = httpx.Response(
+    200, json=payload(binding("32015R0757", force="1"), binding("32023R2449", force="1"))
+)
+
+
+async def chunk_rows(session: AsyncSession, ref: str | None = None) -> list[DocumentChunk]:
+    """Persisted chunks in insertion order, for one document or the whole table."""
+    stmt = select(DocumentChunk).order_by(DocumentChunk.id)
+    if ref is not None:
+        stmt = stmt.where(DocumentChunk.ref == ref)
+    return list(await session.scalars(stmt))
 
 
 def chunk(**overrides: Any) -> Chunk:

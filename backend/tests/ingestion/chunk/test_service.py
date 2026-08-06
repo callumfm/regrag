@@ -1,24 +1,14 @@
 """Chunk persistence: reconciling a document's chunks by content hash."""
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.references import extract_references
-from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import delete_chunks_outside, keyed, upsert_document_chunks
 from app.ingestion.enums import SectionKind
-from tests.conftest import chunk
+from tests.conftest import chunk, chunk_rows
 
 pytestmark = pytest.mark.anyio
-
-
-async def chunk_rows(session: AsyncSession, ref: str = "32023R1805") -> list[DocumentChunk]:
-    return list(
-        await session.scalars(
-            select(DocumentChunk).where(DocumentChunk.ref == ref).order_by(DocumentChunk.id)
-        )
-    )
 
 
 async def test_first_upsert_inserts_every_chunk(db_session: AsyncSession):

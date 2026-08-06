@@ -6,10 +6,8 @@ from pathlib import Path
 import httpx
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.chunker import chunk_document
-from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch import stage
@@ -17,13 +15,9 @@ from app.ingestion.models import RunReport
 from app.ingestion.parse.eurlex_html import parse_eurlex_html
 from app.ingestion.pipeline import ingest
 from app.ingestion.schemas import IngestRun
-from tests.conftest import binding, payload
+from tests.conftest import MRV_SPARQL, binding, chunk_rows, payload
 
 pytestmark = pytest.mark.anyio
-
-MRV_SPARQL = httpx.Response(
-    200, json=payload(binding("32015R0757", force="1"), binding("32023R2449", force="1"))
-)
 
 FUELEU_HTML = (Path(__file__).parent / "parse" / "fixtures" / "32023R1805.html").read_text()
 
@@ -124,13 +118,6 @@ async def test_a_failure_after_fetch_still_marks_the_run_failed(
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
     assert run.completed_at is not None
-
-
-async def chunk_rows(session: AsyncSession, ref: str | None = None) -> list[DocumentChunk]:
-    stmt = select(DocumentChunk).order_by(DocumentChunk.id)
-    if ref is not None:
-        stmt = stmt.where(DocumentChunk.ref == ref)
-    return list(await session.scalars(stmt))
 
 
 async def test_run_persists_chunks_for_every_document(db_session, tmp_path, corpus_client):
