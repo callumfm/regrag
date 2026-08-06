@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 
 import httpx
@@ -22,7 +22,7 @@ from app.ingestion.models import FetchDelta
 from app.ingestion.schemas import IngestRun
 
 
-def classify(prev_resolved_ref: str | None, resolved_ref: str) -> DocAction:
+def _classify(prev_resolved_ref: str | None, resolved_ref: str) -> DocAction:
     if prev_resolved_ref is None:
         return DocAction.NEW
     if prev_resolved_ref != resolved_ref:
@@ -30,20 +30,20 @@ def classify(prev_resolved_ref: str | None, resolved_ref: str) -> DocAction:
     return DocAction.UNCHANGED
 
 
-def dropped_refs(specs: Sequence[DiscoveredDocument], baseline_refs: Iterable[str]) -> list[str]:
+def _dropped_refs(specs: Sequence[DiscoveredDocument], baseline_refs: Iterable[str]) -> list[str]:
     """Baseline refs no longer present in discovery (repealed or out of force)."""
     discovered = {spec.ref for spec in specs}
     return sorted(set(baseline_refs) - discovered)
 
 
-def store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
+def _store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
     """Write the document's source file and return its (sha256, size_bytes)."""
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / RawDocument.filename(ref)).write_bytes(content)
     return hashlib.sha256(content).hexdigest(), len(content)
 
 
-def discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DiscoveredDocument]:
+def _discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DiscoveredDocument]:
     """Discover all topics, deduped by ref (first topic wins), wrapping parse errors."""
     by_ref: dict[str, DiscoveredDocument] = {}
     for topic in topics:
@@ -56,20 +56,29 @@ def discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[Discove
     return list(by_ref.values())
 
 
-def fetch_document(
+def _paced(specs: Sequence[DiscoveredDocument]) -> Iterator[DiscoveredDocument]:
+    """Yield each spec, waiting between them to stay within the source's rate limit."""
+    for index, spec in enumerate(specs):
+        if index > 0:
+            pace()
+        yield spec
+
+
+def _fetch_document(
     client: httpx.Client,
     spec: DiscoveredDocument,
+    *,
     prev: RawDocument | None,
     run: IngestRun,
     data_dir: Path,
 ) -> tuple[RawDocument, DocAction]:
     """Resolve one act, download it unless unchanged, and build its row."""
     resolution = resolve_version(client, spec)
-    action = classify(prev.resolved_ref if prev else None, resolution.resolved_ref)
+    action = _classify(prev.resolved_ref if prev else None, resolution.resolved_ref)
     if action is DocAction.UNCHANGED and prev is not None:
         sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at
     else:
-        sha256, size_bytes = store(data_dir, spec.ref, download(client, resolution.url))
+        sha256, size_bytes = _store(data_dir, spec.ref, download(client, resolution.url))
         fetched_at = utc_now()
     document = RawDocument(
         run=run,
@@ -85,30 +94,44 @@ def fetch_document(
     return document, action
 
 
+def _download_documents(
+    client: httpx.Client,
+    specs: Sequence[DiscoveredDocument],
+    *,
+    baseline: Mapping[str, RawDocument],
+    run: IngestRun,
+    data_dir: Path,
+) -> tuple[list[RawDocument], FetchDelta]:
+    """Fetch every discovered document, recording the ones that would not download."""
+    documents: list[RawDocument] = []
+    delta = FetchDelta(discovered=[spec.ref for spec in specs])
+    for spec in _paced(specs):
+        try:
+            document, action = _fetch_document(
+                client, spec, prev=baseline.get(spec.ref), run=run, data_dir=data_dir
+            )
+        except (IngestionError, httpx.HTTPError) as exc:
+            delta.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
+            continue
+        documents.append(document)
+        delta.record(action, spec.ref)
+    return documents, delta
+
+
 async def fetch_documents(
     session: AsyncSession,
+    *,
     client: httpx.Client,
     topics: Sequence[str],
     data_dir: Path,
     run: IngestRun,
 ) -> tuple[list[RawDocument], FetchDelta]:
     """Discover, resolve and download the corpus for topics, recording a row per document."""
-    specs = discover_topics(client, topics)
+    specs = _discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
-    delta = FetchDelta(
-        discovered=[spec.ref for spec in specs], dropped=dropped_refs(specs, baseline)
+    documents, delta = _download_documents(
+        client, specs, baseline=baseline, run=run, data_dir=data_dir
     )
-    documents = []
-    for index, spec in enumerate(specs):
-        if index > 0:
-            pace()
-        try:
-            document, action = fetch_document(client, spec, baseline.get(spec.ref), run, data_dir)
-        except (IngestionError, httpx.HTTPError) as exc:
-            delta.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
-            continue
-        documents.append(document)
-        delta.record(action, spec.ref)
     session.add_all(documents)
     await session.flush()
-    return documents, delta
+    return documents, delta + FetchDelta(dropped=_dropped_refs(specs, baseline))

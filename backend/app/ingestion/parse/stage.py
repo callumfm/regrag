@@ -12,7 +12,7 @@ from app.ingestion.parse.models import ParsedDocument, Parser
 PARSERS: dict[str, Parser] = {".html": parse_eurlex_html}
 
 
-def parse_document(path: Path, ref: str, topic: str) -> ParsedDocument:
+def _parse_document(path: Path, *, ref: str, topic: str) -> ParsedDocument:
     """Parse one stored document, choosing the parser its file type calls for."""
     parser = PARSERS.get(path.suffix)
     if parser is None:
@@ -21,14 +21,16 @@ def parse_document(path: Path, ref: str, topic: str) -> ParsedDocument:
 
 
 def parse_documents(
-    documents: Sequence[RawDocument], data_dir: Path
+    documents: Sequence[RawDocument], *, data_dir: Path
 ) -> tuple[list[ParsedDocument], ParseDelta]:
     """Parse every fetched document, recording the ones that would not parse."""
     parsed: list[ParsedDocument] = []
     delta = ParseDelta()
     for document in documents:
         try:
-            parsed.append(parse_document(document.path(data_dir), document.ref, document.topic))
+            parsed.append(
+                _parse_document(document.path(data_dir), ref=document.ref, topic=document.topic)
+            )
         except (ParseError, OSError, UnicodeDecodeError) as exc:
             delta.failed[document.ref] = f"{type(exc).__name__}: {exc}"
             continue

@@ -65,7 +65,13 @@ def walk(
     split = pieces(section, max_chars)
     for index, piece in enumerate(split, start=1):
         yield Chunk.build(
-            document, section, inherited, piece, index, len(split), extract_references(piece)
+            document,
+            section,
+            locator=inherited,
+            text=piece,
+            part=index,
+            parts=len(split),
+            references=extract_references(piece),
         )
     for child in section.children:
         yield from walk(child, document, inherited, max_chars)

@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
 async def _ingest(topics: list[str]) -> RunReport:
     with http_client() as client:
         async with get_session(auto_commit=False) as session:
-            return await ingest(session, client, topics, config.RAW_DATA_DIR)
+            return await ingest(session, client=client, topics=topics, data_dir=config.RAW_DATA_DIR)
 
 
 def main(argv: list[str] | None = None) -> int:

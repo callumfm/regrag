@@ -31,6 +31,7 @@ async def update_ingest_run(
 async def complete_ingest_run(
     session: AsyncSession,
     run: IngestRun,
+    *,
     status: IngestRunStatus,
     corpus_version: str | None = None,
 ) -> IngestRun:

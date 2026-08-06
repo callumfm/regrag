@@ -21,7 +21,9 @@ def keyed(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
         seen[digest] += 1
 
 
-def to_chunk_row(chunk: Chunk, digest: str, occurrence: int, corpus_version: str) -> DocumentChunk:
+def to_chunk_row(
+    chunk: Chunk, *, digest: str, occurrence: int, corpus_version: str
+) -> DocumentChunk:
     """Map the chunker's value object onto its persisted row."""
     return DocumentChunk(
         ref=chunk.ref,
@@ -44,7 +46,7 @@ def to_chunk_row(chunk: Chunk, digest: str, occurrence: int, corpus_version: str
 
 
 async def upsert_document_chunks(
-    session: AsyncSession, ref: str, chunks: Sequence[Chunk], corpus_version: str
+    session: AsyncSession, *, ref: str, chunks: Sequence[Chunk], corpus_version: str
 ) -> ChunkDelta:
     """Reconcile a document's chunks by content hash, leaving matched rows untouched."""
     incoming = {(digest, occurrence): chunk for chunk, digest, occurrence in keyed(chunks)}
@@ -62,7 +64,10 @@ async def upsert_document_chunks(
         await session.execute(
             delete(DocumentChunk).where(DocumentChunk.id.in_([existing[key] for key in gone]))
         )
-    session.add_all(to_chunk_row(incoming[key], key[0], key[1], corpus_version) for key in added)
+    session.add_all(
+        to_chunk_row(incoming[key], digest=key[0], occurrence=key[1], corpus_version=corpus_version)
+        for key in added
+    )
     await session.flush()
     return ChunkDelta(
         added=len(added), removed=len(gone), unchanged=len(existing.keys() & incoming.keys())
@@ -70,7 +75,7 @@ async def upsert_document_chunks(
 
 
 async def delete_chunks_outside(
-    session: AsyncSession, topics: Sequence[str], discovered_refs: Collection[str]
+    session: AsyncSession, *, topics: Sequence[str], discovered_refs: Collection[str]
 ) -> int:
     """Drop chunks of documents no longer discovered for the topics being ingested."""
     if not topics or not discovered_refs:

@@ -19,7 +19,9 @@ async def test_reconciles_each_document_and_sums_one_delta(db_session: AsyncSess
         topic="fueleu",
         sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
     )
-    delta = await chunk_documents(db_session, [document], "v1", ["fueleu"], ["32023R1805"])
+    delta = await chunk_documents(
+        db_session, [document], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
+    )
     assert (delta.added, delta.removed, delta.unchanged) == (1, 0, 0)
 
 
@@ -31,8 +33,12 @@ async def test_a_second_identical_run_changes_nothing(
         topic="fueleu",
         sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
     )
-    await chunk_documents(db_session, [document], "v1", ["fueleu"], ["32023R1805"])
-    delta = await chunk_documents(db_session, [document], "v1", ["fueleu"], ["32023R1805"])
+    await chunk_documents(
+        db_session, [document], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
+    )
+    delta = await chunk_documents(
+        db_session, [document], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
+    )
     assert (delta.added, delta.removed, delta.unchanged) == (0, 0, 1)
 
 
@@ -41,5 +47,7 @@ async def test_chunks_of_a_ref_no_longer_discovered_are_dropped(
 ) -> None:
     db_session.add(make_chunk_row(ref="repealed", topic="fueleu"))
     await db_session.flush()
-    delta = await chunk_documents(db_session, [], "v1", ["fueleu"], ["32023R1805"])
+    delta = await chunk_documents(
+        db_session, [], corpus_version="v1", topics=["fueleu"], discovered=["32023R1805"]
+    )
     assert delta.removed == 1

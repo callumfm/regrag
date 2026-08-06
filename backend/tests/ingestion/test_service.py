@@ -34,7 +34,7 @@ async def test_update_run_leaves_omitted_fields_untouched(db_session: AsyncSessi
 
 async def test_complete_run_sets_status_and_timestamp(db_session: AsyncSession):
     run = await create_ingest_run(db_session)
-    await complete_ingest_run(db_session, run, IngestRunStatus.FAILED)
+    await complete_ingest_run(db_session, run, status=IngestRunStatus.FAILED)
     assert run.status is IngestRunStatus.FAILED
     assert run.completed_at is not None
 

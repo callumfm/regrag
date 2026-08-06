@@ -13,11 +13,11 @@ from app.ingestion.fetch.models import DiscoveredDocument
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.fetch.stage import (
-    classify,
+    _classify,
+    _dropped_refs,
+    _store,
     download,
-    dropped_refs,
     fetch_documents,
-    store,
 )
 from app.ingestion.models import FetchDelta
 from app.ingestion.service import create_ingest_run
@@ -31,25 +31,25 @@ def spec(ref, topic="mrv"):
 
 
 def test_classify_no_baseline_is_new():
-    assert classify(None, "32023R2449") is DocAction.NEW
+    assert _classify(None, "32023R2449") is DocAction.NEW
 
 
 def test_classify_differing_resolved_ref_is_changed():
-    assert classify("02015R0757-20240101", "02015R0757-20250101") is DocAction.CHANGED
+    assert _classify("02015R0757-20240101", "02015R0757-20250101") is DocAction.CHANGED
 
 
 def test_classify_same_resolved_ref_is_unchanged():
-    assert classify("02015R0757-20250101", "02015R0757-20250101") is DocAction.UNCHANGED
+    assert _classify("02015R0757-20250101", "02015R0757-20250101") is DocAction.UNCHANGED
 
 
 def test_dropped_refs_are_baseline_refs_absent_from_discovery():
     specs = [spec("32015R0757"), spec("32016R1928")]
     baseline = ["32015R0757", "32016R1928", "32014R0666"]
-    assert dropped_refs(specs, baseline) == ["32014R0666"]
+    assert _dropped_refs(specs, baseline) == ["32014R0666"]
 
 
 def test_dropped_refs_empty_when_all_discovered():
-    assert dropped_refs([spec("32015R0757")], ["32015R0757"]) == []
+    assert _dropped_refs([spec("32015R0757")], ["32015R0757"]) == []
 
 
 def one_shot_client(response):
@@ -70,7 +70,7 @@ def test_download_raises_on_error_status():
 
 def test_store_writes_file_and_returns_sha_and_size(tmp_path):
     content = b"<html>act</html>"
-    sha256, size = store(tmp_path / "raw", "32023R1805", content)
+    sha256, size = _store(tmp_path / "raw", "32023R1805", content)
     assert (tmp_path / "raw" / "32023R1805.html").read_bytes() == content
     assert sha256 == hashlib.sha256(content).hexdigest()
     assert size == len(content)
@@ -92,7 +92,9 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 async def fetch(db_session, client, topics, data_dir) -> tuple[FetchDelta, list[RawDocument]]:
     """Drive the fetch stage alone, with the run the orchestrator would supply."""
     run = await create_ingest_run(db_session)
-    documents, delta = await fetch_documents(db_session, client, topics, data_dir, run)
+    documents, delta = await fetch_documents(
+        db_session, client=client, topics=topics, data_dir=data_dir, run=run
+    )
     return delta, documents
 
 
@@ -177,7 +179,7 @@ async def test_any_ingestion_error_is_recorded_per_document(
     def unparseable(*args, **kwargs):
         raise ParseError("unrecognised EUR-Lex dialect")
 
-    monkeypatch.setattr(stage, "fetch_document", unparseable)
+    monkeypatch.setattr(stage, "_fetch_document", unparseable)
     report, _ = await fetch(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(report.failed) == ["32015R0757", "32023R2449"]

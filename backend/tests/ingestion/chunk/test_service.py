@@ -23,7 +23,10 @@ async def chunk_rows(session: AsyncSession, ref: str = "32023R1805") -> list[Doc
 
 async def test_first_upsert_inserts_every_chunk(db_session: AsyncSession):
     delta = await upsert_document_chunks(
-        db_session, "32023R1805", [chunk(), chunk(article="5")], "2026-08-05-aaaaaaa"
+        db_session,
+        ref="32023R1805",
+        chunks=[chunk(), chunk(article="5")],
+        corpus_version="2026-08-05-aaaaaaa",
     )
     assert (delta.added, delta.removed, delta.unchanged) == (2, 0, 0)
     assert len(await chunk_rows(db_session)) == 2
@@ -31,27 +34,40 @@ async def test_first_upsert_inserts_every_chunk(db_session: AsyncSession):
 
 async def test_repeat_upsert_changes_nothing(db_session: AsyncSession):
     chunks = [chunk(), chunk(article="5")]
-    await upsert_document_chunks(db_session, "32023R1805", chunks, "2026-08-05-aaaaaaa")
+    await upsert_document_chunks(
+        db_session, ref="32023R1805", chunks=chunks, corpus_version="2026-08-05-aaaaaaa"
+    )
     before = {row.id for row in await chunk_rows(db_session)}
 
-    delta = await upsert_document_chunks(db_session, "32023R1805", chunks, "2026-08-06-bbbbbbb")
+    delta = await upsert_document_chunks(
+        db_session, ref="32023R1805", chunks=chunks, corpus_version="2026-08-06-bbbbbbb"
+    )
 
     assert (delta.added, delta.removed, delta.unchanged) == (0, 0, 2)
     assert {row.id for row in await chunk_rows(db_session)} == before
 
 
 async def test_matched_rows_keep_their_original_corpus_version(db_session: AsyncSession):
-    await upsert_document_chunks(db_session, "32023R1805", [chunk()], "2026-08-05-aaaaaaa")
-    await upsert_document_chunks(db_session, "32023R1805", [chunk()], "2026-08-06-bbbbbbb")
+    await upsert_document_chunks(
+        db_session, ref="32023R1805", chunks=[chunk()], corpus_version="2026-08-05-aaaaaaa"
+    )
+    await upsert_document_chunks(
+        db_session, ref="32023R1805", chunks=[chunk()], corpus_version="2026-08-06-bbbbbbb"
+    )
 
     assert [row.corpus_version for row in await chunk_rows(db_session)] == ["2026-08-05-aaaaaaa"]
 
 
 async def test_edited_chunk_is_replaced_not_duplicated(db_session: AsyncSession):
-    await upsert_document_chunks(db_session, "32023R1805", [chunk()], "2026-08-05-aaaaaaa")
+    await upsert_document_chunks(
+        db_session, ref="32023R1805", chunks=[chunk()], corpus_version="2026-08-05-aaaaaaa"
+    )
 
     delta = await upsert_document_chunks(
-        db_session, "32023R1805", [chunk(text="Reworded entirely.")], "2026-08-06-bbbbbbb"
+        db_session,
+        ref="32023R1805",
+        chunks=[chunk(text="Reworded entirely.")],
+        corpus_version="2026-08-06-bbbbbbb",
     )
 
     assert (delta.added, delta.removed, delta.unchanged) == (1, 1, 0)
@@ -61,10 +77,14 @@ async def test_edited_chunk_is_replaced_not_duplicated(db_session: AsyncSession)
 
 
 async def test_upsert_touches_only_its_own_document(db_session: AsyncSession):
-    await upsert_document_chunks(db_session, "32015R0757", [chunk(ref="32015R0757")], "v1")
-    await upsert_document_chunks(db_session, "32023R1805", [chunk()], "v1")
+    await upsert_document_chunks(
+        db_session, ref="32015R0757", chunks=[chunk(ref="32015R0757")], corpus_version="v1"
+    )
+    await upsert_document_chunks(
+        db_session, ref="32023R1805", chunks=[chunk()], corpus_version="v1"
+    )
 
-    await upsert_document_chunks(db_session, "32023R1805", [], "v2")
+    await upsert_document_chunks(db_session, ref="32023R1805", chunks=[], corpus_version="v2")
 
     assert len(await chunk_rows(db_session, "32015R0757")) == 1
     assert await chunk_rows(db_session, "32023R1805") == []
@@ -72,7 +92,7 @@ async def test_upsert_touches_only_its_own_document(db_session: AsyncSession):
 
 async def test_duplicate_chunks_persist_as_separate_occurrences(db_session: AsyncSession):
     delta = await upsert_document_chunks(
-        db_session, "32023R1805", [chunk(), chunk()], "2026-08-05-aaaaaaa"
+        db_session, ref="32023R1805", chunks=[chunk(), chunk()], corpus_version="2026-08-05-aaaaaaa"
     )
     assert delta.added == 2
     assert sorted(row.occurrence for row in await chunk_rows(db_session)) == [0, 1]
@@ -81,9 +101,9 @@ async def test_duplicate_chunks_persist_as_separate_occurrences(db_session: Asyn
 async def test_chunk_fields_are_mapped_onto_the_row(db_session: AsyncSession):
     await upsert_document_chunks(
         db_session,
-        "32023R1805",
-        [chunk(heading_path=("Chapter I",), annex=None, part=2, parts=3)],
-        "2026-08-05-aaaaaaa",
+        ref="32023R1805",
+        chunks=[chunk(heading_path=("Chapter I",), annex=None, part=2, parts=3)],
+        corpus_version="2026-08-05-aaaaaaa",
     )
     row = (await chunk_rows(db_session))[0]
     assert row.topic == "fueleu"
@@ -97,9 +117,9 @@ async def test_references_are_stored_as_json(db_session: AsyncSession):
     text = "As set out in Annex I to this Regulation."
     await upsert_document_chunks(
         db_session,
-        "32023R1805",
-        [chunk(text=text, references=extract_references(text))],
-        "2026-08-05-aaaaaaa",
+        ref="32023R1805",
+        chunks=[chunk(text=text, references=extract_references(text))],
+        corpus_version="2026-08-05-aaaaaaa",
     )
     row = (await chunk_rows(db_session))[0]
     assert row.references
@@ -108,16 +128,21 @@ async def test_references_are_stored_as_json(db_session: AsyncSession):
 
 async def seed_two_topics(session: AsyncSession) -> None:
     """One fueleu document and one mrv document, a chunk each."""
-    await upsert_document_chunks(session, "32023R1805", [chunk()], "v1")
+    await upsert_document_chunks(session, ref="32023R1805", chunks=[chunk()], corpus_version="v1")
     await upsert_document_chunks(
-        session, "32015R0757", [chunk(ref="32015R0757", topic="mrv")], "v1"
+        session,
+        ref="32015R0757",
+        chunks=[chunk(ref="32015R0757", topic="mrv")],
+        corpus_version="v1",
     )
 
 
 async def test_delete_chunks_outside_removes_undiscovered_documents(db_session: AsyncSession):
     await seed_two_topics(db_session)
 
-    removed = await delete_chunks_outside(db_session, ["fueleu"], ["32026R0394"])
+    removed = await delete_chunks_outside(
+        db_session, topics=["fueleu"], discovered_refs=["32026R0394"]
+    )
 
     assert removed == 1
     assert await chunk_rows(db_session, "32023R1805") == []
@@ -126,14 +151,17 @@ async def test_delete_chunks_outside_removes_undiscovered_documents(db_session: 
 async def test_delete_chunks_outside_keeps_discovered_documents(db_session: AsyncSession):
     await seed_two_topics(db_session)
 
-    assert await delete_chunks_outside(db_session, ["fueleu"], ["32023R1805"]) == 0
+    assert (
+        await delete_chunks_outside(db_session, topics=["fueleu"], discovered_refs=["32023R1805"])
+        == 0
+    )
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
 
 
 async def test_delete_chunks_outside_never_touches_another_topic(db_session: AsyncSession):
     await seed_two_topics(db_session)
 
-    await delete_chunks_outside(db_session, ["fueleu"], ["32026R0394"])
+    await delete_chunks_outside(db_session, topics=["fueleu"], discovered_refs=["32026R0394"])
 
     assert len(await chunk_rows(db_session, "32015R0757")) == 1
 
@@ -143,14 +171,14 @@ async def test_delete_chunks_outside_refuses_to_wipe_a_topic_on_empty_discovery(
 ):
     await seed_two_topics(db_session)
 
-    assert await delete_chunks_outside(db_session, ["fueleu"], []) == 0
+    assert await delete_chunks_outside(db_session, topics=["fueleu"], discovered_refs=[]) == 0
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
 
 
 async def test_delete_chunks_outside_with_no_topics_is_a_noop(db_session: AsyncSession):
     await seed_two_topics(db_session)
 
-    assert await delete_chunks_outside(db_session, [], ["32026R0394"]) == 0
+    assert await delete_chunks_outside(db_session, topics=[], discovered_refs=["32026R0394"]) == 0
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
 
 

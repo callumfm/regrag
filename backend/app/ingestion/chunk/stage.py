@@ -13,6 +13,7 @@ from app.ingestion.parse.models import ParsedDocument
 async def chunk_documents(
     session: AsyncSession,
     documents: Sequence[ParsedDocument],
+    *,
     corpus_version: str,
     topics: Sequence[str],
     discovered: Collection[str],
@@ -20,7 +21,11 @@ async def chunk_documents(
     """Reconcile each document's chunks, then drop chunks of refs no longer discovered."""
     delta = ChunkDelta()
     for document in documents:
-        chunks = chunk_document(document)
-        delta += await upsert_document_chunks(session, document.ref, chunks, corpus_version)
-    dropped = await delete_chunks_outside(session, topics, discovered)
+        delta += await upsert_document_chunks(
+            session,
+            ref=document.ref,
+            chunks=chunk_document(document),
+            corpus_version=corpus_version,
+        )
+    dropped = await delete_chunks_outside(session, topics=topics, discovered_refs=discovered)
     return delta + ChunkDelta(removed=dropped)

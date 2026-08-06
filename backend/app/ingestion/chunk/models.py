@@ -91,6 +91,7 @@ class Chunk(Locator):
         cls,
         document: ParsedDocument,
         section: Section,
+        *,
         locator: Locator,
         text: str,
         part: int,
