@@ -80,12 +80,9 @@ def _fetch_document(
         sha256, size_bytes = _store(data_dir, spec.ref, download(client, resolution.url))
         fetched_at = utc_now()
     document = RawDocument(
+        **spec.model_dump(exclude={"candidate_ref"}),
+        **resolution.model_dump(),
         run=run,
-        source=spec.source,
-        ref=spec.ref,
-        resolved_ref=resolution.resolved_ref,
-        topic=spec.topic,
-        url=resolution.url,
         sha256=sha256,
         size_bytes=size_bytes,
         fetched_at=fetched_at,

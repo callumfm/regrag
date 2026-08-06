@@ -23,23 +23,11 @@ def keyed(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
 def to_chunk_row(
     chunk: Chunk, *, digest: str, occurrence: int, corpus_version: str
 ) -> DocumentChunk:
-    """Map the chunker's value object onto its persisted row."""
+    """The chunk itself, plus what only persistence knows: hash, duplicate index, version."""
     return DocumentChunk(
-        ref=chunk.ref,
-        topic=chunk.topic,
+        **chunk.model_dump(mode="json"),
         content_hash=digest,
         occurrence=occurrence,
-        kind=chunk.kind,
-        article=chunk.article,
-        annex=chunk.annex,
-        title=chunk.title,
-        paragraph=chunk.paragraph,
-        heading_path=list(chunk.heading_path),
-        part=chunk.part,
-        parts=chunk.parts,
-        citation=chunk.citation,
-        text=chunk.text,
-        references=[reference.model_dump() for reference in chunk.references],
         corpus_version=corpus_version,
     )
 
