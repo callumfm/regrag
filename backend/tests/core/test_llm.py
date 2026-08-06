@@ -1,6 +1,9 @@
 """Voyage embedding client: call contract, ordering, and error sanitisation."""
 
-import os
+import json
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -12,9 +15,13 @@ from app.core.llm import EmbedInput, LLMError, embed
 
 pytestmark = pytest.mark.anyio
 
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _response(vectors: list[list[float]]) -> SimpleNamespace:
-    return SimpleNamespace(data=[{"embedding": vector} for vector in vectors])
+    return SimpleNamespace(
+        data=[{"embedding": vector, "index": i} for i, vector in enumerate(vectors)]
+    )
 
 
 def test_embed_input_document_value():
@@ -55,6 +62,29 @@ async def test_embed_returns_vectors_in_input_order(monkeypatch):
     assert result == [[0.0], [1.0], [2.0]]
 
 
+async def test_embed_reorders_shuffled_response_by_index(monkeypatch):
+    async def fake_aembedding(**kwargs):
+        n = len(kwargs["input"])
+        data = [{"embedding": [float(i)], "index": i} for i in reversed(range(n))]
+        return SimpleNamespace(data=data)
+
+    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+
+    result = await embed(["a", "b", "c"], input_type=EmbedInput.DOCUMENT)
+
+    assert result == [[0.0], [1.0], [2.0]]
+
+
+async def test_embed_raises_on_short_response(monkeypatch):
+    async def fake_aembedding(**kwargs):
+        return _response([[0.0]])
+
+    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+
+    with pytest.raises(LLMError):
+        await embed(["a", "b", "c"], input_type=EmbedInput.DOCUMENT)
+
+
 async def test_embed_sends_configured_call_kwargs(monkeypatch):
     calls = []
 
@@ -72,7 +102,7 @@ async def test_embed_sends_configured_call_kwargs(monkeypatch):
     assert call["dimensions"] == 1024
     assert call["api_key"] == llm.config.VOYAGE_API_KEY
     assert call["timeout"] == 30
-    assert call["num_retries"] == 3
+    assert "num_retries" not in call
 
 
 @pytest.mark.parametrize(
@@ -112,5 +142,77 @@ async def test_embed_wraps_provider_error_without_leaking_provider_text(monkeypa
     assert provider_message not in str(exc_info.value)
 
 
-def test_importing_llm_sets_local_model_cost_map_env_var():
-    assert os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] == "true"
+def test_importing_llm_without_cost_map_pin_makes_no_network_connection():
+    """Regression guard for the offline pin: unset it and prove no socket connect happens."""
+    script = """
+import os
+import socket
+
+os.environ.pop("LITELLM_LOCAL_MODEL_COST_MAP", None)
+
+attempts = []
+
+
+def _tracking_connect(self, address):
+    attempts.append(address)
+    raise OSError("blocked for offline test")
+
+
+socket.socket.connect = _tracking_connect
+
+import app.core.llm  # noqa: E402
+
+print(len(attempts))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(BACKEND_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "0", result.stdout + result.stderr
+
+
+async def test_embed_sends_voyage_request_body_and_auth_header(monkeypatch):
+    """One integration-shaped check of the real request litellm builds for Voyage."""
+    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["headers"] = dict(request.headers)
+        captured["body"] = json.loads(request.content)
+        n = len(captured["body"]["input"])
+        payload = {
+            "object": "list",
+            "data": [{"object": "embedding", "index": i, "embedding": [0.1]} for i in range(n)],
+            "model": captured["body"]["model"],
+            "usage": {"total_tokens": 7},
+        }
+        return httpx.Response(200, json=payload, request=request)
+
+    transport = httpx.MockTransport(handler)
+    original_init = AsyncHTTPHandler.__init__
+
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        self.client = httpx.AsyncClient(transport=transport)
+
+    monkeypatch.setattr(AsyncHTTPHandler, "__init__", patched_init)
+    llm.litellm.in_memory_llm_clients_cache.flush_cache()
+
+    result = await embed(["alpha", "beta"], input_type=EmbedInput.QUERY)
+
+    assert result == [[0.1], [0.1]]
+    assert captured["body"]["input"] == ["alpha", "beta"]
+    assert captured["body"]["model"] == "voyage-4-lite"
+    assert captured["body"]["output_dimension"] == 1024
+    assert captured["body"]["input_type"] == "query"
+    assert "num_retries" not in captured["body"]
+    assert captured["headers"]["authorization"] == f"Bearer {llm.config.VOYAGE_API_KEY}"
+
+    llm.litellm.in_memory_llm_clients_cache.flush_cache()

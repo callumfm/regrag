@@ -88,7 +88,6 @@ class EmbeddingConfig(BaseConfig):
     EMBED_MODEL: str = "voyage/voyage-4-lite"
     EMBED_DIMENSIONS: int = 1024
     EMBED_TIMEOUT: int = 30
-    EMBED_MAX_RETRIES: int = 3
 
 
 class Config(AppConfig, PostgresConfig, EmbeddingConfig):

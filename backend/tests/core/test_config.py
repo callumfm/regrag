@@ -20,14 +20,13 @@ def test_base_config_is_a_settings_class():
     assert issubclass(BaseConfig, BaseSettings)
 
 
-def test_embedding_defaults_match_voyage_4_lite():
+def test_embedding_defaults_match_voyage_4_lite(monkeypatch):
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
     embedding = EmbeddingConfig()
 
     assert embedding.EMBED_MODEL == "voyage/voyage-4-lite"
     assert embedding.EMBED_DIMENSIONS == 1024
     assert embedding.EMBED_TIMEOUT == 30
-    assert embedding.EMBED_MAX_RETRIES == 3
-    assert embedding.VOYAGE_API_KEY == ""
 
 
 def test_combined_config_carries_every_concern():

@@ -2,8 +2,8 @@
 
 import logging
 import os
-from collections.abc import Sequence
 from enum import StrEnum
+from operator import itemgetter
 
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "true")
 
@@ -32,21 +32,27 @@ class LLMError(DomainError):
     status_code = status.HTTP_502_BAD_GATEWAY
 
 
-async def embed(texts: Sequence[str], *, input_type: EmbedInput) -> list[list[float]]:
-    """Embed texts in one provider call, preserving input order."""
+async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]]:
+    """Embed texts in one provider call, in input order. Retries are the caller's."""
     if not texts:
         return []
     try:
         response = await litellm.aembedding(
             model=config.EMBED_MODEL,
-            input=list(texts),
+            input=texts,
             input_type=input_type.value,
             dimensions=config.EMBED_DIMENSIONS,
             api_key=config.VOYAGE_API_KEY,
             timeout=config.EMBED_TIMEOUT,
-            num_retries=config.EMBED_MAX_RETRIES,
         )
     except ProviderError as exc:
         logger.warning("embedding call failed: %s", exc)
         raise LLMError("embedding call failed") from exc
-    return [item["embedding"] for item in response.data]
+    if len(response.data) != len(texts):
+        logger.warning(
+            "embedding response misaligned: got %d items for %d inputs",
+            len(response.data),
+            len(texts),
+        )
+        raise LLMError("embedding call failed")
+    return [item["embedding"] for item in sorted(response.data, key=itemgetter("index"))]
