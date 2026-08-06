@@ -19,17 +19,18 @@ def get_env_file(env: Environment = ENVIRONMENT) -> str:
     return f".env.{env.value}"
 
 
-MODEL_CONFIG = SettingsConfigDict(
-    env_file=get_env_file(),
-    env_ignore_empty=True,
-    extra="ignore",
-)
+class BaseConfig(BaseSettings):
+    """Base for the per-concern settings classes."""
+
+    model_config = SettingsConfigDict(
+        env_file=get_env_file(),
+        env_ignore_empty=True,
+        extra="ignore",
+    )
 
 
-class AppConfig(BaseSettings):
+class AppConfig(BaseConfig):
     """Application configuration."""
-
-    model_config = MODEL_CONFIG
 
     ENVIRONMENT: Environment = ENVIRONMENT
     PROJECT_NAME: str = "RegRag"
@@ -37,10 +38,8 @@ class AppConfig(BaseSettings):
     RAW_DATA_DIR: Path = PROJECT_ROOT / "data" / "raw"
 
 
-class PostgresConfig(BaseSettings):
+class PostgresConfig(BaseConfig):
     """PostgreSQL database configuration."""
-
-    model_config = MODEL_CONFIG
 
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
@@ -82,7 +81,16 @@ class PostgresConfig(BaseSettings):
         }
 
 
-class Config(AppConfig, PostgresConfig):
+class EmbeddingConfig(BaseConfig):
+    """Voyage embedding configuration."""
+
+    VOYAGE_API_KEY: str = ""
+    EMBED_MODEL: str = "voyage/voyage-4-lite"
+    EMBED_DIMENSIONS: int = 1024
+    EMBED_TIMEOUT: int = 30
+
+
+class Config(AppConfig, PostgresConfig, EmbeddingConfig):
     """Combined configuration class for core app functionality."""
 
 

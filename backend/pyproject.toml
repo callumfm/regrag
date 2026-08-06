@@ -7,6 +7,7 @@ dependencies = [
     "alembic>=1.16",
     "fastapi[standard]>=0.139",
     "httpx>=0.28",
+    "litellm>=1.79",
     "psycopg[binary]>=3.2",
     "pydantic>=2.13",
     "pydantic-settings>=2.14",
