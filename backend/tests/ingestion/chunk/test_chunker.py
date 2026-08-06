@@ -1,7 +1,7 @@
 from app.ingestion.chunk.chunker import chunk_document
-from app.ingestion.chunk.references import Reference
+from app.ingestion.chunk.models import Reference
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.base import ParsedDocument, Section
+from app.ingestion.parse.models import ParsedDocument, Section
 
 
 def paragraph(number: str | None, text: str) -> Section:
@@ -34,6 +34,11 @@ def test_chunk_carries_document_identity() -> None:
     doc = document(article("4", "Limits", paragraph("1", "First.")))
     chunk = chunk_document(doc)[0]
     assert (chunk.ref, chunk.topic) == ("32023R1805", "fueleu")
+
+
+def test_a_non_paragraph_section_leaves_paragraph_unset() -> None:
+    doc = document(article("4", "Limits", Section(kind=SectionKind.HEADING, text="Preamble.")))
+    assert chunk_document(doc)[0].paragraph is None
 
 
 def test_citation_combines_article_and_paragraph() -> None:

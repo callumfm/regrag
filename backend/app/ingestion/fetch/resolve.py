@@ -3,19 +3,11 @@
 import httpx
 
 from app.core.http import transient_retry
-from app.core.models import FrozenModel
 from app.ingestion.exceptions import ResolutionError
-from app.ingestion.fetch.discover import DocumentSpec
+from app.ingestion.fetch.models import DiscoveredDocument, Resolution
 
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}"
 MISSING_MARKER = "The requested document does not exist."
-
-
-class Resolution(FrozenModel):
-    """A verified resolution: version-pinned ref and its fetchable HTML URL."""
-
-    resolved_ref: str
-    url: str
 
 
 def is_missing_document(html: str) -> bool:
@@ -23,7 +15,7 @@ def is_missing_document(html: str) -> bool:
 
 
 @transient_retry
-def resolve(client: httpx.Client, spec: DocumentSpec) -> Resolution:
+def resolve_version(client: httpx.Client, spec: DiscoveredDocument) -> Resolution:
     """Return a verified Resolution for the latest consolidated version, else the original act."""
     candidates = [spec.candidate_ref, spec.ref] if spec.candidate_ref else [spec.ref]
     for candidate in candidates:

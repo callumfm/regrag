@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from app.core.http import DEFAULT_HEADERS, http_client, transient_retry
+from app.core.http import DEFAULT_HEADERS, download, http_client, pace, transient_retry
 
 
 def test_default_headers_carry_browser_user_agent():
@@ -68,3 +68,23 @@ def test_retries_transport_errors(get):
     client, calls = flaky_client([httpx.ConnectError("refused"), httpx.Response(200, text="ok")])
     assert get(client).text == "ok"
     assert len(calls) == 2
+
+
+def test_download_returns_the_response_body() -> None:
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, content=b"hi"))
+    )
+    assert download(client, "https://example.test/doc") == b"hi"
+
+
+def test_download_raises_on_a_client_error() -> None:
+    client = httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(404)))
+    with pytest.raises(httpx.HTTPStatusError):
+        download(client, "https://example.test/missing")
+
+
+def test_pace_sleeps_for_the_requested_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+    slept: list[float] = []
+    monkeypatch.setattr("app.core.http.time.sleep", slept.append)
+    pace(0.25)
+    assert slept == [0.25]

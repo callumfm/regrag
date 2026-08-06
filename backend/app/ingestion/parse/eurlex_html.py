@@ -8,12 +8,16 @@ from selectolax.parser import HTMLParser, Node
 
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
-from app.ingestion.parse.base import (
-    FORMULA_PLACEHOLDER,
-    ParsedDocument,
-    Section,
-    normalise,
-)
+from app.ingestion.parse.models import ParsedDocument, Section
+
+FORMULA_PLACEHOLDER = "[formula]"
+WHITESPACE = re.compile(r"\s+")
+
+
+def normalise(text: str) -> str:
+    """Collapse whitespace, including the non-breaking spaces EUR-Lex indents with."""
+    return WHITESPACE.sub(" ", text.replace("\xa0", " ")).strip()
+
 
 ARTICLE_NUMBER = re.compile(r"Article\s+(\d+[a-z]?)", re.IGNORECASE)
 ANNEX_NUMBER = re.compile(r"ANNEX\s+([IVXLC]+|\d+)", re.IGNORECASE)

@@ -5,15 +5,15 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.ingestion.constants import SEEDS
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch.discover import (
-    SEEDS,
-    DocumentSpec,
     discover,
     parse_topic_response,
     topic_query,
 )
-from app.ingestion.fetch.resolve import resolve
+from app.ingestion.fetch.models import DiscoveredDocument
+from app.ingestion.fetch.resolve import resolve_version
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -89,7 +89,7 @@ def test_no_consolidations_gives_none_candidate():
 def test_specs_carry_topic_and_source():
     p = payload(binding("32023R1805", force="1"))
     spec = parse_topic_response("fueleu", p)[0]
-    assert spec == DocumentSpec(
+    assert spec == DiscoveredDocument(
         topic="fueleu", source="eurlex", ref="32023R1805", candidate_ref=None
     )
 
@@ -147,6 +147,6 @@ def corpus_handler(request: httpx.Request) -> httpx.Response:
 def test_topic_corpus_discovers_and_resolves(topic):
     with httpx.Client(transport=httpx.MockTransport(corpus_handler)) as client:
         specs = discover(client, topic, SEEDS[topic])
-        resolved = {f"{topic}:{s.ref}": resolve(client, s).resolved_ref for s in specs}
+        resolved = {f"{topic}:{s.ref}": resolve_version(client, s).resolved_ref for s in specs}
     expected = {k: v for k, v in EXPECTED_RESOLVED.items() if k.startswith(f"{topic}:")}
     assert resolved == expected

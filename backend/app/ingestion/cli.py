@@ -1,4 +1,4 @@
-"""Ingest CLI: `uv run ingest fetch [topics...]`."""
+"""Ingest CLI: `uv run ingest [topics...]`."""
 
 import argparse
 import asyncio
@@ -9,28 +9,27 @@ import httpx
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.http import http_client
+from app.core.logger import setup_logging
+from app.ingestion.constants import SEEDS
 from app.ingestion.exceptions import DiscoveryError
-from app.ingestion.fetch.discover import SEEDS
-from app.ingestion.fetch.pipeline import RunReport, fetch_topics
+from app.ingestion.pipeline import IngestRunResult, ingest
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ingest", description="RegRag corpus ingestion")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    fetch_parser = subparsers.add_parser("fetch", help="discover and download the corpus")
-    fetch_parser.add_argument(
+    parser.add_argument(
         "topics",
         nargs="*",
         metavar="topic",
-        help=f"topics to fetch (default: {', '.join(sorted(SEEDS))})",
+        help=f"topics to ingest (default: {', '.join(sorted(SEEDS))})",
     )
     return parser
 
 
-async def _fetch(topics: list[str]) -> RunReport:
+async def _ingest(topics: list[str]) -> IngestRunResult:
     with http_client() as client:
         async with get_session(auto_commit=False) as session:
-            return await fetch_topics(session, client, topics, config.RAW_DATA_DIR)
+            return await ingest(session, client=client, topics=topics, data_dir=config.RAW_DATA_DIR)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,10 +39,11 @@ def main(argv: list[str] | None = None) -> int:
     unknown = sorted(set(topics) - SEEDS.keys())
     if unknown:
         parser.error(f"unknown topics: {', '.join(unknown)} (known: {', '.join(sorted(SEEDS))})")
+    setup_logging()
     try:
-        report = asyncio.run(_fetch(topics))
+        report = asyncio.run(_ingest(topics))
     except (DiscoveryError, httpx.HTTPError) as exc:
-        print(f"fetch aborted: {exc}", file=sys.stderr)
+        print(f"ingest aborted: {exc}", file=sys.stderr)
         return 1
     print(report.summary())
     return 0 if report.ok else 1

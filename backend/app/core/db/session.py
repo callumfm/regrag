@@ -27,12 +27,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 @asynccontextmanager
 async def get_session(*, auto_commit: bool = True) -> AsyncGenerator[AsyncSession, None]:
-    """Get a database session, rollback on error and ensure session is closed."""
+    """Get a database session, rollback on error or interrupt and ensure session is closed."""
     async with async_session_factory() as db:
         try:
             yield db
             if auto_commit:
                 await db.commit()
-        except Exception:
+        except BaseException:
             await db.rollback()
             raise

@@ -8,8 +8,9 @@ import time
 from pathlib import Path
 
 from app.core.http import http_client
-from app.ingestion.fetch.discover import SEEDS, SPARQL_ENDPOINT, parse_topic_response, topic_query
-from app.ingestion.fetch.resolve import resolve
+from app.ingestion.constants import SEEDS
+from app.ingestion.fetch.discover import SPARQL_ENDPOINT, parse_topic_response, topic_query
+from app.ingestion.fetch.resolve import resolve_version
 
 FIXTURES = Path(__file__).parent
 
@@ -28,7 +29,7 @@ def main() -> None:
             (FIXTURES / f"sparql-{topic}.json").write_text(json.dumps(payload, indent=2) + "\n")
             for spec in parse_topic_response(topic, payload):
                 time.sleep(1)
-                resolution = resolve(client, spec)
+                resolution = resolve_version(client, spec)
                 if spec.candidate_ref and resolution.resolved_ref == spec.ref:
                     missing.add(spec.candidate_ref)
                 expected[f"{topic}:{spec.ref}"] = resolution.resolved_ref
