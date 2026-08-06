@@ -71,6 +71,22 @@ async def _mark_failed(session: AsyncSession, run: IngestRun) -> None:
         logger.exception("run %s could not be marked failed", run_id)
 
 
+async def _corpus_refs(
+    session: AsyncSession,
+    *,
+    fetch_result: FetchRunResult,
+    parse_result: ParseRunResult,
+    topics: Sequence[str],
+) -> set[str] | None:
+    """The refs the corpus consists of after this run: what it discovered, plus other topics'.
+
+    None when fetch or parse fell short, since a partial corpus cannot justify deletions.
+    """
+    if not (fetch_result.ok and parse_result.ok):
+        return None
+    return set(fetch_result.discovered) | await get_other_topic_refs(session, topics)
+
+
 @asynccontextmanager
 async def ingest_run(session: AsyncSession) -> AsyncIterator[IngestRun]:
     """Open a run, and mark it failed if the pipeline raises or is interrupted."""
@@ -91,22 +107,25 @@ async def ingest(
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as run:
-        documents, fetched = await fetch_documents(
+        documents, fetch_result = await fetch_documents(
             session, client=client, topics=topics, data_dir=data_dir, run=run
         )
-        logger.info("[fetch] %s", fetched.summary())
+        logger.info("[fetch] %s", fetch_result.summary())
 
         parsed, parse_result = parse_documents(documents, data_dir=data_dir)
         logger.info("[parse] %s", parse_result.summary())
 
-        keep = None
-        if fetched.ok and parse_result.ok:
-            keep = set(fetched.discovered) | await get_other_topic_refs(session, topics)
+        corpus_refs = await _corpus_refs(
+            session, fetch_result=fetch_result, parse_result=parse_result, topics=topics
+        )
+        chunk_result = await chunk_documents(
+            session, parsed, ingest_run_id=run.id, corpus_refs=corpus_refs
+        )
+        logger.info("[chunk] %s", chunk_result.summary())
 
-        chunked = await chunk_documents(session, parsed, ingest_run_id=run.id, keep_refs=keep)
-        logger.info("[chunk] %s", chunked.summary())
-
-        result = IngestRunResult(run_id=run.id, fetch=fetched, parse=parse_result, chunk=chunked)
+        result = IngestRunResult(
+            run_id=run.id, fetch=fetch_result, parse=parse_result, chunk=chunk_result
+        )
         await complete_ingest_run(session, run, status=result.status)
         result.corpus_version = run.corpus_version
         return result

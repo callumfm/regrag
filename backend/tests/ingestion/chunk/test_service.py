@@ -145,7 +145,7 @@ async def test_delete_chunks_outside_removes_documents_off_the_keep_list(
 ):
     await seed_two_topics(db_session, ingest_run)
 
-    removed = await delete_chunks_outside(db_session, keep_refs=["32015R0757"])
+    removed = await delete_chunks_outside(db_session, corpus_refs=["32015R0757"])
 
     assert removed == 1
     assert await chunk_rows(db_session, "32023R1805") == []
@@ -156,17 +156,17 @@ async def test_delete_chunks_outside_keeps_documents_on_the_keep_list(
 ):
     await seed_two_topics(db_session, ingest_run)
 
-    assert await delete_chunks_outside(db_session, keep_refs=["32023R1805", "32015R0757"]) == 0
+    assert await delete_chunks_outside(db_session, corpus_refs=["32023R1805", "32015R0757"]) == 0
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
 
 
 async def test_delete_chunks_outside_spares_a_ref_another_topic_still_holds(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    """The keep list, not the topic tag, decides: a shared ref survives on any topic's say-so."""
+    """The corpus, not the topic tag, decides: a shared ref survives on any topic's say-so."""
     await seed_two_topics(db_session, ingest_run)
 
-    await delete_chunks_outside(db_session, keep_refs=["32015R0757"])
+    await delete_chunks_outside(db_session, corpus_refs=["32015R0757"])
 
     assert len(await chunk_rows(db_session, "32015R0757")) == 1
 
@@ -176,7 +176,7 @@ async def test_delete_chunks_outside_refuses_to_wipe_everything_on_an_empty_keep
 ):
     await seed_two_topics(db_session, ingest_run)
 
-    assert await delete_chunks_outside(db_session, keep_refs=[]) == 0
+    assert await delete_chunks_outside(db_session, corpus_refs=[]) == 0
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
 
 
