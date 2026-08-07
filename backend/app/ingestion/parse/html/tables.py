@@ -3,7 +3,8 @@
 from selectolax.parser import Node
 
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.html.dialect import CELL, Dialect
+from app.ingestion.parse.html.dialect import Dialect
+from app.ingestion.parse.html.lines import CELL
 from app.ingestion.parse.models import Section
 from app.ingestion.parse.text import clean_text
 

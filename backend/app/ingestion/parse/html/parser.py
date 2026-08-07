@@ -10,11 +10,14 @@ from selectolax.parser import HTMLParser
 
 from app.ingestion.exceptions import ParseError
 from app.ingestion.parse.html.consolidated import CONSOLIDATED
-from app.ingestion.parse.html.dialect import ANNEX_CONTAINER, ARTICLE_CONTAINER, Dialect
+from app.ingestion.parse.html.dialect import Dialect
 from app.ingestion.parse.html.oj import OJ
 from app.ingestion.parse.html.sections import build_annex, build_article
 from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.parse.text import FORMULA_PLACEHOLDER
+
+ARTICLE_CONTAINER = "div.eli-subdivision[id^=art_]"
+ANNEX_CONTAINER = "div[id^=anx_]"
 
 AMENDMENT_REF = "p.modref"
 FOOTNOTE_MARKER = "span.superscript, span.oj-super"

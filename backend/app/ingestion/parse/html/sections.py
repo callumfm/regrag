@@ -5,7 +5,7 @@ import re
 from selectolax.parser import Node
 
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.html.dialect import ARTICLE_TITLE, Dialect
+from app.ingestion.parse.html.dialect import Dialect
 from app.ingestion.parse.html.lines import (
     Line,
     Subheading,
@@ -16,6 +16,8 @@ from app.ingestion.parse.html.lines import (
 from app.ingestion.parse.html.tables import detach_data_tables
 from app.ingestion.parse.models import Section
 from app.ingestion.parse.text import ANNEX_NUMBER_RE, ARTICLE_NUMBER_RE, clean_text
+
+ARTICLE_TITLE = "div.eli-title p"
 
 
 def number_from_heading(node: Node, selector: str, pattern: re.Pattern[str]) -> str | None:

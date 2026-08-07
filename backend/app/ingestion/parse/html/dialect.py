@@ -1,4 +1,4 @@
-"""What the two EUR-Lex markup dialects share, and the shape of what they do not."""
+"""The shape of what the two EUR-Lex markup dialects disagree about."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -6,11 +6,6 @@ from dataclasses import dataclass
 from selectolax.parser import Node
 
 from app.ingestion.parse.models import Section
-
-ARTICLE_CONTAINER = "div.eli-subdivision[id^=art_]"
-ANNEX_CONTAINER = "div[id^=anx_]"
-ARTICLE_TITLE = "div.eli-title p"
-CELL = "td, th"
 
 
 @dataclass(frozen=True)

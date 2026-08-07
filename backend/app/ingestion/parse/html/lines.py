@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from selectolax.parser import Node
 
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.html.dialect import CELL
 from app.ingestion.parse.models import Section
 from app.ingestion.parse.text import clean_text
 
+CELL = "td, th"
 GRID_CONTAINER = "div.grid-container"
 GRID_MARKER = "div.grid-list-column-1"
 GRID_BODY = "div.grid-list-column-2"
