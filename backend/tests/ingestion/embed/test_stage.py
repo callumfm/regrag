@@ -162,6 +162,22 @@ async def test_a_permanent_failure_is_not_retried(db_session, ingest_run, make_c
     assert result.embedded == 0
 
 
+async def test_a_later_batch_failing_keeps_the_earlier_batches_vectors(
+    db_session, ingest_run, make_chunk_row, provider
+):
+    """The savepoint is per batch, so work already done survives a failure further in."""
+    calls = provider({2: LLMError("embedding call failed")})
+    db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 200))
+    await db_session.flush()
+
+    result = await embed_chunks(db_session)
+
+    assert [len(batch) for batch in calls] == [128, 72]
+    assert result.embedded == 128
+    assert list(result.failed) == ["32023R1805"]
+    assert len(await get_unembedded_chunks(db_session)) == 72
+
+
 async def test_an_empty_table_makes_no_provider_call(db_session, provider):
     calls = provider()
 

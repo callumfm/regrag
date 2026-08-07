@@ -40,7 +40,7 @@ class DocumentChunk(BaseSchema):
     text: Mapped[str]
     references: Mapped[list[dict]] = mapped_column(JSONB)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(config.EMBED_DIMENSIONS))
-    search_vector: Mapped[str] = mapped_column(
+    search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR, Computed(SEARCH_VECTOR_SQL, persisted=True)
     )
 

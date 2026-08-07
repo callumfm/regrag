@@ -592,4 +592,6 @@ async def test_a_second_run_embeds_nothing_and_reports_the_rest_unchanged(
 
     second = await ingest_fueleu(db_session, tmp_path, corpus_client)
 
+    assert second.ok
+    assert second.embed.failed == {}
     assert (second.embed.embedded, second.embed.unchanged) == (0, stored)

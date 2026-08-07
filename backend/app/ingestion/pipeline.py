@@ -1,4 +1,4 @@
-"""The ingest pipeline: one run, fetch -> parse -> chunk -> store."""
+"""The ingest pipeline: one run, fetch -> parse -> chunk -> embed."""
 
 import logging
 from collections.abc import AsyncIterator, Sequence

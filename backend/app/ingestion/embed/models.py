@@ -8,3 +8,4 @@ class EmbedRunResult(StageRunResult):
 
     embedded: int = 0
     unchanged: int = 0
+    """Already-vectored chunks corpus-wide, not just this run's documents."""
