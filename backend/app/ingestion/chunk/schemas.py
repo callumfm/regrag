@@ -1,12 +1,19 @@
 """Persisted chunks: one row per retrievable unit of a regulation."""
 
-from sqlalchemy import ARRAY, ForeignKey, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import ARRAY, Computed, ForeignKey, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.config import config
 from app.core.db.schema import BaseSchema
 from app.ingestion.enums import SectionKind
 from app.ingestion.schemas import IngestRun
+
+SEARCH_VECTOR_SQL = (
+    """setweight(to_tsvector('english', citation || ' ' || coalesce(title, '')), 'A')"""
+    """ || setweight(to_tsvector('english', "text"), 'B')"""
+)
 
 
 class DocumentChunk(BaseSchema):
@@ -32,5 +39,9 @@ class DocumentChunk(BaseSchema):
     citation: Mapped[str]
     text: Mapped[str]
     references: Mapped[list[dict]] = mapped_column(JSONB)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(config.EMBED_DIMENSIONS))
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR, Computed(SEARCH_VECTOR_SQL, persisted=True)
+    )
 
     run: Mapped[IngestRun] = relationship()
