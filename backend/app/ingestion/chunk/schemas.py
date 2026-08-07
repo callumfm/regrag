@@ -13,11 +13,11 @@ class DocumentChunk(BaseSchema):
     """One retrievable unit of a regulation, content-addressed so it survives re-runs."""
 
     __tablename__ = "document_chunks"
-    __table_args__ = (UniqueConstraint("ref", "content_hash", "occurrence"),)
+    __table_args__ = (UniqueConstraint("celex", "content_hash", "occurrence"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     ingest_run_id: Mapped[int] = mapped_column(ForeignKey("ingest_runs.id", ondelete="CASCADE"))
-    ref: Mapped[str]
+    celex: Mapped[str]
     topic: Mapped[str]
     content_hash: Mapped[str]
     occurrence: Mapped[int]

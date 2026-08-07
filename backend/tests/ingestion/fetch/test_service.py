@@ -22,7 +22,7 @@ async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
     db_session.add_all(
         [
             make_document(old, "32014R0666", topic="mrv"),
-            make_document(latest, "32015R0757", topic="mrv", resolved_ref="02015R0757-20250101"),
+            make_document(latest, "32015R0757", topic="mrv", resolved_celex="02015R0757-20250101"),
             make_document(latest, "32023R1805", topic="fueleu"),
         ]
     )
@@ -30,7 +30,7 @@ async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
 
     baseline = await get_baseline_docs(db_session, ["mrv"])
     assert set(baseline) == {"32015R0757"}
-    assert baseline["32015R0757"].resolved_ref == "02015R0757-20250101"
+    assert baseline["32015R0757"].resolved_celex == "02015R0757-20250101"
 
 
 async def test_baseline_survives_a_newer_run_of_another_topic(

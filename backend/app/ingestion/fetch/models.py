@@ -14,14 +14,14 @@ class DiscoveredDocument(FrozenModel):
 
     topic: str
     source: str
-    ref: str
-    candidate_ref: str | None
+    celex: str
+    candidate_celex: str | None
 
 
 class Resolution(FrozenModel):
-    """A verified resolution: version-pinned ref and its fetchable HTML URL."""
+    """A verified resolution: version-pinned celex and its fetchable HTML URL."""
 
-    resolved_ref: str
+    resolved_celex: str
     url: str
 
 
@@ -38,16 +38,16 @@ class FetchRunResult(StageRunResult):
 
     def details(self) -> list[str]:
         listed = [
-            f"{label}: {', '.join(sorted(refs))}"
-            for label, refs in (
+            f"{label}: {', '.join(sorted(celexes))}"
+            for label, celexes in (
                 ("new", self.new),
                 ("changed", self.changed),
                 ("dropped", self.dropped),
             )
-            if refs
+            if celexes
         ]
         return listed + super().details()
 
-    def record(self, action: DocAction, ref: str) -> None:
+    def record(self, action: DocAction, celex: str) -> None:
         """Route a document's fetch outcome to the bucket its action names."""
-        getattr(self, action).append(ref)
+        getattr(self, action).append(celex)

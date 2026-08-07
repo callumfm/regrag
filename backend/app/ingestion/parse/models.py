@@ -23,13 +23,13 @@ class Section(FrozenModel):
 class ParsedDocument(FrozenModel):
     """A parsed act: identity from the ingest record, body as a section tree."""
 
-    ref: str
+    celex: str
     topic: str
     sections: tuple[Section, ...]
 
 
 class Parser(Protocol):
-    def __call__(self, html: str, ref: str, topic: str) -> ParsedDocument: ...
+    def __call__(self, html: str, celex: str, topic: str) -> ParsedDocument: ...
 
 
 class ParseRunResult(StageRunResult):

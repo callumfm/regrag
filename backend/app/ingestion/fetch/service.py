@@ -28,15 +28,15 @@ async def get_corpus_docs(session: AsyncSession) -> Sequence[RawDocument]:
     return (await session.scalars(latest_run_docs())).all()
 
 
-async def get_other_topic_refs(session: AsyncSession, topics: Sequence[str]) -> set[str]:
+async def get_other_topic_celexes(session: AsyncSession, topics: Sequence[str]) -> set[str]:
     """Refs still held by the topics this run is not ingesting."""
     rows = await session.scalars(latest_run_docs().where(RawDocument.topic.notin_(topics)))
-    return {row.ref for row in rows}
+    return {row.celex for row in rows}
 
 
 async def get_baseline_docs(session: AsyncSession, topics: Sequence[str]) -> dict[str, RawDocument]:
-    """Rows from each topic's own latest recorded run, keyed by ref."""
+    """Rows from each topic's own latest recorded run, keyed by celex."""
     rows = await session.scalars(
         latest_run_docs().where(RawDocument.topic.in_(topics)).order_by(RawDocument.ingest_run_id)
     )
-    return {row.ref: row for row in rows}
+    return {row.celex: row for row in rows}

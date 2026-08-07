@@ -43,7 +43,7 @@ def annexes(document):
 
 def test_carries_identity_from_the_ingest_record():
     document = fueleu()
-    assert document.ref == "32023R1805"
+    assert document.celex == "32023R1805"
     assert document.topic == "fueleu"
 
 

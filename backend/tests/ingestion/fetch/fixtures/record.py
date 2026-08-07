@@ -30,9 +30,9 @@ def main() -> None:
             for spec in parse_topic_response(topic, payload):
                 time.sleep(1)
                 resolution = resolve_version(client, spec)
-                if spec.candidate_ref and resolution.resolved_ref == spec.ref:
-                    missing.add(spec.candidate_ref)
-                expected[f"{topic}:{spec.ref}"] = resolution.resolved_ref
+                if spec.candidate_celex and resolution.resolved_celex == spec.celex:
+                    missing.add(spec.candidate_celex)
+                expected[f"{topic}:{spec.celex}"] = resolution.resolved_celex
     for key, value in sorted(expected.items()):
         print(f'    "{key}": "{value}",')
     print(f"MISSING_HTML = {sorted(missing)!r}")

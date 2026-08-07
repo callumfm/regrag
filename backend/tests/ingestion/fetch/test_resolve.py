@@ -18,8 +18,8 @@ DOC_HTML = (FIXTURES / "doc.html").read_text()
 MISSING_HTML_PAGE = (FIXTURES / "missing.html").read_text()
 
 
-def spec(ref="32015R0757", candidate=None):
-    return DiscoveredDocument(topic="mrv", source="eurlex", ref=ref, candidate_ref=candidate)
+def spec(celex="32015R0757", candidate=None):
+    return DiscoveredDocument(topic="mrv", source="eurlex", celex=celex, candidate_celex=candidate)
 
 
 def transport(responses):
@@ -51,44 +51,44 @@ def test_resolves_candidate_when_html_exists():
     with httpx.Client(transport=transport(responses)) as client:
         resolution = resolve_version(client, spec(candidate="02015R0757-20250101"))
     assert resolution == Resolution(
-        resolved_ref="02015R0757-20250101",
+        resolved_celex="02015R0757-20250101",
         url="https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:02015R0757-20250101",
     )
 
 
-def test_falls_back_to_ref_on_hard_404():
+def test_falls_back_to_celex_on_hard_404():
     responses = {"02023R2917-20231229": missing_response(404), "32023R2917": doc_response()}
     with httpx.Client(transport=transport(responses)) as client:
         resolution = resolve_version(
-            client, spec(ref="32023R2917", candidate="02023R2917-20231229")
+            client, spec(celex="32023R2917", candidate="02023R2917-20231229")
         )
-    assert resolution.resolved_ref == "32023R2917"
+    assert resolution.resolved_celex == "32023R2917"
 
 
-def test_falls_back_to_ref_on_soft_404():
+def test_falls_back_to_celex_on_soft_404():
     responses = {"02023R2917-20231229": missing_response(200), "32023R2917": doc_response()}
     with httpx.Client(transport=transport(responses)) as client:
         resolution = resolve_version(
-            client, spec(ref="32023R2917", candidate="02023R2917-20231229")
+            client, spec(celex="32023R2917", candidate="02023R2917-20231229")
         )
-    assert resolution.resolved_ref == "32023R2917"
+    assert resolution.resolved_celex == "32023R2917"
 
 
-def test_no_candidate_resolves_ref_directly():
+def test_no_candidate_resolves_celex_directly():
     responses = {"32023R2449": doc_response()}
     with httpx.Client(transport=transport(responses)) as client:
-        assert resolve_version(client, spec(ref="32023R2449")).resolved_ref == "32023R2449"
+        assert resolve_version(client, spec(celex="32023R2449")).resolved_celex == "32023R2449"
 
 
 def test_raises_when_all_candidates_missing():
     responses = {"02023R2917-20231229": missing_response(404), "32023R2917": missing_response(200)}
     with httpx.Client(transport=transport(responses)) as client:
         with pytest.raises(ResolutionError, match="32023R2917"):
-            resolve_version(client, spec(ref="32023R2917", candidate="02023R2917-20231229"))
+            resolve_version(client, spec(celex="32023R2917", candidate="02023R2917-20231229"))
 
 
 def test_unexpected_error_status_raises():
     responses = {"32023R2449": httpx.Response(503, text="maintenance")}
     with httpx.Client(transport=transport(responses)) as client:
         with pytest.raises(httpx.HTTPStatusError):
-            resolve_version(client, spec(ref="32023R2449"))
+            resolve_version(client, spec(celex="32023R2449"))

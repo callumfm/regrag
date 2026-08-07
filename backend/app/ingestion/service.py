@@ -40,7 +40,7 @@ async def get_latest_corpus_version(session: AsyncSession) -> str | None:
 
 def corpus_fingerprint(documents: Iterable[RawDocument]) -> str:
     """Content hash of the corpus; an identical corpus fingerprints identically."""
-    content = sorted((doc.ref, doc.resolved_ref, doc.sha256) for doc in documents)
+    content = sorted((doc.celex, doc.resolved_celex, doc.sha256) for doc in documents)
     return hashlib.sha256(json.dumps(content).encode()).hexdigest()[:7]
 
 

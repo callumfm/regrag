@@ -35,8 +35,8 @@ class StageRunResult(BaseModel):
         return ", ".join([*counted, f"{len(self.failed)} failed"])
 
     def details(self) -> list[str]:
-        """The per-ref lines the summary is too short to carry."""
-        return [f"failed: {ref} ({error})" for ref, error in sorted(self.failed.items())]
+        """The per-document lines the summary is too short to carry."""
+        return [f"failed: {celex} ({error})" for celex, error in sorted(self.failed.items())]
 
     def __add__(self, other: Self) -> Self:
         """Combine same-type operands field by field; fields must be int, list or dict."""

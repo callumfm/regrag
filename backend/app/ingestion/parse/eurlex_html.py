@@ -296,12 +296,12 @@ def annex_section(node: Node, dialect: Dialect) -> Section:
     )
 
 
-def parse_eurlex_html(html: str, ref: str, topic: str) -> ParsedDocument:
+def parse_eurlex_html(html: str, celex: str, topic: str) -> ParsedDocument:
     """Parse one EUR-Lex document into the format-neutral section tree."""
     tree = prepare(html)
     dialect = detect(tree)
     articles = [article_section(node, dialect) for node in tree.css(ARTICLE)]
     if not articles:
-        raise ParseError(f"{ref}: no articles found")
+        raise ParseError(f"{celex}: no articles found")
     annexes = [annex_section(node, dialect) for node in tree.css(ANNEX)]
-    return ParsedDocument(ref=ref, topic=topic, sections=tuple(articles + annexes))
+    return ParsedDocument(celex=celex, topic=topic, sections=tuple(articles + annexes))

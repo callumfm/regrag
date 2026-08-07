@@ -11,8 +11,8 @@ from app.ingestion.parse.eurlex_html import parse_eurlex_html
 FIXTURES = Path(__file__).parents[1] / "parse" / "fixtures"
 
 
-def chunks_for(ref: str, topic: str) -> tuple[Chunk, ...]:
-    document = parse_eurlex_html((FIXTURES / f"{ref}.html").read_text(), ref, topic)
+def chunks_for(celex: str, topic: str) -> tuple[Chunk, ...]:
+    document = parse_eurlex_html((FIXTURES / f"{celex}.html").read_text(), celex, topic)
     return chunk_document(document)
 
 

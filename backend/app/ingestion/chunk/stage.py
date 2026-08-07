@@ -17,9 +17,9 @@ async def chunk_documents(
     documents: Sequence[ParsedDocument],
     *,
     ingest_run_id: int,
-    corpus_refs: Collection[str] | None,
+    corpus_celexes: Collection[str] | None,
 ) -> ChunkRunResult:
-    """Reconcile each document's chunks, then drop the chunks of every ref outside the corpus.
+    """Reconcile each document's chunks, then drop the chunks of every celex outside the corpus.
 
     A None corpus is an unknown one, and an unknown corpus prunes nothing.
     """
@@ -29,13 +29,13 @@ async def chunk_documents(
             async with session.begin_nested():
                 result += await upsert_document_chunks(
                     session,
-                    ref=document.ref,
+                    celex=document.celex,
                     chunks=chunk_document(document),
                     ingest_run_id=ingest_run_id,
                 )
         except (IngestionError, SQLAlchemyError) as exc:
-            result.failed[document.ref] = f"{type(exc).__name__}: {exc}"
-    if corpus_refs is None:
+            result.failed[document.celex] = f"{type(exc).__name__}: {exc}"
+    if corpus_celexes is None:
         return result
-    dropped = await delete_chunks_outside(session, corpus_refs=corpus_refs)
+    dropped = await delete_chunks_outside(session, corpus_celexes=corpus_celexes)
     return result + ChunkRunResult(removed=dropped)

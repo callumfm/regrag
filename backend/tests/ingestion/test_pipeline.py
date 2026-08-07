@@ -16,7 +16,7 @@ from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.parse.eurlex_html import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.pipeline import IngestRunResult, _known_corpus_refs, ingest
+from app.ingestion.pipeline import IngestRunResult, _known_corpus_celexes, ingest
 from app.ingestion.schemas import IngestRun
 from tests.conftest import MRV_SPARQL, binding, chunk_rows, chunk_versions, payload
 
@@ -26,7 +26,7 @@ FUELEU_HTML = (Path(__file__).parent / "parse" / "fixtures" / "32023R1805.html")
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
-    """The two-document mrv corpus, with per-ref responses overridable."""
+    """The two-document mrv corpus, with per-celex responses overridable."""
     return {
         "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
         "32023R2449": httpx.Response(200, content=FUELEU_HTML.encode()),
@@ -81,43 +81,43 @@ def test_summary_lists_each_stage_s_failures() -> None:
     assert "  parse failed: b (ParseError: no body)" in result.summary()
 
 
-async def test_known_corpus_refs_unions_this_run_with_the_topics_it_left_alone(
+async def test_known_corpus_celexes_unions_this_run_with_the_topics_it_left_alone(
     db_session, make_document
 ):
     other = IngestRun(status=IngestRunStatus.COMPLETED)
     db_session.add(make_document(other, "32015R0757", topic="mrv"))
     await db_session.flush()
 
-    refs = await _known_corpus_refs(
+    celexes = await _known_corpus_celexes(
         db_session,
         fetch_result=FetchRunResult(discovered=["32023R1805"]),
         parse_result=ParseRunResult(parsed=["32023R1805"]),
         topics=["fueleu"],
     )
 
-    assert refs == {"32023R1805", "32015R0757"}
+    assert celexes == {"32023R1805", "32015R0757"}
 
 
 async def test_a_partial_fetch_leaves_the_corpus_unknown(db_session):
-    refs = await _known_corpus_refs(
+    celexes = await _known_corpus_celexes(
         db_session,
         fetch_result=FetchRunResult(discovered=["32023R1805"], failed={"32015R0757": "404"}),
         parse_result=ParseRunResult(parsed=["32023R1805"]),
         topics=["fueleu"],
     )
 
-    assert refs is None
+    assert celexes is None
 
 
 async def test_a_document_that_would_not_parse_leaves_the_corpus_unknown(db_session):
-    refs = await _known_corpus_refs(
+    celexes = await _known_corpus_celexes(
         db_session,
         fetch_result=FetchRunResult(discovered=["32023R1805"]),
         parse_result=ParseRunResult(failed={"32023R1805": "ParseError"}),
         topics=["fueleu"],
     )
 
-    assert refs is None
+    assert celexes is None
 
 
 async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path, corpus_client):
@@ -217,7 +217,7 @@ async def test_run_persists_chunks_for_every_document(db_session, tmp_path, corp
     rows = await chunk_rows(db_session)
     assert report.ok
     assert report.chunk.added == len(rows) > 0
-    assert {row.ref for row in rows} == {"32015R0757", "32023R2449"}
+    assert {row.celex for row in rows} == {"32015R0757", "32023R2449"}
     assert {row.ingest_run_id for row in rows} == {report.run_id}
     assert await chunk_versions(db_session) == {report.corpus_version}
 
@@ -274,13 +274,15 @@ async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fet
     assert await chunk_rows(db_session, "32015R0757")
 
 
-WIDE_REFS = ["32015R0757", "32023R2449", "32026R0001", "32026R0002", "32026R0003"]
-WIDE_SPARQL = httpx.Response(200, json=payload(*(binding(ref, force="1") for ref in WIDE_REFS)))
+WIDE_CELEXES = ["32015R0757", "32023R2449", "32026R0001", "32026R0002", "32026R0003"]
+WIDE_SPARQL = httpx.Response(
+    200, json=payload(*(binding(celex, force="1") for celex in WIDE_CELEXES))
+)
 
 
 def wide_docs() -> dict[str, httpx.Response]:
     """A five-document mrv corpus, enough that losing most of it is implausible."""
-    return {ref: httpx.Response(200, content=FUELEU_HTML.encode()) for ref in WIDE_REFS}
+    return {celex: httpx.Response(200, content=FUELEU_HTML.encode()) for celex in WIDE_CELEXES}
 
 
 async def test_discovery_losing_most_of_the_corpus_aborts_and_deletes_nothing(
@@ -304,7 +306,7 @@ async def test_a_plausible_repeal_still_prunes(db_session, tmp_path, corpus_clie
     client, _ = corpus_client({"mrv": WIDE_SPARQL}, wide_docs())
     await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
-    kept = [binding(ref, force="1") for ref in WIDE_REFS if ref != "32026R0003"]
+    kept = [binding(celex, force="1") for celex in WIDE_CELEXES if celex != "32026R0003"]
     client, _ = corpus_client({"mrv": httpx.Response(200, json=payload(*kept))}, wide_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
@@ -335,7 +337,7 @@ FUELEU_PLUS_SHARED = httpx.Response(
 )
 
 
-async def test_a_ref_another_topic_still_holds_survives_being_dropped(
+async def test_a_celex_another_topic_still_holds_survives_being_dropped(
     db_session, tmp_path, corpus_client
 ):
     """32015R0757 is tagged fueleu because fueleu saw it first; mrv still wanting it must win."""
@@ -378,7 +380,7 @@ async def test_missing_source_file_is_recorded_not_raised(
     db_session, tmp_path, corpus_client, monkeypatch
 ):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    monkeypatch.setattr(stage, "_store", lambda data_dir, ref, content: ("a" * 64, len(content)))
+    monkeypatch.setattr(stage, "_store", lambda data_dir, celex, content: ("a" * 64, len(content)))
     report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
     assert sorted(report.parse.failed) == ["32015R0757", "32023R2449"]

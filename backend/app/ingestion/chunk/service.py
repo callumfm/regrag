@@ -33,7 +33,7 @@ def to_chunk_row(
 
 
 async def upsert_document_chunks(
-    session: AsyncSession, *, ref: str, chunks: Sequence[Chunk], ingest_run_id: int
+    session: AsyncSession, *, celex: str, chunks: Sequence[Chunk], ingest_run_id: int
 ) -> ChunkRunResult:
     """Reconcile a document's chunks by content hash, leaving matched rows otherwise untouched."""
     incoming = {(digest, occurrence): chunk for chunk, digest, occurrence in keyed(chunks)}
@@ -41,7 +41,7 @@ async def upsert_document_chunks(
         (content_hash, occurrence): row_id
         for row_id, content_hash, occurrence in await session.execute(
             select(DocumentChunk.id, DocumentChunk.content_hash, DocumentChunk.occurrence).where(
-                DocumentChunk.ref == ref
+                DocumentChunk.celex == celex
             )
         )
     }
@@ -60,12 +60,12 @@ async def upsert_document_chunks(
     return ChunkRunResult(added=len(added), removed=len(gone), unchanged=len(matched))
 
 
-async def delete_chunks_outside(session: AsyncSession, *, corpus_refs: Collection[str]) -> int:
+async def delete_chunks_outside(session: AsyncSession, *, corpus_celexes: Collection[str]) -> int:
     """Drop chunks of documents no topic holds; the corpus decides, not the topic tag."""
-    if not corpus_refs:
+    if not corpus_celexes:
         return 0
     result = await session.execute(
-        delete(DocumentChunk).where(DocumentChunk.ref.notin_(corpus_refs))
+        delete(DocumentChunk).where(DocumentChunk.celex.notin_(corpus_celexes))
     )
     await session.flush()
     return cast(CursorResult, result).rowcount
