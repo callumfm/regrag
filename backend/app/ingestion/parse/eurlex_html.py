@@ -9,24 +9,16 @@ from selectolax.parser import HTMLParser, Node
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
 from app.ingestion.parse.models import ParsedDocument, Section
+from app.ingestion.parse.text import (
+    ANNEX_NUMBER_RE,
+    ARTICLE_NUMBER_RE,
+    FORMULA_PLACEHOLDER,
+    LEADING_NUMBER_RE,
+    clean_text,
+)
 
-FORMULA_PLACEHOLDER = "[formula]"
-WHITESPACE = re.compile(r"\s+")
-
-
-def normalise(text: str) -> str:
-    """Collapse whitespace, including the non-breaking spaces EUR-Lex indents with."""
-    return WHITESPACE.sub(" ", text.replace("\xa0", " ")).strip()
-
-
-ARTICLE_NUMBER = re.compile(r"Article\s+(\d+[a-z]?)", re.IGNORECASE)
-ANNEX_NUMBER = re.compile(r"ANNEX\s+([IVXLC]+|\d+)", re.IGNORECASE)
 PARAGRAPH_ID = re.compile(r"^\d+\.\d+$")
-LEADING_NUMBER = re.compile(r"^(\d+[a-z]?)\.\s*")
 HEADING_LEVEL = re.compile(r"title-gr-seq-level-(\d+)")
-MARKERS = re.compile(r"[▼►]\s*[A-Z]+\d*|◄")
-EMPTY_PARENS = re.compile(r"\s*\(\s*\)")
-MARKER_GLYPHS = "▼►◄"
 FOOTNOTE_REF = "span.superscript, span.oj-super"
 FOOTNOTE = "p.footnote, p.oj-note, div[id^=fnp]"
 DROP = ("p.modref", FOOTNOTE_REF, FOOTNOTE)
@@ -64,15 +56,6 @@ class Dialect:
     annex_headings: str | None = None
 
 
-def clean(text: str) -> str:
-    """Normalise whitespace, dropping amendment glyphs and emptied footnote brackets."""
-    if any(glyph in text for glyph in MARKER_GLYPHS):
-        text = MARKERS.sub(" ", text)
-    if "(" in text:
-        text = EMPTY_PARENS.sub("", text)
-    return normalise(text)
-
-
 def prepare(html: str) -> HTMLParser:
     """Placeholder every base64 image and drop the non-prose furniture."""
     tree = HTMLParser(html)
@@ -88,7 +71,7 @@ def prepare(html: str) -> HTMLParser:
 def table_rows(node: Node) -> tuple[tuple[str, ...], ...]:
     rows = []
     for row in node.css("tr"):
-        cells = tuple(clean(cell.text()) for cell in row.css(CELL))
+        cells = tuple(clean_text(cell.text()) for cell in row.css(CELL))
         if cells:
             rows.append(cells)
     return tuple(rows)
@@ -109,7 +92,7 @@ def extract_tables(node: Node, dialect: Dialect) -> tuple[Section, ...]:
 
 def join_texts(nodes: Iterable[Node | None]) -> str:
     """Clean each node's text and join the non-empty ones with a space."""
-    return " ".join(text for text in (clean(n.text()) for n in nodes if n is not None) if text)
+    return " ".join(text for text in (clean_text(n.text()) for n in nodes if n is not None) if text)
 
 
 def grid_line(node: Node) -> str:
@@ -138,7 +121,7 @@ def heading_line(node: Node, selector: str | None) -> Heading | None:
     if selector is None or not node.css_matches(selector):
         return None
     match = HEADING_LEVEL.search(node.attributes.get("class") or "")
-    return Heading(level=int(match.group(1)) if match else 1, title=clean(node.text()))
+    return Heading(level=int(match.group(1)) if match else 1, title=clean_text(node.text()))
 
 
 def collect_lines(node: Node, lines: list[Line], headings: str | None = None) -> None:
@@ -153,7 +136,7 @@ def collect_lines(node: Node, lines: list[Line], headings: str | None = None) ->
         elif child.tag == "tr":
             line = row_line(child)
         elif child.tag in ("p", "td"):
-            line = clean(child.text())
+            line = clean_text(child.text())
         else:
             collect_lines(child, lines, headings)
             continue
@@ -166,12 +149,12 @@ def block_text(node: Node) -> str:
     lines: list[Line] = []
     collect_lines(node, lines)
     text = "\n".join(line for line in lines if isinstance(line, str))
-    return text if text else clean(node.text())
+    return text if text else clean_text(node.text())
 
 
 def prose_lines(node: Node, *headings: str) -> list[str]:
     """The node's text lines, minus any line that repeats one of its own heading lines."""
-    skip = {clean(n.text()) for selector in headings for n in node.css(selector)}
+    skip = {clean_text(n.text()) for selector in headings for n in node.css(selector)}
     return [line for line in block_text(node).split("\n") if line and line not in skip]
 
 
@@ -192,7 +175,7 @@ def cons_paragraphs(node: Node) -> list[Node]:
 
 def oj_paragraph(node: Node) -> Section:
     number, text = None, block_text(node)
-    match = LEADING_NUMBER.match(text)
+    match = LEADING_NUMBER_RE.match(text)
     if match:
         number, text = match.group(1), text[match.end() :]
     return Section(kind=SectionKind.PARAGRAPH, number=number, text=text)
@@ -201,7 +184,7 @@ def oj_paragraph(node: Node) -> Section:
 def cons_paragraph(node: Node) -> Section:
     marker = node.css_first(CONS_PARAGRAPH_NUMBER)
     body = node.css_first(CONS_PARAGRAPH_TEXT)
-    number = LEADING_NUMBER.match(clean(marker.text()) if marker else "")
+    number = LEADING_NUMBER_RE.match(clean_text(marker.text()) if marker else "")
     return Section(
         kind=SectionKind.PARAGRAPH,
         number=number.group(1) if number else None,
@@ -212,12 +195,12 @@ def cons_paragraph(node: Node) -> Section:
 def oj_annex_title(node: Node) -> str | None:
     """OJ annexes repeat the same class for the label and the title that follows it."""
     labels = node.css(OJ_ANNEX_LABEL)
-    return clean(labels[1].text()) if len(labels) > 1 else None
+    return clean_text(labels[1].text()) if len(labels) > 1 else None
 
 
 def cons_annex_title(node: Node) -> str | None:
     title = node.css_first(CONS_ANNEX_TITLE)
-    return clean(title.text()) if title is not None else None
+    return clean_text(title.text()) if title is not None else None
 
 
 OJ = Dialect(
@@ -265,7 +248,7 @@ def heading_number(node: Node, selector: str, pattern: re.Pattern[str]) -> str |
     heading = node.css_first(selector)
     if heading is None:
         return None
-    match = pattern.search(clean(heading.text()))
+    match = pattern.search(clean_text(heading.text()))
     return match.group(1) if match else None
 
 
@@ -273,8 +256,8 @@ def article_section(node: Node, dialect: Dialect) -> Section:
     title = node.css_first(ARTICLE_TITLE)
     return Section(
         kind=SectionKind.ARTICLE,
-        number=heading_number(node, dialect.article_heading, ARTICLE_NUMBER),
-        title=clean(title.text()) if title else None,
+        number=heading_number(node, dialect.article_heading, ARTICLE_NUMBER_RE),
+        title=clean_text(title.text()) if title else None,
         children=paragraph_sections(node, dialect),
     )
 
@@ -324,7 +307,7 @@ def annex_body(node: Node, dialect: Dialect) -> tuple[Section, ...]:
     """The annex prose nested under its own sub-headings, with its label lines removed."""
     lines: list[Line] = []
     collect_lines(node, lines, dialect.annex_headings)
-    skip = {clean(label.text()) for label in node.css(dialect.annex_label)}
+    skip = {clean_text(label.text()) for label in node.css(dialect.annex_label)}
     return nest(line for line in lines if isinstance(line, Heading) or line not in skip)
 
 
@@ -333,7 +316,7 @@ def annex_section(node: Node, dialect: Dialect) -> Section:
     tables = extract_tables(node, dialect)
     return Section(
         kind=SectionKind.ANNEX,
-        number=heading_number(node, dialect.annex_label, ANNEX_NUMBER),
+        number=heading_number(node, dialect.annex_label, ANNEX_NUMBER_RE),
         title=dialect.annex_title(node),
         children=tables + annex_body(node, dialect),
     )
