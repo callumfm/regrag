@@ -9,6 +9,10 @@ class DiscoveryError(IngestionError):
     """Discovery returned an implausible result (e.g. seed act missing)."""
 
 
+class EmptyCorpusError(IngestionError):
+    """A reparse was asked for before anything had been fetched, so there is nothing to reparse."""
+
+
 class ResolutionError(IngestionError):
     """No fetchable HTML could be found for a discovered document."""
 

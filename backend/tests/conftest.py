@@ -1,6 +1,7 @@
 """Shared test fixtures."""
 
 from collections.abc import AsyncGenerator, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -16,6 +17,7 @@ from app.core.clock import utc_now
 from app.core.config import config
 from app.core.db.session import async_session_factory
 from app.core.http import download
+from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
@@ -72,6 +74,12 @@ async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, Non
         ) as session:
             yield session
         await trans.rollback()
+
+
+@pytest.fixture
+def store(tmp_path: Path) -> LocalObjectStore:
+    """The local backend, so no test reaches object storage over the network."""
+    return LocalObjectStore(tmp_path / "raw")
 
 
 @pytest.fixture

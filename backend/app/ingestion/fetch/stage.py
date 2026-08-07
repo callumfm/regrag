@@ -3,22 +3,39 @@
 import hashlib
 import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from pathlib import Path
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.http import download, pace
+from app.core.storage import ObjectStore, StorageError
 from app.ingestion.constants import MAX_DROP_RATIO, MIN_SUSPICIOUS_DROPS, PACE_SECONDS, SEEDS
 from app.ingestion.enums import DocAction
-from app.ingestion.exceptions import DiscoveryError, EmptyDocumentError, IngestionError
+from app.ingestion.exceptions import (
+    DiscoveryError,
+    EmptyCorpusError,
+    EmptyDocumentError,
+    IngestionError,
+)
 from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.resolve import resolve_version
-from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.schemas import RawDocument, object_key
 from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.schemas import IngestRun
+
+CARRIED_FIELDS = (
+    "source",
+    "celex",
+    "resolved_celex",
+    "topic",
+    "url",
+    "sha256",
+    "size_bytes",
+    "fetched_at",
+)
+"""What a reparse copies forward from the row the previous run recorded."""
 
 
 def _classify(prev_resolved_celex: str | None, resolved_celex: str) -> DocAction:
@@ -46,15 +63,19 @@ def _dropped_celexes(
     return dropped
 
 
-def _store(data_dir: Path, celex: str, content: bytes) -> tuple[str, int]:
-    """Write the document's source file and return its (sha256, size_bytes).
-    Empty content is refused: it would overwrite the last good copy with nothing.
+def _store(store: ObjectStore, celex: str, resolved_celex: str, content: bytes) -> tuple[str, int]:
+    """Store the document's bytes and return their (sha256, size_bytes).
+
+    Empty content is refused: it would record a document whose stored bytes are nothing.
+    Content already stored under its key is left alone — the same bytes are the same object.
     """
     if not content:
         raise EmptyDocumentError(f"{celex}: download returned an empty body")
-    data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / RawDocument.filename(celex)).write_bytes(content)
-    return hashlib.sha256(content).hexdigest(), len(content)
+    sha256 = hashlib.sha256(content).hexdigest()
+    key = object_key(celex, resolved_celex, sha256)
+    if not store.exists(key):
+        store.put(key, content)
+    return sha256, len(content)
 
 
 def _discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DiscoveredDocument]:
@@ -84,15 +105,17 @@ def _fetch_document(
     *,
     prev: RawDocument | None,
     run: IngestRun,
-    data_dir: Path,
+    store: ObjectStore,
 ) -> tuple[RawDocument, DocAction]:
-    """Resolve one act, download it unless unchanged and still on disk, and build its row."""
+    """Resolve one act, download it unless unchanged and still stored, and build its row."""
     resolution = resolve_version(client, spec)
     action = _classify(prev.resolved_celex if prev else None, resolution.resolved_celex)
-    if action is DocAction.UNCHANGED and prev is not None and prev.path(data_dir).exists():
+    if action is DocAction.UNCHANGED and prev is not None and store.exists(prev.key):
         sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at
     else:
-        sha256, size_bytes = _store(data_dir, spec.celex, download(client, resolution.url))
+        sha256, size_bytes = _store(
+            store, spec.celex, resolution.resolved_celex, download(client, resolution.url)
+        )
         fetched_at = utc_now()
     document = RawDocument(
         **spec.model_dump(exclude={"candidate_celex"}),
@@ -111,7 +134,7 @@ def _download_documents(
     *,
     baseline: Mapping[str, RawDocument],
     run: IngestRun,
-    data_dir: Path,
+    store: ObjectStore,
 ) -> tuple[list[RawDocument], FetchRunResult]:
     """Fetch every discovered document, recording the ones that would not download."""
     documents: list[RawDocument] = []
@@ -119,9 +142,9 @@ def _download_documents(
     for spec in _paced(specs):
         try:
             document, action = _fetch_document(
-                client, spec, prev=baseline.get(spec.celex), run=run, data_dir=data_dir
+                client, spec, prev=baseline.get(spec.celex), run=run, store=store
             )
-        except (IngestionError, httpx.HTTPError, OSError) as exc:
+        except (IngestionError, httpx.HTTPError, StorageError) as exc:
             result.fail(spec.celex, exc)
             continue
         documents.append(document)
@@ -134,16 +157,35 @@ async def fetch_documents(
     *,
     client: httpx.Client,
     topics: Sequence[str],
-    data_dir: Path,
+    store: ObjectStore,
     run: IngestRun,
 ) -> tuple[list[RawDocument], FetchRunResult]:
     """Discover, resolve and download the corpus for topics, recording a row per document."""
     specs = _discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
     dropped = _dropped_celexes(specs, baseline)
-    documents, result = _download_documents(
-        client, specs, baseline=baseline, run=run, data_dir=data_dir
-    )
+    documents, result = _download_documents(client, specs, baseline=baseline, run=run, store=store)
     session.add_all(documents)
     await session.flush()
     return documents, result + FetchRunResult(dropped=dropped)
+
+
+async def reuse_documents(
+    session: AsyncSession, *, topics: Sequence[str], run: IngestRun
+) -> tuple[list[RawDocument], FetchRunResult]:
+    """Re-record the corpus as it already stands, so a reparse reaches no network at all.
+
+    The stored bytes are keyed by content hash, so the rows this run copies forward still
+    point at exactly what the previous run parsed.
+    """
+    baseline = await get_baseline_docs(session, topics)
+    if not baseline:
+        raise EmptyCorpusError(f"nothing fetched yet for: {', '.join(topics)}")
+    documents = [
+        RawDocument(run=run, **{name: getattr(prev, name) for name in CARRIED_FIELDS})
+        for prev in baseline.values()
+    ]
+    session.add_all(documents)
+    await session.flush()
+    celexes = sorted(baseline)
+    return documents, FetchRunResult(discovered=celexes, unchanged=celexes)

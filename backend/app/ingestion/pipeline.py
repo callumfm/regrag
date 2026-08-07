@@ -3,7 +3,6 @@
 import logging
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -11,14 +10,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.storage import ObjectStore
 from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.chunk.stage import chunk_documents
 from app.ingestion.embed.models import EmbedRunResult
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.fetch.models import FetchRunResult
+from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_other_topic_celexes
-from app.ingestion.fetch.stage import fetch_documents
+from app.ingestion.fetch.stage import fetch_documents, reuse_documents
 from app.ingestion.models import StageRunResult
 from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.parse.stage import parse_documents
@@ -111,21 +112,37 @@ async def ingest_run(session: AsyncSession) -> AsyncIterator[IngestRun]:
         raise
 
 
+async def _corpus_documents(
+    session: AsyncSession,
+    *,
+    client: httpx.Client,
+    topics: Sequence[str],
+    store: ObjectStore,
+    run: IngestRun,
+    fetch: bool,
+) -> tuple[list[RawDocument], FetchRunResult]:
+    """This run's documents: freshly fetched, or the ones already stored when fetch is off."""
+    if fetch:
+        return await fetch_documents(session, client=client, topics=topics, store=store, run=run)
+    return await reuse_documents(session, topics=topics, run=run)
+
+
 async def ingest(
     session: AsyncSession,
     *,
     client: httpx.Client,
     topics: Sequence[str],
-    data_dir: Path,
+    store: ObjectStore,
+    fetch: bool = True,
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as run:
-        documents, fetch_result = await fetch_documents(
-            session, client=client, topics=topics, data_dir=data_dir, run=run
+        documents, fetch_result = await _corpus_documents(
+            session, client=client, topics=topics, store=store, run=run, fetch=fetch
         )
         logger.info("[fetch] %s", fetch_result.summary())
 
-        parsed, parse_result = parse_documents(documents, data_dir=data_dir)
+        parsed, parse_result = parse_documents(documents, store=store)
         logger.info("[parse] %s", parse_result.summary())
 
         corpus_celexes = await _known_corpus_celexes(

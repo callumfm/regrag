@@ -2,12 +2,12 @@
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.enums import Environment
+from app.core.enums import Environment, StorageBackend
 
 ENVIRONMENT: Environment = Environment(os.environ.get("ENVIRONMENT", "dev"))
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -35,7 +35,38 @@ class AppConfig(BaseConfig):
     ENVIRONMENT: Environment = ENVIRONMENT
     PROJECT_NAME: str = "RegRag"
     CORS_ORIGINS: list[str] = ["http://localhost:5173"]
+
+
+class StorageConfig(BaseConfig):
+    """Object storage for raw source documents: R2 in prod, local files elsewhere."""
+
+    STORAGE_BACKEND: StorageBackend = StorageBackend.LOCAL
     RAW_DATA_DIR: Path = PROJECT_ROOT / "data" / "raw"
+
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET: str = ""
+
+    @computed_field
+    @property
+    def R2_ENDPOINT_URL(self) -> str:
+        """The S3-compatible endpoint R2 serves this account's buckets on."""
+        return f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+    @model_validator(mode="after")
+    def _require_r2_settings(self) -> Self:
+        """Refuse to start half-configured: a run would fail after doing real work."""
+        if self.STORAGE_BACKEND is not StorageBackend.R2:
+            return self
+        missing = [
+            name
+            for name in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")
+            if not getattr(self, name)
+        ]
+        if missing:
+            raise ValueError(f"STORAGE_BACKEND=r2 requires {', '.join(missing)}")
+        return self
 
 
 class PostgresConfig(BaseConfig):
@@ -90,7 +121,7 @@ class EmbeddingConfig(BaseConfig):
     EMBED_TIMEOUT: int = 30
 
 
-class Config(AppConfig, PostgresConfig, EmbeddingConfig):
+class Config(AppConfig, PostgresConfig, EmbeddingConfig, StorageConfig):
     """Combined configuration class for core app functionality."""
 
 

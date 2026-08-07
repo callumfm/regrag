@@ -7,18 +7,18 @@ from app.ingestion import cli
 from app.ingestion.cli import main
 from app.ingestion.constants import SEEDS
 from app.ingestion.enums import DocAction
-from app.ingestion.exceptions import DiscoveryError
+from app.ingestion.exceptions import DiscoveryError, EmptyCorpusError
 from app.ingestion.pipeline import IngestRunResult
 
 
 @pytest.fixture
 def fake_ingest(monkeypatch):
-    """Replace the DB+network coroutine with a stub recording requested topics."""
+    """Replace the DB+network coroutine with a stub recording what each run was asked for."""
     calls = []
     report = IngestRunResult(run_id=1)
 
-    async def _fake(topics):
-        calls.append(list(topics))
+    async def _fake(topics, *, fetch=True):
+        calls.append((list(topics), fetch))
         return report
 
     monkeypatch.setattr(cli, "_ingest", _fake)
@@ -28,13 +28,19 @@ def fake_ingest(monkeypatch):
 def test_no_topics_ingests_all_seeds(fake_ingest):
     calls, _ = fake_ingest
     assert main([]) == 0
-    assert calls == [sorted(SEEDS)]
+    assert calls == [(sorted(SEEDS), True)]
 
 
 def test_explicit_topics_passed_through(fake_ingest):
     calls, _ = fake_ingest
     assert main(["mrv"]) == 0
-    assert calls == [["mrv"]]
+    assert calls == [(["mrv"], True)]
+
+
+def test_no_fetch_reparses_the_stored_corpus(fake_ingest):
+    calls, _ = fake_ingest
+    assert main(["mrv", "--no-fetch"]) == 0
+    assert calls == [(["mrv"], False)]
 
 
 def test_unknown_topic_rejected(fake_ingest, capsys):
@@ -66,7 +72,7 @@ def test_exits_nonzero_when_a_document_failed_to_parse(fake_ingest, capsys):
 
 
 def test_abort_prints_error_and_exits_nonzero(monkeypatch, capsys):
-    async def _boom(topics):
+    async def _boom(topics, *, fetch=True):
         raise DiscoveryError("mrv: malformed SPARQL response")
 
     monkeypatch.setattr(cli, "_ingest", _boom)
@@ -74,8 +80,17 @@ def test_abort_prints_error_and_exits_nonzero(monkeypatch, capsys):
     assert "ingest aborted: mrv" in capsys.readouterr().err
 
 
+def test_abort_when_there_is_nothing_to_reparse(monkeypatch, capsys):
+    async def _boom(topics, *, fetch=True):
+        raise EmptyCorpusError("nothing fetched yet for: mrv")
+
+    monkeypatch.setattr(cli, "_ingest", _boom)
+    assert main(["mrv", "--no-fetch"]) == 1
+    assert "ingest aborted: nothing fetched yet" in capsys.readouterr().err
+
+
 def test_abort_on_http_error(monkeypatch, capsys):
-    async def _boom(topics):
+    async def _boom(topics, *, fetch=True):
         raise httpx.ConnectError("endpoint down")
 
     monkeypatch.setattr(cli, "_ingest", _boom)
