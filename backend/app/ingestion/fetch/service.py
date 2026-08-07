@@ -29,7 +29,7 @@ async def get_corpus_docs(session: AsyncSession) -> Sequence[RawDocument]:
 
 
 async def get_other_topic_celexes(session: AsyncSession, topics: Sequence[str]) -> set[str]:
-    """Refs still held by the topics this run is not ingesting."""
+    """Celexes still held by the topics this run is not ingesting."""
     rows = await session.scalars(latest_run_docs().where(RawDocument.topic.notin_(topics)))
     return {row.celex for row in rows}
 

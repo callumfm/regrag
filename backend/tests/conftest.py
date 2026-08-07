@@ -163,7 +163,7 @@ def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 
 @pytest.fixture
 def corpus_client() -> Callable[..., tuple[httpx.Client, list[str]]]:
-    """Transport serving SPARQL payloads per topic and HTML responses per celex celex."""
+    """Transport serving SPARQL payloads per topic and HTML responses per celex."""
 
     def _make(
         sparql: dict[str, httpx.Response], docs: dict[str, httpx.Response]
@@ -187,7 +187,7 @@ def corpus_client() -> Callable[..., tuple[httpx.Client, list[str]]]:
 
 
 def binding(celex: str, force: str | None = None, cons: str | None = None) -> dict:
-    """One SPARQL result row for a celex celex, with optional in-force and consolidation."""
+    """One SPARQL result row for a celex, with optional in-force and consolidation."""
     b: dict = {"c": {"value": celex}}
     if force is not None:
         b["force"] = {"value": force}
