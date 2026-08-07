@@ -33,6 +33,6 @@ def test_sections_nest():
 
 
 def test_parsed_document_carries_identity_from_the_ingest_record():
-    document = ParsedDocument(ref="32023R1805", topic="fueleu", sections=())
-    assert document.ref == "32023R1805"
+    document = ParsedDocument(celex="32023R1805", topic="fueleu", sections=())
+    assert document.celex == "32023R1805"
     assert document.topic == "fueleu"

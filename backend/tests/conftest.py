@@ -19,6 +19,7 @@ from app.core.http import download
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
+from app.ingestion.embed.stage import _embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.discover import discover
@@ -27,12 +28,12 @@ from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 
-RETRIED = (discover, resolve_version, download)
+RETRIED = (discover, resolve_version, download, _embed_texts)
 
 
 @pytest.fixture
 def defuse_retry(monkeypatch: pytest.MonkeyPatch) -> Callable[[Callable], Callable]:
-    """Strip tenacity's waits from a @transient_retry function, keeping its retry behaviour."""
+    """Strip tenacity's waits from a retry-wrapped function, keeping its retry behaviour."""
 
     def _defuse(fn: Callable) -> Callable:
         # ty: ignore[unresolved-attribute] — tenacity sets .retry dynamically, untyped
@@ -44,7 +45,7 @@ def defuse_retry(monkeypatch: pytest.MonkeyPatch) -> Callable[[Callable], Callab
 
 @pytest.fixture(autouse=True)
 def no_retry_backoff(defuse_retry: Callable[[Callable], Callable]) -> None:
-    """Defuse every @transient_retry callable in RETRIED, so retry tests don't sleep."""
+    """Defuse every retry-wrapped callable in RETRIED, so retry tests don't sleep."""
     for fn in RETRIED:
         defuse_retry(fn)
 
@@ -75,16 +76,16 @@ async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, Non
 
 @pytest.fixture
 def make_document() -> Callable[..., RawDocument]:
-    """Build a RawDocument whose identity fields derive from ref, overridable per field."""
+    """Build a RawDocument whose identity fields derive from celex, overridable per field."""
 
-    def _make(run: IngestRun, ref: str = "32023R1805", **overrides: Any) -> RawDocument:
+    def _make(run: IngestRun, celex: str = "32023R1805", **overrides: Any) -> RawDocument:
         defaults: dict[str, Any] = {
             "run": run,
             "source": "eurlex",
-            "ref": ref,
-            "resolved_ref": ref,
+            "celex": celex,
+            "resolved_celex": celex,
             "topic": "fueleu",
-            "url": f"https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{ref}",
+            "url": f"https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}",
             "sha256": "a" * 64,
             "size_bytes": 758462,
             "fetched_at": utc_now(),
@@ -119,7 +120,7 @@ def make_chunk_row() -> Callable[..., DocumentChunk]:
     def _make(run: IngestRun, **overrides: Any) -> DocumentChunk:
         defaults: dict[str, Any] = {
             "run": run,
-            "ref": "32023R1805",
+            "celex": "32023R1805",
             "topic": "fueleu",
             "content_hash": "b" * 64,
             "occurrence": 0,
@@ -161,9 +162,31 @@ def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     return calls
 
 
+class FakeProvider:
+    """Records each batch's texts and answers with numbered vectors, raising on scripted calls."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.errors: dict[int, Exception] = {}
+
+    async def __call__(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
+        self.calls.append(list(texts))
+        if error := self.errors.get(len(self.calls)):
+            raise error
+        return [[float(index)] * config.EMBED_DIMENSIONS for index in range(len(texts))]
+
+
+@pytest.fixture(autouse=True)
+def embeddings(monkeypatch: pytest.MonkeyPatch) -> FakeProvider:
+    """No test reaches a provider: every embed call is recorded and answered locally."""
+    provider = FakeProvider()
+    monkeypatch.setattr("app.ingestion.embed.stage.embed", provider)
+    return provider
+
+
 @pytest.fixture
 def corpus_client() -> Callable[..., tuple[httpx.Client, list[str]]]:
-    """Transport serving SPARQL payloads per topic and HTML responses per celex ref."""
+    """Transport serving SPARQL payloads per topic and HTML responses per celex."""
 
     def _make(
         sparql: dict[str, httpx.Response], docs: dict[str, httpx.Response]
@@ -187,7 +210,7 @@ def corpus_client() -> Callable[..., tuple[httpx.Client, list[str]]]:
 
 
 def binding(celex: str, force: str | None = None, cons: str | None = None) -> dict:
-    """One SPARQL result row for a celex ref, with optional in-force and consolidation."""
+    """One SPARQL result row for a celex, with optional in-force and consolidation."""
     b: dict = {"c": {"value": celex}}
     if force is not None:
         b["force"] = {"value": force}
@@ -206,28 +229,28 @@ MRV_SPARQL = httpx.Response(
 )
 
 
-async def chunk_versions(session: AsyncSession, ref: str | None = None) -> set[str | None]:
+async def chunk_versions(session: AsyncSession, celex: str | None = None) -> set[str | None]:
     """The corpus versions the stored chunks resolve to through the run that stored them."""
     stmt = select(IngestRun.corpus_version).join(
         DocumentChunk, DocumentChunk.ingest_run_id == IngestRun.id
     )
-    if ref is not None:
-        stmt = stmt.where(DocumentChunk.ref == ref)
+    if celex is not None:
+        stmt = stmt.where(DocumentChunk.celex == celex)
     return set(await session.scalars(stmt))
 
 
-async def chunk_rows(session: AsyncSession, ref: str | None = None) -> list[DocumentChunk]:
+async def chunk_rows(session: AsyncSession, celex: str | None = None) -> list[DocumentChunk]:
     """Persisted chunks in insertion order, for one document or the whole table."""
     stmt = select(DocumentChunk).order_by(DocumentChunk.id)
-    if ref is not None:
-        stmt = stmt.where(DocumentChunk.ref == ref)
+    if celex is not None:
+        stmt = stmt.where(DocumentChunk.celex == celex)
     return list(await session.scalars(stmt))
 
 
 def chunk(**overrides: Any) -> Chunk:
     """The chunker's value object with sane defaults, overridable per field."""
     defaults: dict[str, Any] = {
-        "ref": "32023R1805",
+        "celex": "32023R1805",
         "topic": "fueleu",
         "kind": SectionKind.PARAGRAPH,
         "text": "The greenhouse gas intensity limit.",

@@ -12,37 +12,37 @@ from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
-from app.ingestion.fetch.stage import _classify, _dropped_refs, _store, fetch_documents
+from app.ingestion.fetch.stage import _classify, _dropped_celexes, _store, fetch_documents
 from app.ingestion.service import create_ingest_run
 from tests.conftest import MRV_SPARQL, binding, payload
 
 pytestmark = pytest.mark.anyio
 
 
-def spec(ref, topic="mrv"):
-    return DiscoveredDocument(topic=topic, source="eurlex", ref=ref, candidate_ref=None)
+def spec(celex, topic="mrv"):
+    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=None)
 
 
 def test_classify_no_baseline_is_new():
     assert _classify(None, "32023R2449") is DocAction.NEW
 
 
-def test_classify_differing_resolved_ref_is_changed():
+def test_classify_differing_resolved_celex_is_changed():
     assert _classify("02015R0757-20240101", "02015R0757-20250101") is DocAction.CHANGED
 
 
-def test_classify_same_resolved_ref_is_unchanged():
+def test_classify_same_resolved_celex_is_unchanged():
     assert _classify("02015R0757-20250101", "02015R0757-20250101") is DocAction.UNCHANGED
 
 
-def test_dropped_refs_are_baseline_refs_absent_from_discovery():
+def test_dropped_celexes_are_baseline_celexes_absent_from_discovery():
     specs = [spec("32015R0757"), spec("32016R1928")]
     baseline = ["32015R0757", "32016R1928", "32014R0666"]
-    assert _dropped_refs(specs, baseline) == ["32014R0666"]
+    assert _dropped_celexes(specs, baseline) == ["32014R0666"]
 
 
-def test_dropped_refs_empty_when_all_discovered():
-    assert _dropped_refs([spec("32015R0757")], ["32015R0757"]) == []
+def test_dropped_celexes_empty_when_all_discovered():
+    assert _dropped_celexes([spec("32015R0757")], ["32015R0757"]) == []
 
 
 def test_store_writes_file_and_returns_sha_and_size(tmp_path):
@@ -54,7 +54,7 @@ def test_store_writes_file_and_returns_sha_and_size(tmp_path):
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
-    """The two-document mrv corpus, with per-ref responses overridable."""
+    """The two-document mrv corpus, with per-celex responses overridable."""
     return {
         "32015R0757": httpx.Response(200, content=b"<html>mrv</html>"),
         "32023R2449": httpx.Response(200, content=b"<html>act</html>"),
@@ -78,8 +78,8 @@ async def test_first_run_ingests_all_as_new(db_session, tmp_path, corpus_client)
     assert report.ok
     assert (tmp_path / "32015R0757.html").read_bytes() == b"<html>mrv</html>"
     rows = await get_baseline_docs(db_session, ["mrv"])
-    assert rows["32023R2449"].ref == "32023R2449"
-    assert rows["32023R2449"].resolved_ref == "32023R2449"
+    assert rows["32023R2449"].celex == "32023R2449"
+    assert rows["32023R2449"].resolved_celex == "32023R2449"
 
 
 async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path, corpus_client):
@@ -92,7 +92,7 @@ async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path
 
     assert sorted(second.unchanged) == ["32015R0757", "32023R2449"]
     assert calls.count("32015R0757") == 1
-    firsts = {r.ref: r.sha256 for r in (await get_baseline_docs(db_session, ["mrv"])).values()}
+    firsts = {r.celex: r.sha256 for r in (await get_baseline_docs(db_session, ["mrv"])).values()}
     assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
 
 
@@ -115,7 +115,7 @@ async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_pat
     assert report.changed == ["32015R0757"]
     assert (tmp_path / "32015R0757.html").read_bytes() == b"<html>v2</html>"
     rows = await get_baseline_docs(db_session, ["mrv"])
-    assert rows["32015R0757"].resolved_ref == "02015R0757-20250101"
+    assert rows["32015R0757"].resolved_celex == "02015R0757-20250101"
 
 
 async def test_vanished_doc_reported_dropped(db_session, tmp_path, corpus_client):
@@ -159,7 +159,7 @@ async def test_any_ingestion_error_is_recorded_per_document(
     assert not report.ok
 
 
-async def test_duplicate_ref_across_topics_ingested_once(db_session, tmp_path, corpus_client):
+async def test_duplicate_celex_across_topics_ingested_once(db_session, tmp_path, corpus_client):
     shared = binding("32015R0757", force="1")
     sparql = {
         "mrv": httpx.Response(200, json=payload(shared)),

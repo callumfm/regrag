@@ -20,6 +20,10 @@ class StageRunResult(BaseModel):
     def ok(self) -> bool:
         return not self.failed
 
+    def fail(self, celex: str, exc: Exception) -> None:
+        """Record why a document could not be processed, in the one format details() prints."""
+        self.failed[celex] = f"{type(exc).__name__}: {exc}"
+
     def counts(self) -> dict[str, int]:
         """This stage's outcome buckets in declaration order; a list bucket counts its members."""
         buckets = ((name, getattr(self, name)) for name in type(self).model_fields)
@@ -35,8 +39,8 @@ class StageRunResult(BaseModel):
         return ", ".join([*counted, f"{len(self.failed)} failed"])
 
     def details(self) -> list[str]:
-        """The per-ref lines the summary is too short to carry."""
-        return [f"failed: {ref} ({error})" for ref, error in sorted(self.failed.items())]
+        """The per-document lines the summary is too short to carry."""
+        return [f"failed: {celex} ({error})" for celex, error in sorted(self.failed.items())]
 
     def __add__(self, other: Self) -> Self:
         """Combine same-type operands field by field; fields must be int, list or dict."""

@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from app.core.http import DEFAULT_HEADERS, download, http_client, pace, transient_retry
+from app.core.http import DEFAULT_HEADERS, download, http_client, http_retry, pace
 
 
 def test_default_headers_carry_browser_user_agent():
@@ -35,7 +35,7 @@ def flaky_client(responses):
 def get(defuse_retry):
     """The decorated unit under test, with tenacity's waits stripped."""
 
-    @transient_retry
+    @http_retry
     def _get(client, url="https://example.eu/doc"):
         response = client.get(url)
         response.raise_for_status()

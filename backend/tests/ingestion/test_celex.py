@@ -40,13 +40,13 @@ def test_year_candidates_are_plausible_four_digit_years(value: str, expected: in
     assert celex.as_year(value) == expected
 
 
-@pytest.mark.parametrize("ref", ["32015R0757", "32003L0087", "32013D0162"])
-def test_legislation_ids_are_recognised(ref: str) -> None:
-    assert celex.is_legislation(ref)
+@pytest.mark.parametrize("celex_id", ["32015R0757", "32003L0087", "32013D0162"])
+def test_legislation_ids_are_recognised(celex_id: str) -> None:
+    assert celex.is_legislation(celex_id)
 
 
 @pytest.mark.parametrize(
-    "ref",
+    "celex_id",
     [
         "02015R0757-20250101",
         "52015PC0337",
@@ -56,8 +56,8 @@ def test_legislation_ids_are_recognised(ref: str) -> None:
         "392L0043",
     ],
 )
-def test_non_legislation_ids_are_rejected(ref: str) -> None:
-    assert not celex.is_legislation(ref)
+def test_non_legislation_ids_are_rejected(celex_id: str) -> None:
+    assert not celex.is_legislation(celex_id)
 
 
 def test_consolidated_stem_swaps_the_sector_and_opens_the_date_suffix() -> None:

@@ -2,7 +2,7 @@
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.schemas import DocumentChunk
@@ -42,3 +42,48 @@ async def test_same_hash_at_a_later_occurrence_is_allowed(
     await db_session.flush()
 
     assert len((await db_session.scalars(select(DocumentChunk))).all()) == 2
+
+
+async def test_a_new_chunk_has_no_vector_until_the_embed_stage_fills_it(
+    db_session, ingest_run, make_chunk_row
+):
+    row = make_chunk_row(ingest_run)
+    db_session.add(row)
+    await db_session.flush()
+
+    assert row.embedding is None
+
+
+async def test_search_vector_is_generated_from_the_chunk_without_being_written(
+    db_session, ingest_run, make_chunk_row
+):
+    """Postgres derives it, so it exists after a flush nothing set it in."""
+    row = make_chunk_row(ingest_run, citation="Article 4(1)", text="Greenhouse gas intensity.")
+    db_session.add(row)
+    await db_session.flush()
+    await db_session.refresh(row)
+
+    assert "intens" in row.search_vector
+    assert "'articl':1A" in row.search_vector
+
+
+async def test_search_vector_follows_the_text_it_derives_from(
+    db_session, ingest_run, make_chunk_row
+):
+    row = make_chunk_row(ingest_run, text="Verification of compliance.")
+    db_session.add(row)
+    await db_session.flush()
+
+    row.text = "Penalties for non-compliance."
+    await db_session.flush()
+    await db_session.refresh(row)
+
+    assert "penalti" in row.search_vector
+    assert "verif" not in row.search_vector
+
+
+async def test_a_vector_of_the_wrong_width_is_rejected(db_session, ingest_run, make_chunk_row):
+    db_session.add(make_chunk_row(ingest_run, embedding=[0.1] * 512))
+
+    with pytest.raises(DBAPIError):
+        await db_session.flush()

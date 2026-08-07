@@ -1,4 +1,4 @@
-"""The ingest pipeline: one run, fetch -> parse -> chunk -> store."""
+"""The ingest pipeline: one run, fetch -> parse -> chunk -> embed."""
 
 import logging
 from collections.abc import AsyncIterator, Sequence
@@ -12,9 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.chunk.stage import chunk_documents
+from app.ingestion.embed.models import EmbedRunResult
+from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.fetch.models import FetchRunResult
-from app.ingestion.fetch.service import get_other_topic_refs
+from app.ingestion.fetch.service import get_other_topic_celexes
 from app.ingestion.fetch.stage import fetch_documents
 from app.ingestion.models import StageRunResult
 from app.ingestion.parse.models import ParseRunResult
@@ -33,10 +35,16 @@ class IngestRunResult(BaseModel):
     fetch: FetchRunResult = Field(default_factory=FetchRunResult)
     parse: ParseRunResult = Field(default_factory=ParseRunResult)
     chunk: ChunkRunResult = Field(default_factory=ChunkRunResult)
+    embed: EmbedRunResult = Field(default_factory=EmbedRunResult)
 
     @property
     def stages(self) -> dict[str, StageRunResult]:
-        return {"fetch": self.fetch, "parse": self.parse, "chunk": self.chunk}
+        return {
+            "fetch": self.fetch,
+            "parse": self.parse,
+            "chunk": self.chunk,
+            "embed": self.embed,
+        }
 
     @property
     def ok(self) -> bool:
@@ -47,7 +55,7 @@ class IngestRunResult(BaseModel):
         return IngestRunStatus.COMPLETED if self.ok else IngestRunStatus.FAILED
 
     def summary(self) -> str:
-        """The run as the CLI prints it: a line per stage, then the per-ref detail."""
+        """The run as the CLI prints it: a line per stage, then the per-celex detail."""
         return "\n".join(
             [
                 f"run {self.run_id} ({self.corpus_version or 'not stamped'})",
@@ -71,20 +79,20 @@ async def _mark_failed(session: AsyncSession, run: IngestRun) -> None:
         logger.exception("run %s could not be marked failed", run_id)
 
 
-async def _known_corpus_refs(
+async def _known_corpus_celexes(
     session: AsyncSession,
     *,
     fetch_result: FetchRunResult,
     parse_result: ParseRunResult,
     topics: Sequence[str],
 ) -> set[str] | None:
-    """The refs the corpus consists of after this run: what it discovered, plus other topics'.
+    """The celexes the corpus consists of after this run: what it discovered, plus other topics'.
 
     None when any stage failed: pruning is irreversible, so a run with errors does not earn it.
     """
     if not (fetch_result.ok and parse_result.ok):
         return None
-    return set(fetch_result.discovered) | await get_other_topic_refs(session, topics)
+    return set(fetch_result.discovered) | await get_other_topic_celexes(session, topics)
 
 
 @asynccontextmanager
@@ -115,16 +123,23 @@ async def ingest(
         parsed, parse_result = parse_documents(documents, data_dir=data_dir)
         logger.info("[parse] %s", parse_result.summary())
 
-        corpus_refs = await _known_corpus_refs(
+        corpus_celexes = await _known_corpus_celexes(
             session, fetch_result=fetch_result, parse_result=parse_result, topics=topics
         )
         chunk_result = await chunk_documents(
-            session, parsed, ingest_run_id=run.id, corpus_refs=corpus_refs
+            session, parsed, ingest_run_id=run.id, corpus_celexes=corpus_celexes
         )
         logger.info("[chunk] %s", chunk_result.summary())
 
+        embed_result = await embed_chunks(session)
+        logger.info("[embed] %s", embed_result.summary())
+
         result = IngestRunResult(
-            run_id=run.id, fetch=fetch_result, parse=parse_result, chunk=chunk_result
+            run_id=run.id,
+            fetch=fetch_result,
+            parse=parse_result,
+            chunk=chunk_result,
+            embed=embed_result,
         )
         await complete_ingest_run(session, run, status=result.status)
         result.corpus_version = run.corpus_version

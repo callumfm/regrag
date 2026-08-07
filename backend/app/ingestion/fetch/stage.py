@@ -21,21 +21,23 @@ from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.schemas import IngestRun
 
 
-def _classify(prev_resolved_ref: str | None, resolved_ref: str) -> DocAction:
-    if prev_resolved_ref is None:
+def _classify(prev_resolved_celex: str | None, resolved_celex: str) -> DocAction:
+    if prev_resolved_celex is None:
         return DocAction.NEW
-    if prev_resolved_ref != resolved_ref:
+    if prev_resolved_celex != resolved_celex:
         return DocAction.CHANGED
     return DocAction.UNCHANGED
 
 
-def _dropped_refs(specs: Sequence[DiscoveredDocument], baseline_refs: Iterable[str]) -> list[str]:
-    """Baseline refs discovery no longer returns; losing an implausible share of them is an error.
+def _dropped_celexes(
+    specs: Sequence[DiscoveredDocument], baseline_celexes: Iterable[str]
+) -> list[str]:
+    """Baseline celexes discovery no longer returns; losing an implausible share is an error.
 
     A truncated result set is indistinguishable from a mass repeal, so refuse to call it one.
     """
-    discovered = {spec.ref for spec in specs}
-    baseline = set(baseline_refs)
+    discovered = {spec.celex for spec in specs}
+    baseline = set(baseline_celexes)
     dropped = sorted(baseline - discovered)
     if len(dropped) >= MIN_SUSPICIOUS_DROPS and len(dropped) > MAX_DROP_RATIO * len(baseline):
         raise DiscoveryError(
@@ -44,24 +46,24 @@ def _dropped_refs(specs: Sequence[DiscoveredDocument], baseline_refs: Iterable[s
     return dropped
 
 
-def _store(data_dir: Path, ref: str, content: bytes) -> tuple[str, int]:
+def _store(data_dir: Path, celex: str, content: bytes) -> tuple[str, int]:
     """Write the document's source file and return its (sha256, size_bytes)."""
     data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / RawDocument.filename(ref)).write_bytes(content)
+    (data_dir / RawDocument.filename(celex)).write_bytes(content)
     return hashlib.sha256(content).hexdigest(), len(content)
 
 
 def _discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DiscoveredDocument]:
-    """Discover all topics, deduped by ref (first topic wins), wrapping parse errors."""
-    by_ref: dict[str, DiscoveredDocument] = {}
+    """Discover all topics, deduped by celex (first topic wins), wrapping parse errors."""
+    by_celex: dict[str, DiscoveredDocument] = {}
     for topic in topics:
         try:
             specs = discover(client, topic, SEEDS[topic])
         except (KeyError, json.JSONDecodeError) as exc:
             raise DiscoveryError(f"{topic}: malformed SPARQL response: {exc!r}") from exc
         for spec in specs:
-            by_ref.setdefault(spec.ref, spec)
-    return list(by_ref.values())
+            by_celex.setdefault(spec.celex, spec)
+    return list(by_celex.values())
 
 
 def _paced(specs: Sequence[DiscoveredDocument]) -> Iterator[DiscoveredDocument]:
@@ -82,14 +84,14 @@ def _fetch_document(
 ) -> tuple[RawDocument, DocAction]:
     """Resolve one act, download it unless unchanged and still on disk, and build its row."""
     resolution = resolve_version(client, spec)
-    action = _classify(prev.resolved_ref if prev else None, resolution.resolved_ref)
+    action = _classify(prev.resolved_celex if prev else None, resolution.resolved_celex)
     if action is DocAction.UNCHANGED and prev is not None and prev.path(data_dir).exists():
         sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at
     else:
-        sha256, size_bytes = _store(data_dir, spec.ref, download(client, resolution.url))
+        sha256, size_bytes = _store(data_dir, spec.celex, download(client, resolution.url))
         fetched_at = utc_now()
     document = RawDocument(
-        **spec.model_dump(exclude={"candidate_ref"}),
+        **spec.model_dump(exclude={"candidate_celex"}),
         **resolution.model_dump(),
         run=run,
         sha256=sha256,
@@ -109,17 +111,17 @@ def _download_documents(
 ) -> tuple[list[RawDocument], FetchRunResult]:
     """Fetch every discovered document, recording the ones that would not download."""
     documents: list[RawDocument] = []
-    result = FetchRunResult(discovered=[spec.ref for spec in specs])
+    result = FetchRunResult(discovered=[spec.celex for spec in specs])
     for spec in _paced(specs):
         try:
             document, action = _fetch_document(
-                client, spec, prev=baseline.get(spec.ref), run=run, data_dir=data_dir
+                client, spec, prev=baseline.get(spec.celex), run=run, data_dir=data_dir
             )
         except (IngestionError, httpx.HTTPError, OSError) as exc:
-            result.failed[spec.ref] = f"{type(exc).__name__}: {exc}"
+            result.fail(spec.celex, exc)
             continue
         documents.append(document)
-        result.record(action, spec.ref)
+        result.record(action, spec.celex)
     return documents, result
 
 
@@ -134,7 +136,7 @@ async def fetch_documents(
     """Discover, resolve and download the corpus for topics, recording a row per document."""
     specs = _discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
-    dropped = _dropped_refs(specs, baseline)
+    dropped = _dropped_celexes(specs, baseline)
     documents, result = _download_documents(
         client, specs, baseline=baseline, run=run, data_dir=data_dir
     )

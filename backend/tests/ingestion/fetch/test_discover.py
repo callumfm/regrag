@@ -54,12 +54,12 @@ def test_non_legislation_sectors_filtered():
         binding("52024IP0025"),
         binding("E2021X0415(01)"),
     )
-    assert [s.ref for s in parse_topic_response("mrv", p)] == ["32015R0757"]
+    assert [s.celex for s in parse_topic_response("mrv", p)] == ["32015R0757"]
 
 
 def test_not_in_force_filtered():
     p = payload(binding("32016R1927", force="0"), binding("32016R1928", force="1"))
-    assert [s.ref for s in parse_topic_response("mrv", p)] == ["32016R1928"]
+    assert [s.celex for s in parse_topic_response("mrv", p)] == ["32016R1928"]
 
 
 def test_folded_amendment_filtered():
@@ -68,8 +68,8 @@ def test_folded_amendment_filtered():
         binding("32015R0757", force="1", cons="02015R0757-20240101"),
     )
     specs = parse_topic_response("mrv", p)
-    assert [s.ref for s in specs] == ["32015R0757"]
-    assert specs[0].candidate_ref == "02015R0757-20240101"
+    assert [s.celex for s in specs] == ["32015R0757"]
+    assert specs[0].candidate_celex == "02015R0757-20240101"
 
 
 def test_candidate_is_max_own_stem_consolidation():
@@ -78,19 +78,19 @@ def test_candidate_is_max_own_stem_consolidation():
         binding("32015R0757", force="1", cons="02015R0757-20250101"),
         binding("32015R0757", force="1", cons="02015R0757-20161216"),
     )
-    assert parse_topic_response("mrv", p)[0].candidate_ref == "02015R0757-20250101"
+    assert parse_topic_response("mrv", p)[0].candidate_celex == "02015R0757-20250101"
 
 
 def test_no_consolidations_gives_none_candidate():
     p = payload(binding("32023R2449", force="1"))
-    assert parse_topic_response("mrv", p)[0].candidate_ref is None
+    assert parse_topic_response("mrv", p)[0].candidate_celex is None
 
 
 def test_specs_carry_topic_and_source():
     p = payload(binding("32023R1805", force="1"))
     spec = parse_topic_response("fueleu", p)[0]
     assert spec == DiscoveredDocument(
-        topic="fueleu", source="eurlex", ref="32023R1805", candidate_ref=None
+        topic="fueleu", source="eurlex", celex="32023R1805", candidate_celex=None
     )
 
 
@@ -122,7 +122,7 @@ def test_discover_returns_parsed_specs():
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         specs = discover(client, "mrv", "32015R0757")
-    assert [s.ref for s in specs] == ["32015R0757", "32023R2449"]
+    assert [s.celex for s in specs] == ["32015R0757", "32023R2449"]
 
 
 DOC_HTML = (FIXTURES / "doc.html").read_text()
@@ -147,6 +147,6 @@ def corpus_handler(request: httpx.Request) -> httpx.Response:
 def test_topic_corpus_discovers_and_resolves(topic):
     with httpx.Client(transport=httpx.MockTransport(corpus_handler)) as client:
         specs = discover(client, topic, SEEDS[topic])
-        resolved = {f"{topic}:{s.ref}": resolve_version(client, s).resolved_ref for s in specs}
+        resolved = {f"{topic}:{s.celex}": resolve_version(client, s).resolved_celex for s in specs}
     expected = {k: v for k, v in EXPECTED_RESOLVED.items() if k.startswith(f"{topic}:")}
     assert resolved == expected

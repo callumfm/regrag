@@ -45,7 +45,7 @@ def test_same_text_under_a_different_article_hashes_differently():
 
 
 def test_same_text_in_a_different_document_hashes_differently():
-    assert chunk().content_hash != chunk(ref="32015R0757").content_hash
+    assert chunk().content_hash != chunk(celex="32015R0757").content_hash
 
 
 def test_topic_does_not_affect_the_hash():

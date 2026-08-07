@@ -67,7 +67,7 @@ def walk(
     for index, piece in enumerate(split, start=1):
         yield Chunk(
             **inherited.model_dump(),
-            ref=document.ref,
+            celex=document.celex,
             topic=document.topic,
             kind=section.kind,
             paragraph=section.number if section.kind is SectionKind.PARAGRAPH else None,

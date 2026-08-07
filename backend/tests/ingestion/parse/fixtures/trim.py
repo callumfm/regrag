@@ -32,9 +32,11 @@ def shrink(node: Node) -> None:
             child.decompose()
 
 
-def trim(ref: str, ids: tuple[str, ...]) -> str:
+def trim(celex: str, ids: tuple[str, ...]) -> str:
     """Keep only the named subdivisions, with base64 image payloads stubbed out."""
-    tree = HTMLParser((config.RAW_DATA_DIR / RawDocument.filename(ref)).read_text(encoding="utf-8"))
+    tree = HTMLParser(
+        (config.RAW_DATA_DIR / RawDocument.filename(celex)).read_text(encoding="utf-8")
+    )
     for image in tree.css("img"):
         if (image.attributes.get("src") or "").startswith("data:"):
             image.attrs["src"] = STUB
@@ -42,7 +44,7 @@ def trim(ref: str, ids: tuple[str, ...]) -> str:
     for node_id in ids:
         node = tree.css_first(f'div[id="{node_id}"]')
         if node is None:
-            raise SystemExit(f"{ref}: no div with id {node_id}")
+            raise SystemExit(f"{celex}: no div with id {node_id}")
         shrink(node)
         kept.append(node.html or "")
     body = "<html><body>\n" + "\n".join(kept) + "\n</body></html>\n"
@@ -50,10 +52,10 @@ def trim(ref: str, ids: tuple[str, ...]) -> str:
 
 
 def main() -> None:
-    for ref, ids in KEEP.items():
-        html = trim(ref, ids)
-        (FIXTURES / f"{ref}.html").write_text(html, encoding="utf-8")
-        print(f"{ref}: {len(html) // 1024} KB")
+    for celex, ids in KEEP.items():
+        html = trim(celex, ids)
+        (FIXTURES / f"{celex}.html").write_text(html, encoding="utf-8")
+        print(f"{celex}: {len(html) // 1024} KB")
 
 
 if __name__ == "__main__":

@@ -51,7 +51,7 @@ class Chunk(Locator):
     NOT_IDENTITY: ClassVar[set[str]] = {"topic", "citation", "references"}
     """Fields outside content_hash: topic is provenance, the rest derive from what is hashed."""
 
-    ref: str
+    celex: str
     topic: str
     kind: SectionKind
     text: str
