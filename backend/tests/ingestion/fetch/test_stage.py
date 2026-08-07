@@ -7,7 +7,7 @@ import pytest
 
 from app.ingestion.constants import PACE_SECONDS
 from app.ingestion.enums import DocAction
-from app.ingestion.exceptions import ParseError
+from app.ingestion.exceptions import EmptyDocumentError, ParseError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.schemas import RawDocument
@@ -51,6 +51,20 @@ def test_store_writes_file_and_returns_sha_and_size(tmp_path):
     assert (tmp_path / "raw" / "32023R1805.html").read_bytes() == content
     assert sha256 == hashlib.sha256(content).hexdigest()
     assert size == len(content)
+
+
+def test_store_refuses_empty_content(tmp_path):
+    with pytest.raises(EmptyDocumentError, match="32023R2917"):
+        _store(tmp_path / "raw", "32023R2917", b"")
+
+
+def test_store_leaves_the_previous_file_intact_when_content_is_empty(tmp_path):
+    """An empty body must not destroy the last good copy of the document."""
+    data_dir = tmp_path / "raw"
+    _store(data_dir, "32023R2917", b"<html>act</html>")
+    with pytest.raises(EmptyDocumentError):
+        _store(data_dir, "32023R2917", b"")
+    assert (data_dir / "32023R2917.html").read_bytes() == b"<html>act</html>"
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
@@ -116,6 +130,23 @@ async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_pat
     assert (tmp_path / "32015R0757.html").read_bytes() == b"<html>v2</html>"
     rows = await get_baseline_docs(db_session, ["mrv"])
     assert rows["32015R0757"].resolved_celex == "02015R0757-20250101"
+
+
+async def test_still_rendering_doc_fails_without_destroying_its_raw_file(
+    db_session, tmp_path, corpus_client
+):
+    """The regression: a 202 used to be stored as an empty file, wiping the last good copy."""
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    await fetch(db_session, client, ["mrv"], tmp_path)
+
+    rendering = mrv_docs({"32015R0757": httpx.Response(202, content=b"")})
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, rendering)
+    report, _ = await fetch(db_session, client, ["mrv"], tmp_path)
+
+    assert "32015R0757" in report.failed
+    assert not report.ok
+    assert (tmp_path / "32015R0757.html").read_bytes() == b"<html>mrv</html>"
+    assert report.unchanged == ["32023R2449"]
 
 
 async def test_vanished_doc_reported_dropped(db_session, tmp_path, corpus_client):

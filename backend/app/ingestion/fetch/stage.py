@@ -12,7 +12,7 @@ from app.core.clock import utc_now
 from app.core.http import download, pace
 from app.ingestion.constants import MAX_DROP_RATIO, MIN_SUSPICIOUS_DROPS, PACE_SECONDS, SEEDS
 from app.ingestion.enums import DocAction
-from app.ingestion.exceptions import DiscoveryError, IngestionError
+from app.ingestion.exceptions import DiscoveryError, EmptyDocumentError, IngestionError
 from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.resolve import resolve_version
@@ -47,7 +47,12 @@ def _dropped_celexes(
 
 
 def _store(data_dir: Path, celex: str, content: bytes) -> tuple[str, int]:
-    """Write the document's source file and return its (sha256, size_bytes)."""
+    """Write the document's source file and return its (sha256, size_bytes).
+
+    Refuses empty content, which would otherwise overwrite the last good copy with nothing.
+    """
+    if not content:
+        raise EmptyDocumentError(f"{celex}: download returned an empty body")
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / RawDocument.filename(celex)).write_bytes(content)
     return hashlib.sha256(content).hexdigest(), len(content)
