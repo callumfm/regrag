@@ -6,7 +6,7 @@ from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.constants import MAX_CHARS
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.eurlex_html import parse_eurlex_html
+from app.ingestion.parse.html.parser import parse_eurlex_html
 
 FIXTURES = Path(__file__).parents[1] / "parse" / "fixtures"
 

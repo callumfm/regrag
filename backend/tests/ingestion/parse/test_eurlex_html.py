@@ -3,16 +3,18 @@
 from pathlib import Path
 
 import pytest
+from selectolax.parser import HTMLParser
 
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
-from app.ingestion.parse.eurlex_html import (
-    FOOTNOTE,
-    parse_eurlex_html,
-    prepare,
-)
 from app.ingestion.parse.html.consolidated import CONSOLIDATED
 from app.ingestion.parse.html.oj import OJ
+from app.ingestion.parse.html.parser import (
+    FOOTNOTE_BLOCK,
+    drop_non_legal_markup,
+    parse_eurlex_html,
+    placeholder_formula_images,
+)
 from app.ingestion.parse.html.tables import detach_data_tables
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -143,7 +145,10 @@ def test_article_without_numbered_paragraphs_yields_one_unnumbered_paragraph():
 
 
 def subdivision(html, node_id):
-    node = prepare(html).css_first(f'div[id="{node_id}"]')
+    tree = HTMLParser(html)
+    placeholder_formula_images(tree)
+    drop_non_legal_markup(tree)
+    node = tree.css_first(f'div[id="{node_id}"]')
     assert node is not None
     return node
 
@@ -260,8 +265,10 @@ def test_recitals_and_citations_are_excluded():
 
 
 def test_footnote_blocks_are_removed_from_the_tree():
-    assert prepare(MRV).css(FOOTNOTE) == []
-    assert prepare(FUELEU).css(FOOTNOTE) == []
+    for html in (MRV, FUELEU):
+        tree = HTMLParser(html)
+        drop_non_legal_markup(tree)
+        assert tree.css(FOOTNOTE_BLOCK) == []
 
 
 def test_oj_annex_prose_is_kept_alongside_its_tables():
