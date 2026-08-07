@@ -2,9 +2,9 @@
 
 import os
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
-from pydantic import computed_field, model_validator
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.enums import Environment, StorageBackend
@@ -38,35 +38,29 @@ class AppConfig(BaseConfig):
 
 
 class StorageConfig(BaseConfig):
-    """Object storage for raw source documents: R2 in prod, local files elsewhere."""
+    """Which backend holds raw source documents, and where the local one keeps them."""
 
     STORAGE_BACKEND: StorageBackend = StorageBackend.LOCAL
     RAW_DATA_DIR: Path = PROJECT_ROOT / "data" / "raw"
 
-    R2_ACCOUNT_ID: str = ""
-    R2_ACCESS_KEY_ID: str = ""
-    R2_SECRET_ACCESS_KEY: str = ""
-    R2_BUCKET: str = ""
+
+class R2Config(BaseConfig):
+    """Cloudflare R2 credentials, loaded only when that backend is the one selected.
+
+    Every field is required, so a half-configured bucket fails when the store is built,
+    before a run does any real work. Nothing else may depend on these being present.
+    """
+
+    R2_ACCOUNT_ID: str
+    R2_ACCESS_KEY_ID: str
+    R2_SECRET_ACCESS_KEY: str
+    R2_BUCKET: str
 
     @computed_field
     @property
     def R2_ENDPOINT_URL(self) -> str:
         """The S3-compatible endpoint R2 serves this account's buckets on."""
         return f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-
-    @model_validator(mode="after")
-    def _require_r2_settings(self) -> Self:
-        """Refuse to start half-configured: a run would fail after doing real work."""
-        if self.STORAGE_BACKEND is not StorageBackend.R2:
-            return self
-        missing = [
-            name
-            for name in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")
-            if not getattr(self, name)
-        ]
-        if missing:
-            raise ValueError(f"STORAGE_BACKEND=r2 requires {', '.join(missing)}")
-        return self
 
 
 class PostgresConfig(BaseConfig):

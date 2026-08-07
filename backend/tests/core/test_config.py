@@ -4,19 +4,22 @@ import pytest
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings
 
-from app.core.config import BaseConfig, Config, EmbeddingConfig, StorageConfig
+from app.core.config import BaseConfig, Config, EmbeddingConfig, R2Config, StorageConfig
 from app.core.enums import StorageBackend
 
+R2_ENV = {
+    "R2_ACCOUNT_ID": "acc",
+    "R2_ACCESS_KEY_ID": "key",
+    "R2_SECRET_ACCESS_KEY": "secret",
+    "R2_BUCKET": "regrag-raw",
+}
 
-def r2_config(bucket: str = "regrag-raw") -> StorageConfig:
-    """A fully configured R2 storage config, with the bucket overridable to leave it out."""
-    return StorageConfig(
-        STORAGE_BACKEND=StorageBackend.R2,
-        R2_ACCOUNT_ID="acc",
-        R2_ACCESS_KEY_ID="key",
-        R2_SECRET_ACCESS_KEY="secret",
-        R2_BUCKET=bucket,
-    )
+
+def r2_config(monkeypatch, **overrides: str) -> R2Config:
+    """R2 settings as they really arrive — from the environment; an empty one is left unset."""
+    for name, value in {**R2_ENV, **overrides}.items():
+        monkeypatch.setenv(name, value)
+    return R2Config()
 
 
 def test_subclass_inherits_settings_without_restating_them():
@@ -44,21 +47,25 @@ def test_embedding_defaults_match_voyage_4_lite(monkeypatch):
 
 
 def test_storage_defaults_to_the_local_backend():
-    """Dev and tests must never need R2 credentials to run the pipeline."""
     assert StorageConfig().STORAGE_BACKEND is StorageBackend.LOCAL
 
 
-def test_the_r2_endpoint_is_built_from_the_account_id():
-    assert r2_config().R2_ENDPOINT_URL == "https://acc.r2.cloudflarestorage.com"
+def test_the_r2_endpoint_is_built_from_the_account_id(monkeypatch):
+    assert r2_config(monkeypatch).R2_ENDPOINT_URL == "https://acc.r2.cloudflarestorage.com"
 
 
-def test_the_r2_backend_refuses_to_start_half_configured():
+def test_every_r2_setting_is_required(monkeypatch):
+    """A half-configured bucket must fail when the store is built, not mid-run."""
     with pytest.raises(ValidationError, match="R2_BUCKET"):
-        r2_config(bucket="")
+        r2_config(monkeypatch, R2_BUCKET="")
 
 
-def test_r2_settings_are_not_required_by_the_local_backend():
-    assert StorageConfig(STORAGE_BACKEND=StorageBackend.LOCAL, R2_BUCKET="").R2_BUCKET == ""
+def test_the_combined_config_does_not_carry_the_r2_settings():
+    """Dev and tests must never need R2 credentials to load configuration."""
+    combined = Config()
+
+    assert not hasattr(combined, "R2_BUCKET")
+    assert combined.STORAGE_BACKEND is StorageBackend.LOCAL
 
 
 def test_combined_config_carries_every_concern():
@@ -67,4 +74,3 @@ def test_combined_config_carries_every_concern():
     assert combined.PROJECT_NAME == "RegRag"
     assert combined.DB_PORT == 5432
     assert combined.EMBED_DIMENSIONS == 1024
-    assert combined.STORAGE_BACKEND is StorageBackend.LOCAL

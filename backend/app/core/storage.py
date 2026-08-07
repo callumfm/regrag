@@ -7,7 +7,7 @@ import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
-from app.core.config import config
+from app.core.config import R2Config, config
 from app.core.enums import StorageBackend
 
 BOTO_ERRORS = (ClientError, BotoCoreError)
@@ -102,20 +102,21 @@ class S3ObjectStore:
         return True
 
 
-def r2_client() -> Any:
+def r2_client(r2: R2Config) -> Any:
     """An S3 client pointed at this account's R2 endpoint, retrying transient failures."""
     return boto3.client(
         "s3",
-        endpoint_url=config.R2_ENDPOINT_URL,
-        aws_access_key_id=config.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=config.R2_SECRET_ACCESS_KEY,
+        endpoint_url=r2.R2_ENDPOINT_URL,
+        aws_access_key_id=r2.R2_ACCESS_KEY_ID,
+        aws_secret_access_key=r2.R2_SECRET_ACCESS_KEY,
         region_name="auto",
         config=BotoConfig(retries={"mode": "standard", "max_attempts": S3_MAX_ATTEMPTS}),
     )
 
 
 def get_object_store() -> ObjectStore:
-    """The store this environment is configured for."""
+    """The store this environment is configured for; R2 credentials are read only if selected."""
     if config.STORAGE_BACKEND is StorageBackend.R2:
-        return S3ObjectStore(r2_client(), config.R2_BUCKET)
+        r2 = R2Config()
+        return S3ObjectStore(r2_client(r2), r2.R2_BUCKET)
     return LocalObjectStore(config.RAW_DATA_DIR)

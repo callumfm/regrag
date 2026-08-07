@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
+from pydantic import ValidationError
 
 from app.core import storage
 from app.core.enums import StorageBackend
@@ -13,6 +14,7 @@ from app.core.storage import (
     StorageError,
     get_object_store,
 )
+from tests.core.test_config import R2_ENV
 
 KEY = "32023R1805/32023R1805/abc.html"
 HTML = b"<html>act</html>"
@@ -161,8 +163,21 @@ def test_the_default_backend_is_local_and_rooted_at_the_raw_data_dir(tmp_path, m
 
 def test_the_r2_backend_is_an_s3_store_on_the_configured_bucket(monkeypatch):
     monkeypatch.setattr(storage.config, "STORAGE_BACKEND", StorageBackend.R2)
-    monkeypatch.setattr(storage.config, "R2_BUCKET", "regrag-raw")
-    monkeypatch.setattr(storage, "r2_client", lambda: FakeS3())
+    monkeypatch.setattr(storage, "r2_client", lambda r2: FakeS3())
+    for name, value in R2_ENV.items():
+        monkeypatch.setenv(name, value)
+
     store = get_object_store()
+
     assert isinstance(store, S3ObjectStore)
     assert store.bucket == "regrag-raw"
+
+
+def test_selecting_r2_without_its_credentials_fails_before_any_work(monkeypatch):
+    """The store is built before the run opens, so a misconfigured bucket stops it there."""
+    monkeypatch.setattr(storage.config, "STORAGE_BACKEND", StorageBackend.R2)
+    for name in R2_ENV:
+        monkeypatch.setenv(name, "")
+
+    with pytest.raises(ValidationError, match="R2_BUCKET"):
+        get_object_store()
