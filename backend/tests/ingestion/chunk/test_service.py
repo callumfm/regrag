@@ -7,8 +7,11 @@ from app.core.config import config
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.service import (
     count_embedded_chunks,
+    delete_chunks,
     delete_chunks_outside,
+    get_chunk_ids,
     get_unembedded_chunks,
+    insert_chunks,
     upsert_document_chunks,
     with_content_keys,
 )
@@ -244,3 +247,59 @@ async def test_counts_only_the_chunks_that_carry_a_vector(db_session, ingest_run
 
 async def test_counts_zero_on_an_empty_table(db_session):
     assert await count_embedded_chunks(db_session) == 0
+
+
+async def test_get_chunk_ids_keys_every_row_by_hash_and_occurrence(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk(), chunk()], ingest_run_id=ingest_run.id
+    )
+    ids = await get_chunk_ids(db_session, "32023R1805")
+    assert sorted(occurrence for _, occurrence in ids) == [0, 1]
+    assert len({digest for digest, _ in ids}) == 1
+
+
+async def test_get_chunk_ids_is_scoped_to_one_document(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    await seed_two_topics(db_session, ingest_run)
+    assert len(await get_chunk_ids(db_session, "32023R1805")) == 1
+
+
+async def test_delete_chunks_removes_only_the_given_ids(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    await upsert_document_chunks(
+        db_session,
+        celex="32023R1805",
+        chunks=[chunk(), chunk(article="5")],
+        ingest_run_id=ingest_run.id,
+    )
+    rows = await chunk_rows(db_session)
+
+    await delete_chunks(db_session, [rows[0].id])
+
+    assert [row.id for row in await chunk_rows(db_session)] == [rows[1].id]
+
+
+async def test_delete_chunks_leaves_the_table_alone_when_given_nothing(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+    await delete_chunks(db_session, [])
+    assert len(await chunk_rows(db_session)) == 1
+
+
+async def test_insert_chunks_stores_each_chunk_under_its_content_key(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    incoming = {(digest, n): c for c, digest, n in with_content_keys([chunk(), chunk()])}
+
+    await insert_chunks(db_session, incoming, ingest_run_id=ingest_run.id)
+
+    rows = await chunk_rows(db_session)
+    assert {(row.content_hash, row.occurrence) for row in rows} == set(incoming)
+    assert {row.ingest_run_id for row in rows} == {ingest_run.id}

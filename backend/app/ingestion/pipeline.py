@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.models import ChunkRunResult
-from app.ingestion.chunk.stage import chunk_documents
+from app.ingestion.chunk.stage import chunk_and_store_documents
 from app.ingestion.embed.models import EmbedRunResult
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
@@ -131,7 +131,7 @@ async def ingest(
         corpus_celexes = await _known_corpus_celexes(
             session, fetch_result=fetch_result, parse_result=parse_result, topics=topics
         )
-        chunk_result = await chunk_documents(
+        chunk_result = await chunk_and_store_documents(
             session, parsed, ingest_run_id=run.id, corpus_celexes=corpus_celexes
         )
         logger.info("[chunk] %s", chunk_result.summary())

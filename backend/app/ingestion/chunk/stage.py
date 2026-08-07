@@ -12,7 +12,7 @@ from app.ingestion.exceptions import IngestionError
 from app.ingestion.parse.models import ParsedDocument
 
 
-async def chunk_documents(
+async def chunk_and_store_documents(
     session: AsyncSession,
     documents: Sequence[ParsedDocument],
     *,

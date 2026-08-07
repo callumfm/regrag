@@ -31,12 +31,13 @@ async def update_ingest_run(
 
 async def get_latest_corpus_version(session: AsyncSession) -> str | None:
     """The corpus version of the most recent run that was stamped with one."""
-    return await session.scalar(
+    stmt = (
         select(IngestRun.corpus_version)
         .where(IngestRun.corpus_version.is_not(None))
         .order_by(IngestRun.id.desc())
         .limit(1)
     )
+    return await session.scalar(stmt)
 
 
 def corpus_fingerprint(documents: Iterable[RawDocument]) -> str:
