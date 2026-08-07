@@ -19,6 +19,7 @@ from app.core.http import download
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
+from app.ingestion.embed.stage import embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.discover import discover
@@ -27,12 +28,12 @@ from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 
-RETRIED = (discover, resolve_version, download)
+RETRIED = (discover, resolve_version, download, embed_texts)
 
 
 @pytest.fixture
 def defuse_retry(monkeypatch: pytest.MonkeyPatch) -> Callable[[Callable], Callable]:
-    """Strip tenacity's waits from a @transient_retry function, keeping its retry behaviour."""
+    """Strip tenacity's waits from a retry-wrapped function, keeping its retry behaviour."""
 
     def _defuse(fn: Callable) -> Callable:
         # ty: ignore[unresolved-attribute] — tenacity sets .retry dynamically, untyped
@@ -44,7 +45,7 @@ def defuse_retry(monkeypatch: pytest.MonkeyPatch) -> Callable[[Callable], Callab
 
 @pytest.fixture(autouse=True)
 def no_retry_backoff(defuse_retry: Callable[[Callable], Callable]) -> None:
-    """Defuse every @transient_retry callable in RETRIED, so retry tests don't sleep."""
+    """Defuse every retry-wrapped callable in RETRIED, so retry tests don't sleep."""
     for fn in RETRIED:
         defuse_retry(fn)
 
