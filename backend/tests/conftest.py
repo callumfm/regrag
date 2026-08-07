@@ -162,6 +162,19 @@ def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     return calls
 
 
+@pytest.fixture(autouse=True)
+def embeddings(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """No test reaches a provider: record each batch's texts and answer with numbered vectors."""
+    calls: list[list[str]] = []
+
+    async def fake_embed(texts: list[str], **kwargs: Any) -> list[list[float]]:
+        calls.append(list(texts))
+        return [[float(index)] * config.EMBED_DIMENSIONS for index in range(len(texts))]
+
+    monkeypatch.setattr("app.ingestion.embed.stage.embed", fake_embed)
+    return calls
+
+
 @pytest.fixture
 def corpus_client() -> Callable[..., tuple[httpx.Client, list[str]]]:
     """Transport serving SPARQL payloads per topic and HTML responses per celex."""

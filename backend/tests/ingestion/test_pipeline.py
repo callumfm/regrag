@@ -10,6 +10,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.models import ChunkRunResult
+from app.ingestion.embed.models import EmbedRunResult
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch import stage
@@ -34,7 +35,7 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 
 
 def test_stages_finds_every_result_and_nothing_else() -> None:
-    assert list(IngestRunResult(run_id=1).stages) == ["fetch", "parse", "chunk"]
+    assert list(IngestRunResult(run_id=1).stages) == ["fetch", "parse", "chunk", "embed"]
 
 
 def test_a_run_is_ok_when_no_stage_failed() -> None:
@@ -57,12 +58,14 @@ def test_summary_reports_every_stage_on_its_own_line() -> None:
         fetch=FetchRunResult(new=["a"], unchanged=["b"]),
         parse=ParseRunResult(parsed=["a", "b"]),
         chunk=ChunkRunResult(added=12, unchanged=30),
+        embed=EmbedRunResult(embedded=12, unchanged=30),
     )
     assert result.summary().splitlines() == [
         "run 7 (2026-08-05-abc1234)",
         "  [fetch] 1 new, 0 changed, 1 unchanged, 0 dropped, 0 failed",
         "  [parse] 2 parsed, 0 failed",
         "  [chunk] 12 added, 0 removed, 30 unchanged, 0 failed",
+        "  [embed] 12 embedded, 30 unchanged, 0 failed",
         "  fetch new: a",
     ]
 
@@ -570,3 +573,23 @@ async def test_fueleu_chunk_count_matches_the_chunker(db_session, tmp_path, corp
     rows = await chunk_rows(db_session, "32023R1805")
     assert len(rows) == len(expected)
     assert [row.text for row in rows] == [c.text for c in expected]
+
+
+async def test_a_run_embeds_every_chunk_it_stored(db_session, tmp_path, corpus_client):
+    report = await ingest_fueleu(db_session, tmp_path, corpus_client)
+
+    rows = await chunk_rows(db_session, "32023R1805")
+    assert report.ok
+    assert report.embed.embedded == len(rows) > 0
+    assert all(row.embedding is not None for row in rows)
+
+
+async def test_a_second_run_embeds_nothing_and_reports_the_rest_unchanged(
+    db_session, tmp_path, corpus_client
+):
+    await ingest_fueleu(db_session, tmp_path, corpus_client)
+    stored = len(await chunk_rows(db_session, "32023R1805"))
+
+    second = await ingest_fueleu(db_session, tmp_path, corpus_client)
+
+    assert (second.embed.embedded, second.embed.unchanged) == (0, stored)

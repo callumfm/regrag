@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.chunk.stage import chunk_documents
+from app.ingestion.embed.models import EmbedRunResult
+from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.fetch.service import get_other_topic_celexes
@@ -33,10 +35,16 @@ class IngestRunResult(BaseModel):
     fetch: FetchRunResult = Field(default_factory=FetchRunResult)
     parse: ParseRunResult = Field(default_factory=ParseRunResult)
     chunk: ChunkRunResult = Field(default_factory=ChunkRunResult)
+    embed: EmbedRunResult = Field(default_factory=EmbedRunResult)
 
     @property
     def stages(self) -> dict[str, StageRunResult]:
-        return {"fetch": self.fetch, "parse": self.parse, "chunk": self.chunk}
+        return {
+            "fetch": self.fetch,
+            "parse": self.parse,
+            "chunk": self.chunk,
+            "embed": self.embed,
+        }
 
     @property
     def ok(self) -> bool:
@@ -123,8 +131,15 @@ async def ingest(
         )
         logger.info("[chunk] %s", chunk_result.summary())
 
+        embed_result = await embed_chunks(session)
+        logger.info("[embed] %s", embed_result.summary())
+
         result = IngestRunResult(
-            run_id=run.id, fetch=fetch_result, parse=parse_result, chunk=chunk_result
+            run_id=run.id,
+            fetch=fetch_result,
+            parse=parse_result,
+            chunk=chunk_result,
+            embed=embed_result,
         )
         await complete_ingest_run(session, run, status=result.status)
         result.corpus_version = run.corpus_version
