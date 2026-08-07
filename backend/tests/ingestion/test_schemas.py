@@ -22,4 +22,17 @@ async def test_ingest_run_roundtrip(db_session: AsyncSession):
     assert fetched.status is IngestRunStatus.RUNNING
     assert fetched.corpus_version is None
     assert fetched.completed_at is None
+    assert fetched.result is None
     assert fetched.created_at is not None
+
+
+async def test_ingest_run_result_roundtrips_as_json(db_session: AsyncSession):
+    report = {
+        "fetch": {"new": 1, "changed": 0, "unchanged": 4, "dropped": 0, "failed": {}},
+        "parse": {"parsed": 4, "failed": {"32023R2917": "ParseError: unrecognised dialect"}},
+    }
+    db_session.add(IngestRun(status=IngestRunStatus.FAILED, result=report))
+    await db_session.flush()
+    db_session.expire_all()
+
+    assert (await db_session.scalars(select(IngestRun))).one().result == report

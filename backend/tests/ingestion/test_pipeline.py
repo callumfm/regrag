@@ -84,6 +84,29 @@ def test_summary_lists_each_stage_s_failures() -> None:
     assert "  parse failed: b (ParseError: no body)" in result.summary()
 
 
+def test_report_covers_every_stage_with_its_counts_and_failures() -> None:
+    result = IngestRunResult(
+        run_id=7,
+        fetch=FetchRunResult(discovered=["a", "b"], new=["a"], unchanged=["b"]),
+        parse=ParseRunResult(parsed=["a"], failed={"b": "ParseError: no body"}),
+        chunk=ChunkRunResult(added=12, unchanged=30),
+        embed=EmbedRunResult(embedded=12),
+    )
+    assert result.report() == {
+        "fetch": {"new": 1, "changed": 0, "unchanged": 1, "dropped": 0, "failed": {}},
+        "parse": {"parsed": 1, "failed": {"b": "ParseError: no body"}},
+        "chunk": {"added": 12, "removed": 0, "unchanged": 30, "failed": {}},
+        "embed": {"embedded": 12, "unchanged": 0, "failed": {}},
+    }
+
+
+def test_report_leaves_out_the_run_s_own_columns() -> None:
+    """Both are columns already, and corpus_version is stamped after the row is written."""
+    report = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234").report()
+    assert "run_id" not in report
+    assert "corpus_version" not in report
+
+
 async def test_known_corpus_celexes_unions_this_run_with_the_topics_it_left_alone(
     db_session, make_document
 ):
@@ -189,6 +212,36 @@ async def test_failed_run_is_not_stamped_with_a_corpus_version(db_session, tmp_p
     run = await db_session.get(IngestRun, report.run_id)
     assert run.status is IngestRunStatus.FAILED
     assert run.corpus_version is None
+
+
+async def test_a_completed_run_records_what_each_stage_did(db_session, tmp_path, corpus_client):
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    run = await db_session.get(IngestRun, report.run_id)
+    assert run.result == report.report()
+    assert run.result["fetch"]["new"] == 2
+    assert run.result["embed"]["embedded"] > 0
+
+
+async def test_a_stage_failure_is_answerable_from_the_run_row(db_session, tmp_path, corpus_client):
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
+    )
+    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    run = await db_session.get(IngestRun, report.run_id)
+    assert "32023R2449" in run.result["fetch"]["failed"]
+    assert run.result["fetch"]["new"] == 1
+
+
+async def test_an_aborted_run_records_no_result(db_session, tmp_path, corpus_client):
+    client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
+    with pytest.raises(httpx.HTTPStatusError):
+        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    run = (await db_session.scalars(select(IngestRun))).one()
+    assert run.result is None
 
 
 async def test_malformed_sparql_payload_raises_discovery_error(db_session, tmp_path, corpus_client):

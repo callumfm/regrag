@@ -3,6 +3,7 @@
 import hashlib
 import json
 from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,12 +59,18 @@ async def next_corpus_version(session: AsyncSession) -> str:
 
 
 async def complete_ingest_run(
-    session: AsyncSession, run: IngestRun, *, status: IngestRunStatus
+    session: AsyncSession,
+    run: IngestRun,
+    *,
+    status: IngestRunStatus,
+    result: dict[str, Any] | None = None,
 ) -> IngestRun:
     """Close out a run, minting a corpus version for it only if every stage succeeded."""
     version = await next_corpus_version(session) if status is IngestRunStatus.COMPLETED else None
     return await update_ingest_run(
         session,
         run,
-        IngestRunUpdate(status=status, completed_at=utc_now(), corpus_version=version),
+        IngestRunUpdate(
+            status=status, completed_at=utc_now(), corpus_version=version, result=result
+        ),
     )

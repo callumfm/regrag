@@ -14,6 +14,9 @@ class StageRunResult(BaseModel):
     UNCOUNTED: ClassVar[frozenset[str]] = frozenset({"failed"})
     """Fields counts() leaves out, because summary() reports them itself or not at all."""
 
+    MAX_FAILURE_CHARS: ClassVar[int] = 500
+    """Cap on a stored failure message; providers return unbounded prose. details() is uncapped."""
+
     failed: dict[str, str] = Field(default_factory=dict)
 
     @property
@@ -42,6 +45,15 @@ class StageRunResult(BaseModel):
         """The per-document lines the summary is too short to carry."""
         return [f"failed: {celex} ({error})" for celex, error in sorted(self.failed.items())]
 
+    def report(self) -> dict[str, Any]:
+        """This stage as the run row stores it: its counts, plus why each document failed."""
+        return {
+            **self.counts(),
+            "failed": {
+                celex: error[: self.MAX_FAILURE_CHARS] for celex, error in self.failed.items()
+            },
+        }
+
     def __add__(self, other: Self) -> Self:
         """Combine same-type operands field by field; fields must be int, list or dict."""
         if type(other) is not type(self):
@@ -66,3 +78,4 @@ class IngestRunUpdate(BaseModel):
     status: IngestRunStatus | None = None
     corpus_version: str | None = None
     completed_at: datetime | None = None
+    result: dict[str, Any] | None = None
