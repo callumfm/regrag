@@ -10,10 +10,10 @@ from app.ingestion.parse.eurlex_html import (
     CONS,
     FOOTNOTE,
     OJ,
-    extract_tables,
     parse_eurlex_html,
     prepare,
 )
+from app.ingestion.parse.html.tables import detach_data_tables
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FUELEU = (FIXTURES / "32023R1805.html").read_text()
@@ -149,7 +149,7 @@ def subdivision(html, node_id):
 
 
 def test_data_table_rows_are_a_raw_grid():
-    grids = extract_tables(subdivision(FUELEU, "anx_II"), OJ)
+    grids = detach_data_tables(subdivision(FUELEU, "anx_II"), OJ)
     assert grids
     assert grids[0].kind is SectionKind.TABLE
     rows = grids[0].rows
@@ -158,7 +158,7 @@ def test_data_table_rows_are_a_raw_grid():
 
 
 def test_extracted_rows_are_tuples_of_strings():
-    for grid in extract_tables(subdivision(FUELEU, "anx_II"), OJ):
+    for grid in detach_data_tables(subdivision(FUELEU, "anx_II"), OJ):
         assert isinstance(grid.rows, tuple)
         for row in grid.rows:
             assert isinstance(row, tuple)
@@ -168,7 +168,7 @@ def test_extracted_rows_are_tuples_of_strings():
 def test_formula_images_become_placeholders_in_table_cells():
     cells = [
         cell
-        for grid in extract_tables(subdivision(FUELEU, "anx_II"), OJ)
+        for grid in detach_data_tables(subdivision(FUELEU, "anx_II"), OJ)
         for row in grid.rows
         for cell in row
     ]
@@ -179,18 +179,18 @@ def test_formula_images_become_placeholders_in_table_cells():
 def test_extracting_a_table_detaches_it_so_its_text_is_not_duplicated():
     annex = subdivision(FUELEU, "anx_II")
     assert "Fuel Class" in annex.text()
-    extract_tables(annex, OJ)
+    detach_data_tables(annex, OJ)
     assert "Fuel Class" not in annex.text()
 
 
 def test_layout_tables_are_not_extracted_as_data_tables():
     article = subdivision(FUELEU, "art_4")
     assert article.css("table")
-    assert extract_tables(article, OJ) == ()
+    assert detach_data_tables(article, OJ) == ()
 
 
 def test_consolidated_data_table_rows_are_a_raw_grid():
-    grids = extract_tables(subdivision(MRV, "anx_I"), CONS)
+    grids = detach_data_tables(subdivision(MRV, "anx_I"), CONS)
     assert len(grids) == 2
     assert grids[0].kind is SectionKind.TABLE
     assert grids[0].rows[0] == ("Term", "Explanation")

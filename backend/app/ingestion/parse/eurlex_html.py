@@ -10,7 +10,6 @@ from app.ingestion.parse.html.dialect import (
     ANNEX_CONTAINER,
     ARTICLE_CONTAINER,
     ARTICLE_TITLE,
-    CELL,
     Dialect,
 )
 from app.ingestion.parse.html.lines import (
@@ -21,6 +20,7 @@ from app.ingestion.parse.html.lines import (
     nest_under_subheadings,
     prose_lines,
 )
+from app.ingestion.parse.html.tables import detach_data_tables
 from app.ingestion.parse.models import ParsedDocument, Section
 from app.ingestion.parse.text import (
     ANNEX_NUMBER_RE,
@@ -56,28 +56,6 @@ def prepare(html: str) -> HTMLParser:
         for node in tree.css(selector):
             node.decompose()
     return tree
-
-
-def table_rows(node: Node) -> tuple[tuple[str, ...], ...]:
-    rows = []
-    for row in node.css("tr"):
-        cells = tuple(clean_text(cell.text()) for cell in row.css(CELL))
-        if cells:
-            rows.append(cells)
-    return tuple(rows)
-
-
-def extract_tables(node: Node, dialect: Dialect) -> tuple[Section, ...]:
-    """Take data tables out of the tree, so their cells never re-appear as prose."""
-    tables = node.css(dialect.data_table)
-    sections = tuple(
-        Section(kind=SectionKind.TABLE, rows=rows)
-        for table in tables
-        if (rows := table_rows(table))
-    )
-    for table in tables:
-        table.decompose()
-    return sections
 
 
 def oj_paragraphs(node: Node) -> list[Node]:
@@ -196,7 +174,7 @@ def annex_body(node: Node, dialect: Dialect) -> tuple[Section, ...]:
 
 def annex_section(node: Node, dialect: Dialect) -> Section:
     """OJ annexes are flat; consolidated ones nest by title-gr-seq level."""
-    tables = extract_tables(node, dialect)
+    tables = detach_data_tables(node, dialect)
     return Section(
         kind=SectionKind.ANNEX,
         number=heading_number(node, dialect.annex_label, ANNEX_NUMBER_RE),
