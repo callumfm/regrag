@@ -34,7 +34,7 @@ async def chunk_documents(
                     ingest_run_id=ingest_run_id,
                 )
         except (IngestionError, SQLAlchemyError) as exc:
-            result.failed[document.celex] = f"{type(exc).__name__}: {exc}"
+            result.fail(document.celex, exc)
     if corpus_celexes is None:
         return result
     dropped = await delete_chunks_outside(session, corpus_celexes=corpus_celexes)

@@ -20,6 +20,10 @@ class StageRunResult(BaseModel):
     def ok(self) -> bool:
         return not self.failed
 
+    def fail(self, celex: str, exc: Exception) -> None:
+        """Record why a document could not be processed, in the one format details() prints."""
+        self.failed[celex] = f"{type(exc).__name__}: {exc}"
+
     def counts(self) -> dict[str, int]:
         """This stage's outcome buckets in declaration order; a list bucket counts its members."""
         buckets = ((name, getattr(self, name)) for name in type(self).model_fields)

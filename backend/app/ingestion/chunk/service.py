@@ -4,8 +4,9 @@ from collections import Counter
 from collections.abc import Collection, Iterable, Iterator, Sequence
 from typing import cast
 
-from sqlalchemy import CursorResult, delete, select
+from sqlalchemy import CursorResult, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.ingestion.chunk.models import Chunk, ChunkRunResult
 from app.ingestion.chunk.schemas import DocumentChunk
@@ -58,6 +59,30 @@ async def upsert_document_chunks(
     )
     await session.flush()
     return ChunkRunResult(added=len(added), removed=len(gone), unchanged=len(matched))
+
+
+async def get_unembedded_chunks(session: AsyncSession) -> Sequence[DocumentChunk]:
+    """Every vectorless chunk, ordered so the embed stage can group a batch inside one document."""
+    return (
+        await session.scalars(
+            select(DocumentChunk)
+            .options(defer(DocumentChunk.search_vector))
+            .where(DocumentChunk.embedding.is_(None))
+            .order_by(DocumentChunk.celex, DocumentChunk.id)
+        )
+    ).all()
+
+
+async def count_embedded_chunks(session: AsyncSession) -> int:
+    """How many chunks already carry a vector."""
+    return (
+        await session.scalar(
+            select(func.count())
+            .select_from(DocumentChunk)
+            .where(DocumentChunk.embedding.is_not(None))
+        )
+        or 0
+    )
 
 
 async def delete_chunks_outside(session: AsyncSession, *, corpus_celexes: Collection[str]) -> int:

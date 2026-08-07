@@ -31,7 +31,7 @@ def parse_documents(
                 _parse_document(document.path(data_dir), celex=document.celex, topic=document.topic)
             )
         except (ParseError, OSError, UnicodeDecodeError) as exc:
-            result.failed[document.celex] = f"{type(exc).__name__}: {exc}"
+            result.fail(document.celex, exc)
             continue
         result.parsed.append(document.celex)
     return parsed, result

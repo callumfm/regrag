@@ -3,13 +3,22 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import config
 from app.ingestion.chunk.references import extract_references
-from app.ingestion.chunk.service import delete_chunks_outside, keyed, upsert_document_chunks
+from app.ingestion.chunk.service import (
+    count_embedded_chunks,
+    delete_chunks_outside,
+    get_unembedded_chunks,
+    keyed,
+    upsert_document_chunks,
+)
 from app.ingestion.enums import SectionKind
 from app.ingestion.schemas import IngestRun
 from tests.conftest import chunk, chunk_rows
 
 pytestmark = pytest.mark.anyio
+
+VECTOR = [0.1] * config.EMBED_DIMENSIONS
 
 
 async def test_first_upsert_inserts_every_chunk(db_session: AsyncSession, ingest_run: IngestRun):
@@ -200,3 +209,38 @@ def test_distinct_chunks_each_start_at_occurrence_zero():
 def test_keyed_yields_the_original_chunks_in_order():
     chunks = [chunk(), chunk(article="5")]
     assert [c for c, _, _ in keyed(chunks)] == chunks
+
+
+async def test_returns_only_the_chunks_without_a_vector(db_session, ingest_run, make_chunk_row):
+    db_session.add(make_chunk_row(ingest_run, content_hash="a" * 64))
+    db_session.add(make_chunk_row(ingest_run, content_hash="b" * 64, embedding=VECTOR))
+    await db_session.flush()
+
+    pending = await get_unembedded_chunks(db_session)
+
+    assert [row.content_hash for row in pending] == ["a" * 64]
+
+
+async def test_orders_by_document_then_insertion(db_session, ingest_run, make_chunk_row):
+    """groupby in the stage only groups adjacent rows, so this ordering is load-bearing."""
+    for celex, digest in [("32023R1805", "a"), ("32015R0757", "b"), ("32023R1805", "c")]:
+        db_session.add(make_chunk_row(ingest_run, celex=celex, content_hash=digest * 64))
+    await db_session.flush()
+
+    pending = await get_unembedded_chunks(db_session)
+
+    assert [row.celex for row in pending] == ["32015R0757", "32023R1805", "32023R1805"]
+    assert [row.content_hash[0] for row in pending] == ["b", "a", "c"]
+
+
+async def test_counts_only_the_chunks_that_carry_a_vector(db_session, ingest_run, make_chunk_row):
+    db_session.add(make_chunk_row(ingest_run, content_hash="a" * 64))
+    db_session.add(make_chunk_row(ingest_run, content_hash="b" * 64, embedding=VECTOR))
+    db_session.add(make_chunk_row(ingest_run, content_hash="c" * 64, embedding=VECTOR))
+    await db_session.flush()
+
+    assert await count_embedded_chunks(db_session) == 2
+
+
+async def test_counts_zero_on_an_empty_table(db_session):
+    assert await count_embedded_chunks(db_session) == 0

@@ -118,7 +118,7 @@ def _download_documents(
                 client, spec, prev=baseline.get(spec.celex), run=run, data_dir=data_dir
             )
         except (IngestionError, httpx.HTTPError, OSError) as exc:
-            result.failed[spec.celex] = f"{type(exc).__name__}: {exc}"
+            result.fail(spec.celex, exc)
             continue
         documents.append(document)
         result.record(action, spec.celex)

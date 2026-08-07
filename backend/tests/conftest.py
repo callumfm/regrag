@@ -19,7 +19,7 @@ from app.core.http import download
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
-from app.ingestion.embed.stage import embed_texts
+from app.ingestion.embed.stage import _embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.discover import discover
@@ -28,7 +28,7 @@ from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 
-RETRIED = (discover, resolve_version, download, embed_texts)
+RETRIED = (discover, resolve_version, download, _embed_texts)
 
 
 @pytest.fixture
@@ -162,17 +162,26 @@ def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     return calls
 
 
-@pytest.fixture(autouse=True)
-def embeddings(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    """No test reaches a provider: record each batch's texts and answer with numbered vectors."""
-    calls: list[list[str]] = []
+class FakeProvider:
+    """Records each batch's texts and answers with numbered vectors, raising on scripted calls."""
 
-    async def fake_embed(texts: list[str], **kwargs: Any) -> list[list[float]]:
-        calls.append(list(texts))
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.errors: dict[int, Exception] = {}
+
+    async def __call__(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
+        self.calls.append(list(texts))
+        if error := self.errors.get(len(self.calls)):
+            raise error
         return [[float(index)] * config.EMBED_DIMENSIONS for index in range(len(texts))]
 
-    monkeypatch.setattr("app.ingestion.embed.stage.embed", fake_embed)
-    return calls
+
+@pytest.fixture(autouse=True)
+def embeddings(monkeypatch: pytest.MonkeyPatch) -> FakeProvider:
+    """No test reaches a provider: every embed call is recorded and answered locally."""
+    provider = FakeProvider()
+    monkeypatch.setattr("app.ingestion.embed.stage.embed", provider)
+    return provider
 
 
 @pytest.fixture
