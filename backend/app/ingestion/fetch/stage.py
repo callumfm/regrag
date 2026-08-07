@@ -48,8 +48,7 @@ def _dropped_celexes(
 
 def _store(data_dir: Path, celex: str, content: bytes) -> tuple[str, int]:
     """Write the document's source file and return its (sha256, size_bytes).
-
-    Refuses empty content, which would otherwise overwrite the last good copy with nothing.
+    Empty content is refused: it would overwrite the last good copy with nothing.
     """
     if not content:
         raise EmptyDocumentError(f"{celex}: download returned an empty body")

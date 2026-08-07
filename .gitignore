@@ -1,15 +1,8 @@
 .env
 .claude/
-docs/superpowers/
-__pycache__/
-*.pyc
-.venv/
-.pytest_cache/
-.ruff_cache/
-*.egg-info/
 .superpowers/
+docs/superpowers/
 .zed/
-frontend/openapi.json
 
 # Local corpus spike data
-data/
+/data/
