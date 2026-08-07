@@ -1,6 +1,11 @@
-"""Cross-reference extraction over chunk text."""
+"""Cross-reference extraction: find the mentions, then attribute each division to its instrument.
+
+"Article 7 of Regulation X" is two mentions, not one: a division ("Article 7") and the
+instrument that qualifies it. Divisions no instrument qualifies belong to this document.
+"""
 
 import re
+from collections.abc import Sequence
 
 from app.core.models import FrozenModel
 from app.ingestion import celex
@@ -17,18 +22,31 @@ INSTRUMENT_REF = re.compile(
 )
 QUALIFIER = re.compile(r"^\s+(?:of|to|in)\s+(?:that\s+|the\s+)?$")
 
-Span = tuple[int, int]
 
-
-class Division(FrozenModel):
-    """One member of an article or annex mention, ending where its enumeration does."""
+class Mention(FrozenModel):
+    """Where in the text one reference was found."""
 
     start: int
     end: int
+
+    def is_qualified_by(self, other: "Mention", text: str) -> bool:
+        """True when nothing but a qualifier ('of', 'to', 'in') separates this mention from it."""
+        return other.start >= self.end and QUALIFIER.match(text[self.end : other.start]) is not None
+
+
+class Division(Mention):
+    """One member of an article or annex mention, ending where its enumeration does."""
+
     reference: Reference
 
 
-def order(numbered: bool, first: str, second: str) -> tuple[str, str]:
+class InstrumentMention(Mention):
+    """One cited instrument; celex is None where the citation cannot resolve to an id."""
+
+    celex: str | None
+
+
+def order_number_and_year(numbered: bool, first: str, second: str) -> tuple[str, str]:
     """A '765/2008' pair as (number, year); EU drafting uses both orderings."""
     left, right = celex.as_year(first), celex.as_year(second)
     if left and right:
@@ -40,19 +58,9 @@ def order(numbered: bool, first: str, second: str) -> tuple[str, str]:
     return (first, second) if numbered else (second, first)
 
 
-def instruments(text: str) -> list[tuple[Span, str | None]]:
-    """Every instrument mention as its span and CELEX id, None where it cannot resolve."""
-    found: list[tuple[Span, str | None]] = []
-    for match in INSTRUMENT_REF.finditer(text):
-        number, year = order(bool(match.group(2)), match.group(3), match.group(4))
-        try:
-            found.append((match.span(), celex.build(match.group(1), year, number)))
-        except ValueError:
-            found.append((match.span(), None))
-    return found
-
-
-def enumerated(head: re.Match[str], text: str, tail: re.Pattern[str]) -> list[re.Match[str]]:
+def expand_enumeration(
+    head: re.Match[str], text: str, tail: re.Pattern[str]
+) -> list[re.Match[str]]:
     """An 'Articles 6, 7 and 8' run as one match per member."""
     members = [head]
     while member := tail.match(text, members[-1].end()):
@@ -60,22 +68,36 @@ def enumerated(head: re.Match[str], text: str, tail: re.Pattern[str]) -> list[re
     return members
 
 
-def cited(kind: str, number: str, paragraph: str | None = None) -> str:
+def format_citation(kind: str, number: str, paragraph: str | None = None) -> str:
     """One member of an enumeration written out in full: 'Article 7(2)'."""
     return f"{kind} {number}({paragraph})" if paragraph else f"{kind} {number}"
 
 
-def divisions(text: str) -> list[Division]:
+def find_instrument_mentions(text: str) -> list[InstrumentMention]:
+    """Every instrument mention in order of appearance."""
+    found: list[InstrumentMention] = []
+    for match in INSTRUMENT_REF.finditer(text):
+        number, year = order_number_and_year(bool(match.group(2)), match.group(3), match.group(4))
+        try:
+            resolved = celex.build(match.group(1), year, number)
+        except ValueError:
+            resolved = None
+        start, end = match.span()
+        found.append(InstrumentMention(start=start, end=end, celex=resolved))
+    return found
+
+
+def find_division_mentions(text: str) -> list[Division]:
     """Article and annex mentions in order of appearance, enumerations expanded."""
     found: list[Division] = []
     for head in ARTICLE_REF.finditer(text):
-        members = enumerated(head, text, ARTICLE_TAIL)
+        members = expand_enumeration(head, text, ARTICLE_TAIL)
         found += [
             Division(
                 start=m.start(),
                 end=members[-1].end(),
                 reference=Reference(
-                    raw=cited("Article", m.group(1), m.group(2)),
+                    raw=format_citation("Article", m.group(1), m.group(2)),
                     article=m.group(1),
                     paragraph=m.group(2),
                 ),
@@ -83,44 +105,57 @@ def divisions(text: str) -> list[Division]:
             for m in members
         ]
     for head in ANNEX_REF.finditer(text):
-        members = enumerated(head, text, ANNEX_TAIL)
+        members = expand_enumeration(head, text, ANNEX_TAIL)
         found += [
             Division(
                 start=m.start(),
                 end=members[-1].end(),
-                reference=Reference(raw=cited("Annex", m.group(1)), annex=m.group(1)),
+                reference=Reference(raw=format_citation("Annex", m.group(1)), annex=m.group(1)),
             )
             for m in members
         ]
     return sorted(found, key=lambda division: division.start)
 
 
-def qualifies(text: str, end: int, span: Span) -> bool:
-    """Whether an instrument at span is the one a division ending at end belongs to."""
-    return span[0] >= end and QUALIFIER.match(text[end : span[0]]) is not None
+def attribute_divisions_to_instruments(
+    text: str, divisions: Sequence[Division], instruments: Sequence[InstrumentMention]
+) -> list[Reference]:
+    """Each division as a reference, carrying the instrument that qualifies it, if any.
+
+    A division qualified by an unresolvable instrument is dropped: it is not this document's.
+    """
+    found: list[Reference] = []
+    for division in divisions:
+        owner = next((m for m in instruments if division.is_qualified_by(m, text)), None)
+        if owner is None:
+            found.append(division.reference)
+        elif owner.celex is not None:
+            raw = division.reference.raw + text[division.end : owner.end]
+            found.append(
+                division.reference.model_copy(update={"raw": raw, "instrument": owner.celex})
+            )
+    return found
+
+
+def unattributed_instruments(
+    text: str, divisions: Sequence[Division], instruments: Sequence[InstrumentMention]
+) -> list[Reference]:
+    """Instruments cited in their own right: the ones no division was attributed to."""
+    return [
+        Reference(raw=text[m.start : m.end], instrument=m.celex)
+        for m in instruments
+        if m.celex is not None
+        and not any(division.is_qualified_by(m, text) for division in divisions)
+    ]
 
 
 def extract_references(text: str) -> tuple[Reference, ...]:
     """Structured cross-references found in the text, deduplicated."""
-    mentions = instruments(text)
-    found: list[Reference] = []
-    attributed: set[Span] = set()
-
-    for division in divisions(text):
-        owner = next((pair for pair in mentions if qualifies(text, division.end, pair[0])), None)
-        if owner is None:
-            found.append(division.reference)
-            continue
-        (start, end), instrument = owner
-        attributed.add((start, end))
-        if instrument is None:
-            continue
-        raw = division.reference.raw + text[division.end : end]
-        found.append(division.reference.model_copy(update={"raw": raw, "instrument": instrument}))
-
-    found.extend(
-        Reference(raw=text[start:end], instrument=instrument)
-        for (start, end), instrument in mentions
-        if (start, end) not in attributed and instrument is not None
+    divisions = find_division_mentions(text)
+    instruments = find_instrument_mentions(text)
+    return tuple(
+        dict.fromkeys(
+            attribute_divisions_to_instruments(text, divisions, instruments)
+            + unattributed_instruments(text, divisions, instruments)
+        )
     )
-    return tuple(dict.fromkeys(found))

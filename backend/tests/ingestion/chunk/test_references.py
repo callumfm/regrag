@@ -1,5 +1,10 @@
 from app.ingestion.chunk.models import Reference
-from app.ingestion.chunk.references import extract_references
+from app.ingestion.chunk.references import (
+    extract_references,
+    find_division_mentions,
+    find_instrument_mentions,
+    unattributed_instruments,
+)
 
 
 def test_extracts_internal_article_reference() -> None:
@@ -121,3 +126,35 @@ def test_attributes_article_to_the_instrument_it_qualifies() -> None:
 def test_does_not_treat_this_regulation_as_an_external_instrument() -> None:
     references = extract_references("Article 6 of this Regulation applies")
     assert references == (Reference(raw="Article 6", instrument=None, article="6"),)
+
+
+def test_find_instrument_mentions_records_the_span_and_its_celex() -> None:
+    text = "as defined in Regulation (EU) 2015/757"
+    mention = find_instrument_mentions(text)[0]
+    assert text[mention.start : mention.end] == "Regulation (EU) 2015/757"
+    assert mention.celex == "32015R0757"
+
+
+def test_find_instrument_mentions_leaves_celex_none_when_it_cannot_resolve() -> None:
+    assert find_instrument_mentions("the fictional Regulation 3021/4055")[0].celex is None
+
+
+def test_a_division_is_qualified_by_the_instrument_that_follows_of() -> None:
+    text = "under Article 6 of Regulation (EU) 2015/757"
+    division = find_division_mentions(text)[0]
+    instrument = find_instrument_mentions(text)[0]
+    assert division.is_qualified_by(instrument, text)
+
+
+def test_a_division_is_not_qualified_by_an_instrument_it_only_precedes() -> None:
+    text = "Article 6 applies. Regulation (EU) 2015/757 does not."
+    division = find_division_mentions(text)[0]
+    instrument = find_instrument_mentions(text)[0]
+    assert not division.is_qualified_by(instrument, text)
+
+
+def test_an_instrument_a_division_claimed_is_not_cited_again_in_its_own_right() -> None:
+    text = "under Article 6 of Regulation (EU) 2015/757"
+    divisions = find_division_mentions(text)
+    assert unattributed_instruments(text, divisions, find_instrument_mentions(text)) == []
+    assert unattributed_instruments(text, [], find_instrument_mentions(text)) != []

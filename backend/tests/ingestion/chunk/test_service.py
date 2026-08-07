@@ -9,8 +9,8 @@ from app.ingestion.chunk.service import (
     count_embedded_chunks,
     delete_chunks_outside,
     get_unembedded_chunks,
-    keyed,
     upsert_document_chunks,
+    with_content_keys,
 )
 from app.ingestion.enums import SectionKind
 from app.ingestion.schemas import IngestRun
@@ -195,20 +195,20 @@ async def test_delete_chunks_outside_refuses_to_wipe_everything_on_an_empty_keep
 
 
 def test_occurrence_counts_up_for_duplicates():
-    keys = [(digest, n) for _, digest, n in keyed([chunk(), chunk(), chunk()])]
+    keys = [(digest, n) for _, digest, n in with_content_keys([chunk(), chunk(), chunk()])]
     assert [n for _, n in keys] == [0, 1, 2]
     assert len({digest for digest, _ in keys}) == 1
 
 
 def test_distinct_chunks_each_start_at_occurrence_zero():
-    keys = [(digest, n) for _, digest, n in keyed([chunk(), chunk(article="5")])]
+    keys = [(digest, n) for _, digest, n in with_content_keys([chunk(), chunk(article="5")])]
     assert [n for _, n in keys] == [0, 0]
     assert len({digest for digest, _ in keys}) == 2
 
 
-def test_keyed_yields_the_original_chunks_in_order():
+def test_content_keys_yield_the_original_chunks_in_order():
     chunks = [chunk(), chunk(article="5")]
-    assert [c for c, _, _ in keyed(chunks)] == chunks
+    assert [c for c, _, _ in with_content_keys(chunks)] == chunks
 
 
 async def test_returns_only_the_chunks_without_a_vector(db_session, ingest_run, make_chunk_row):
