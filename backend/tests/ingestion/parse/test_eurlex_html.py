@@ -275,10 +275,43 @@ def test_oj_annex_prose_is_kept_alongside_its_tables():
 
 def test_consolidated_annex_prose_excludes_its_heading_lines():
     annex = annexes(mrv())[0]
-    prose = of_kind(annex.children, SectionKind.PARAGRAPH)
+    sections = list(all_sections(annex.children))
+    prose = "\n".join(s.text for s in sections)
+    titles = [s.title for s in sections if s.kind is SectionKind.HEADING]
+    assert titles
+    assert annex.title not in prose
+    assert not [title for title in titles if title in prose]
+
+
+def test_consolidated_annex_prose_sits_under_the_heading_that_introduces_it():
+    annex = annexes(mrv())[0]
+    part_a = of_kind(annex.children, SectionKind.HEADING)[0]
+    formulae = of_kind(part_a.children, SectionKind.HEADING)[0]
+    prose = of_kind(formulae.children, SectionKind.PARAGRAPH)
     assert prose
-    assert "Methods for monitoring greenhouse gas emissions" not in prose[0].text
     assert "companies shall apply the following formula" in prose[0].text
+
+
+def test_consolidated_annex_prose_before_the_first_heading_stays_at_annex_level():
+    document = parse_eurlex_html(
+        "<html><body>"
+        '<div class="eli-subdivision" id="art_1">'
+        '<p class="title-article-norm">Article 1</p><p class="norm">Subject matter.</p></div>'
+        '<div id="anx_I"><p class="title-annex-1">ANNEX I</p>'
+        '<p class="title-gr-seq-level-1">Monitoring methods</p>'
+        '<p class="norm">Preamble prose.</p>'
+        '<p class="title-gr-seq-level-2">A. First part</p>'
+        '<p class="norm">Prose under A.</p></div>'
+        "</body></html>",
+        "x",
+        "t",
+    )
+    preamble, heading = annexes(document)[0].children
+    assert preamble.kind is SectionKind.PARAGRAPH
+    assert preamble.text == "Preamble prose."
+    assert heading.kind is SectionKind.HEADING
+    assert heading.title == "A. First part"
+    assert [c.text for c in heading.children] == ["Prose under A."]
 
 
 def test_normalise_collapses_runs_of_whitespace():

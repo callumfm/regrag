@@ -74,9 +74,5 @@ def test_mrv_resolves_external_instruments_to_celex(mrv: tuple[Chunk, ...]) -> N
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="parser leaves consolidated annex prose in a flat sibling, not under its headings",
-)
 def test_annex_heading_path_is_recorded_for_consolidated_annexes(mrv: tuple[Chunk, ...]) -> None:
     assert any(c.heading_path for c in mrv if c.annex == "I")

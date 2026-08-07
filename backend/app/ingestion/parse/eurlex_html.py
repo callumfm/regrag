@@ -122,9 +122,32 @@ def row_line(node: Node) -> str:
     return join_texts(node.css(CELL))
 
 
-def collect_lines(node: Node, lines: list[str]) -> None:
+@dataclass(frozen=True)
+class Heading:
+    """A sub-heading in a line stream, at the title-gr-seq depth it was written at."""
+
+    level: int
+    title: str
+
+
+type Line = Heading | str
+
+
+def heading_line(node: Node, selector: str | None) -> Heading | None:
+    """The sub-heading this block introduces, or None if the block is prose."""
+    if selector is None or not node.css_matches(selector):
+        return None
+    match = HEADING_LEVEL.search(node.attributes.get("class") or "")
+    return Heading(level=int(match.group(1)) if match else 1, title=clean(node.text()))
+
+
+def collect_lines(node: Node, lines: list[Line], headings: str | None = None) -> None:
     """Walk in document order, emitting one line per block and per flattened list row."""
     for child in node.iter(include_text=False):
+        heading = heading_line(child, headings)
+        if heading is not None:
+            lines.append(heading)
+            continue
         if child.css_matches(GRID_CONTAINER):
             line = grid_line(child)
         elif child.tag == "tr":
@@ -132,7 +155,7 @@ def collect_lines(node: Node, lines: list[str]) -> None:
         elif child.tag in ("p", "td"):
             line = clean(child.text())
         else:
-            collect_lines(child, lines)
+            collect_lines(child, lines, headings)
             continue
         if line and line not in lines[-1:]:
             lines.append(line)
@@ -140,9 +163,10 @@ def collect_lines(node: Node, lines: list[str]) -> None:
 
 def block_text(node: Node) -> str:
     """Join a node's text block by block, so flattened list rows stay on separate lines."""
-    lines: list[str] = []
+    lines: list[Line] = []
     collect_lines(node, lines)
-    return "\n".join(lines) if lines else clean(node.text())
+    text = "\n".join(line for line in lines if isinstance(line, str))
+    return text if text else clean(node.text())
 
 
 def prose_lines(node: Node, *headings: str) -> list[str]:
@@ -255,44 +279,63 @@ def article_section(node: Node, dialect: Dialect) -> Section:
     )
 
 
-def heading_tree(node: Node, selector: str) -> tuple[Section, ...]:
-    """Nest title-gr-seq-level-N headings, where level 1 is the annex title itself."""
-    stack: list[tuple[int, list[Section], str | None]] = [(1, [], None)]
+@dataclass
+class Frame:
+    """One open heading while folding a line stream: its own prose, then its subsections."""
+
+    level: int
+    title: str | None
+    lines: list[str]
+    children: list[Section]
+
+    def flush(self) -> None:
+        """Bank the prose read so far as a paragraph, ahead of any subsection after it."""
+        if self.lines:
+            self.children.append(Section(kind=SectionKind.PARAGRAPH, text="\n".join(self.lines)))
+            self.lines.clear()
+
+    def section(self) -> Section:
+        self.flush()
+        return Section(kind=SectionKind.HEADING, title=self.title, children=tuple(self.children))
+
+
+def nest(lines: Iterable[Line]) -> tuple[Section, ...]:
+    """Fold a line stream into sections, each heading owning the prose written beneath it."""
+    stack = [Frame(level=1, title=None, lines=[], children=[])]
 
     def close(level: int) -> None:
-        while stack[-1][0] >= level:
-            _, children, title = stack.pop()
-            stack[-1][1].append(
-                Section(kind=SectionKind.HEADING, title=title, children=tuple(children))
-            )
+        while stack[-1].level >= level:
+            done = stack.pop()
+            stack[-1].children.append(done.section())
 
-    for heading in node.css(selector):
-        match = HEADING_LEVEL.search(heading.attributes.get("class") or "")
-        level = int(match.group(1)) if match else 1
-        if level < 2:
-            continue
-        close(level)
-        stack.append((level, [], clean(heading.text())))
+    for line in lines:
+        if isinstance(line, str):
+            stack[-1].lines.append(line)
+        elif line.level > 1:
+            close(line.level)
+            stack[-1].flush()
+            stack.append(Frame(level=line.level, title=line.title, lines=[], children=[]))
     close(2)
-    return tuple(stack[0][1])
+    stack[0].flush()
+    return tuple(stack[0].children)
 
 
 def annex_body(node: Node, dialect: Dialect) -> tuple[Section, ...]:
-    """The annex prose, with its own label, title and sub-heading lines removed."""
-    headings = (dialect.annex_headings,) if dialect.annex_headings else ()
-    lines = prose_lines(node, dialect.annex_label, *headings)
-    return (Section(kind=SectionKind.PARAGRAPH, text="\n".join(lines)),) if lines else ()
+    """The annex prose nested under its own sub-headings, with its label lines removed."""
+    lines: list[Line] = []
+    collect_lines(node, lines, dialect.annex_headings)
+    skip = {clean(label.text()) for label in node.css(dialect.annex_label)}
+    return nest(line for line in lines if isinstance(line, Heading) or line not in skip)
 
 
 def annex_section(node: Node, dialect: Dialect) -> Section:
     """OJ annexes are flat; consolidated ones nest by title-gr-seq level."""
     tables = extract_tables(node, dialect)
-    headings = heading_tree(node, dialect.annex_headings) if dialect.annex_headings else ()
     return Section(
         kind=SectionKind.ANNEX,
         number=heading_number(node, dialect.annex_label, ANNEX_NUMBER),
         title=dialect.annex_title(node),
-        children=tables + annex_body(node, dialect) + headings,
+        children=tables + annex_body(node, dialect),
     )
 
 
