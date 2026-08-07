@@ -1,13 +1,20 @@
 """EUR-Lex HTML parser: one traversal over the OJ and consolidated dialects."""
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from selectolax.parser import HTMLParser, Node
 
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
+from app.ingestion.parse.html.dialect import (
+    ANNEX_CONTAINER,
+    ARTICLE_CONTAINER,
+    ARTICLE_TITLE,
+    CELL,
+    Dialect,
+)
 from app.ingestion.parse.models import ParsedDocument, Section
 from app.ingestion.parse.text import (
     ANNEX_NUMBER_RE,
@@ -23,11 +30,6 @@ FOOTNOTE_REF = "span.superscript, span.oj-super"
 FOOTNOTE = "p.footnote, p.oj-note, div[id^=fnp]"
 DROP = ("p.modref", FOOTNOTE_REF, FOOTNOTE)
 
-ARTICLE = "div.eli-subdivision[id^=art_]"
-ANNEX = "div[id^=anx_]"
-ARTICLE_TITLE = "div.eli-title p"
-CELL = "td, th"
-
 OJ_PARAGRAPH = "div[id]"
 OJ_ANNEX_LABEL = "p.oj-doc-ti"
 CONS_PARAGRAPH = "div.norm"
@@ -40,20 +42,6 @@ CONS_DATA_TABLE = "table.borderOj"
 GRID_CONTAINER = "div.grid-container"
 GRID_MARKER = "div.grid-list-column-1"
 GRID_BODY = "div.grid-list-column-2"
-
-
-@dataclass(frozen=True)
-class Dialect:
-    """One EUR-Lex markup dialect: how to recognise it and where it keeps each part."""
-
-    signature: str
-    article_heading: str
-    annex_label: str
-    data_table: str
-    annex_title: Callable[[Node], str | None]
-    paragraphs: Callable[[Node], list[Node]]
-    paragraph: Callable[[Node], Section]
-    annex_headings: str | None = None
 
 
 def prepare(html: str) -> HTMLParser:
@@ -209,8 +197,8 @@ OJ = Dialect(
     annex_label=OJ_ANNEX_LABEL,
     data_table=OJ_DATA_TABLE,
     annex_title=oj_annex_title,
-    paragraphs=oj_paragraphs,
-    paragraph=oj_paragraph,
+    paragraph_nodes=oj_paragraphs,
+    paragraph_section=oj_paragraph,
 )
 
 CONS = Dialect(
@@ -219,9 +207,9 @@ CONS = Dialect(
     annex_label="p.title-annex-1",
     data_table=CONS_DATA_TABLE,
     annex_title=cons_annex_title,
-    paragraphs=cons_paragraphs,
-    paragraph=cons_paragraph,
-    annex_headings=CONS_ANNEX_HEADING,
+    paragraph_nodes=cons_paragraphs,
+    paragraph_section=cons_paragraph,
+    annex_subheading=CONS_ANNEX_HEADING,
 )
 
 DIALECTS = (OJ, CONS)
@@ -237,7 +225,7 @@ def detect(tree: HTMLParser) -> Dialect:
 
 def paragraph_sections(node: Node, dialect: Dialect) -> tuple[Section, ...]:
     """Numbered paragraphs, falling back to one unnumbered paragraph for the whole article."""
-    sections = [dialect.paragraph(child) for child in dialect.paragraphs(node)]
+    sections = [dialect.paragraph_section(child) for child in dialect.paragraph_nodes(node)]
     if sections:
         return tuple(sections)
     lines = prose_lines(node, dialect.article_heading, ARTICLE_TITLE)
@@ -306,7 +294,7 @@ def nest(lines: Iterable[Line]) -> tuple[Section, ...]:
 def annex_body(node: Node, dialect: Dialect) -> tuple[Section, ...]:
     """The annex prose nested under its own sub-headings, with its label lines removed."""
     lines: list[Line] = []
-    collect_lines(node, lines, dialect.annex_headings)
+    collect_lines(node, lines, dialect.annex_subheading)
     skip = {clean_text(label.text()) for label in node.css(dialect.annex_label)}
     return nest(line for line in lines if isinstance(line, Heading) or line not in skip)
 
@@ -326,8 +314,8 @@ def parse_eurlex_html(html: str, celex: str, topic: str) -> ParsedDocument:
     """Parse one EUR-Lex document into the format-neutral section tree."""
     tree = prepare(html)
     dialect = detect(tree)
-    articles = [article_section(node, dialect) for node in tree.css(ARTICLE)]
+    articles = [article_section(node, dialect) for node in tree.css(ARTICLE_CONTAINER)]
     if not articles:
         raise ParseError(f"{celex}: no articles found")
-    annexes = [annex_section(node, dialect) for node in tree.css(ANNEX)]
+    annexes = [annex_section(node, dialect) for node in tree.css(ANNEX_CONTAINER)]
     return ParsedDocument(celex=celex, topic=topic, sections=tuple(articles + annexes))
