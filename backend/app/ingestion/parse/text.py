@@ -20,9 +20,8 @@ def normalise_whitespace(text: str) -> str:
 
 
 def clean_text(text: str) -> str:
-    """Normalise whitespace, dropping amendment glyphs and the brackets emptied footnotes leave.
-
-    Runs after drop_non_legal_markup, which is what empties those brackets.
+    """Normalise whitespace, dropping amendment glyphs and the brackets that
+    drop_non_legal_markup leaves behind when it empties a footnote reference.
     """
     if any(glyph in text for glyph in AMENDMENT_GLYPHS):
         text = AMENDMENT_MARKER_RE.sub(" ", text)

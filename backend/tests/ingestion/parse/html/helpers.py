@@ -1,12 +1,17 @@
-"""Tree helpers shared by the EUR-Lex HTML parser tests."""
+"""The two dialect fixtures, and tree helpers shared by the EUR-Lex HTML parser tests."""
 
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.parser import Node
 
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.html.parser import drop_non_legal_markup, placeholder_formula_images
+from app.ingestion.parse.html.parser import prepare
 from app.ingestion.parse.models import ParsedDocument, Section
+
+FIXTURES = Path(__file__).parent.parent / "fixtures"
+FUELEU_HTML = (FIXTURES / "32023R1805.html").read_text()
+MRV_HTML = (FIXTURES / "32015R0757.html").read_text()
 
 
 def of_kind(sections: Iterable[Section], kind: SectionKind) -> list[Section]:
@@ -28,9 +33,6 @@ def all_sections(sections: Iterable[Section]) -> Iterator[Section]:
 
 
 def subdivision(html: str, node_id: str) -> Node:
-    tree = HTMLParser(html)
-    placeholder_formula_images(tree)
-    drop_non_legal_markup(tree)
-    node = tree.css_first(f'div[id="{node_id}"]')
+    node = prepare(html).css_first(f'div[id="{node_id}"]')
     assert node is not None
     return node

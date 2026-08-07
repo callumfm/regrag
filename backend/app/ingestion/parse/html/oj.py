@@ -20,12 +20,11 @@ PARAGRAPH_ID_RE = re.compile(r"^\d+\.\d+$")
 
 def paragraph_nodes(node: Node) -> list[Node]:
     """Paragraph containers have ids like 004.001; Node.css matches self, so exclude it."""
-    own_id = node.attributes.get("id")
+    own_id = node.id
     return [
         child
         for child in node.css(PARAGRAPH_CONTAINER)
-        if child.attributes.get("id") != own_id
-        and PARAGRAPH_ID_RE.match(child.attributes.get("id") or "")
+        if child.id != own_id and PARAGRAPH_ID_RE.match(child.id or "")
     ]
 
 
@@ -51,4 +50,5 @@ OJ = Dialect(
     annex_title=annex_title,
     paragraph_nodes=paragraph_nodes,
     paragraph_section=paragraph_section,
+    annex_subheading_level=None,
 )

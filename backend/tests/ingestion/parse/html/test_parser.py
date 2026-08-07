@@ -7,8 +7,7 @@ from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
 from app.ingestion.parse.html.parser import FOOTNOTE_BLOCK, drop_non_legal_markup, parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
-from tests.ingestion.parse.html.conftest import FUELEU_HTML, MRV_HTML
-from tests.ingestion.parse.html.helpers import all_sections, articles
+from tests.ingestion.parse.html.helpers import FUELEU_HTML, MRV_HTML, all_sections, articles
 
 
 def test_carries_identity_from_the_ingest_record(fueleu: ParsedDocument):

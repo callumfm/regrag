@@ -1,5 +1,6 @@
 """The shape of what the two EUR-Lex markup dialects disagree about."""
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -19,4 +20,4 @@ class Dialect:
     annex_title: Callable[[Node], str | None]
     paragraph_nodes: Callable[[Node], list[Node]]
     paragraph_section: Callable[[Node], Section]
-    annex_subheading: str | None = None
+    annex_subheading_level: re.Pattern[str] | None

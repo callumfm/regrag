@@ -1,10 +1,17 @@
 """Blocks flattened to lines, and lines folded under the sub-headings that introduce them."""
 
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.html.lines import Subheading, nest_under_subheadings
+from app.ingestion.parse.html.consolidated import SUBHEADING_LEVEL_RE
+from app.ingestion.parse.html.lines import Subheading, collect_lines, nest_under_subheadings
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
-from tests.ingestion.parse.html.helpers import all_sections, annexes, articles, of_kind
+from tests.ingestion.parse.html.helpers import (
+    all_sections,
+    annexes,
+    articles,
+    of_kind,
+    subdivision,
+)
 
 
 def test_nesting_puts_prose_under_the_subheading_that_introduces_it():
@@ -42,11 +49,19 @@ def test_prose_before_the_first_subheading_stays_at_the_top_level():
     assert sections[1].kind is SectionKind.HEADING
 
 
-def test_a_level_one_subheading_is_dropped_because_it_repeats_the_annex_title():
-    sections = nest_under_subheadings([Subheading(1, "ANNEX I"), "prose"])
-    assert len(sections) == 1
-    assert sections[0].kind is SectionKind.PARAGRAPH
-    assert sections[0].text == "prose"
+def test_the_level_one_line_is_not_collected_because_it_is_the_annex_title():
+    node = subdivision(
+        '<html><body><div id="anx_I">'
+        '<p class="title-gr-seq-level-1">Monitoring methods</p>'
+        '<p class="title-gr-seq-level-2">A. First part</p>'
+        '<p class="norm">Prose under A.</p>'
+        "</div></body></html>",
+        "anx_I",
+    )
+    assert collect_lines(node, SUBHEADING_LEVEL_RE) == [
+        Subheading(2, "A. First part"),
+        "Prose under A.",
+    ]
 
 
 def test_a_stream_with_no_subheadings_becomes_one_flat_paragraph():

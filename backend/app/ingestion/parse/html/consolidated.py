@@ -1,4 +1,6 @@
-"""The consolidated dialect: norm classes, title-gr-seq-level-N sub-headings, change bars."""
+"""The consolidated dialect: norm classes and title-gr-seq-level-N sub-headings."""
+
+import re
 
 from selectolax.parser import Node
 
@@ -15,8 +17,8 @@ PARAGRAPH_NUMBER = "span.no-parag"
 PARAGRAPH_TEXT = "div.norm.inline-element"
 ANNEX_LABEL = "p.title-annex-1"
 ANNEX_TITLE = "p.title-gr-seq-level-1"
-ANNEX_SUBHEADING = 'p[class^="title-gr-seq-level-"]'
 DATA_TABLE = "table.borderOj"
+SUBHEADING_LEVEL_RE = re.compile(r"title-gr-seq-level-(\d+)")
 
 
 def paragraph_nodes(node: Node) -> list[Node]:
@@ -47,5 +49,5 @@ CONSOLIDATED = Dialect(
     annex_title=annex_title,
     paragraph_nodes=paragraph_nodes,
     paragraph_section=paragraph_section,
-    annex_subheading=ANNEX_SUBHEADING,
+    annex_subheading_level=SUBHEADING_LEVEL_RE,
 )

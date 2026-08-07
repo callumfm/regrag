@@ -1,10 +1,4 @@
-"""EUR-Lex HTML to a section tree, in one pass over either markup dialect.
-
-Order is load-bearing. drop_non_legal_markup runs before any text is cleaned,
-because removing a footnote superscript leaves an empty "()" behind and
-clean_text is what strips it. detach_data_tables likewise runs before annex
-prose is read, so table cells never re-appear as prose.
-"""
+"""EUR-Lex HTML to a section tree, in one pass over either markup dialect."""
 
 from selectolax.parser import HTMLParser
 
@@ -38,7 +32,17 @@ def drop_non_legal_markup(tree: HTMLParser) -> None:
     """Remove amendment references, footnote markers and footnote blocks."""
     for selector in NON_LEGAL_MARKUP:
         for node in tree.css(selector):
-            node.decompose()
+            node.replace_with("")
+
+
+def prepare(html: str) -> HTMLParser:
+    """Normalise the markup before any text is read out of it: dropping a footnote
+    superscript leaves an empty "()" behind that only clean_text strips.
+    """
+    tree = HTMLParser(html)
+    placeholder_formula_images(tree)
+    drop_non_legal_markup(tree)
+    return tree
 
 
 def detect_dialect(tree: HTMLParser) -> Dialect:
@@ -51,9 +55,7 @@ def detect_dialect(tree: HTMLParser) -> Dialect:
 
 def parse_eurlex_html(html: str, celex: str, topic: str) -> ParsedDocument:
     """Parse one EUR-Lex document into the format-neutral section tree."""
-    tree = HTMLParser(html)
-    placeholder_formula_images(tree)
-    drop_non_legal_markup(tree)
+    tree = prepare(html)
     dialect = detect_dialect(tree)
 
     articles = [build_article(node, dialect) for node in tree.css(ARTICLE_CONTAINER)]

@@ -7,9 +7,9 @@ from selectolax.parser import Node
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.html.dialect import Dialect
 from app.ingestion.parse.html.lines import (
-    Line,
     Subheading,
     collect_lines,
+    heading_texts,
     nest_under_subheadings,
     prose_lines,
 )
@@ -49,11 +49,11 @@ def build_article(node: Node, dialect: Dialect) -> Section:
 
 def build_annex_body(node: Node, dialect: Dialect) -> tuple[Section, ...]:
     """The annex prose nested under its own sub-headings, with its label lines removed."""
-    lines: list[Line] = []
-    collect_lines(node, lines, dialect.annex_subheading)
-    skip = {clean_text(label.text()) for label in node.css(dialect.annex_label)}
+    skip = heading_texts(node, dialect.annex_label)
     return nest_under_subheadings(
-        line for line in lines if isinstance(line, Subheading) or line not in skip
+        line
+        for line in collect_lines(node, dialect.annex_subheading_level)
+        if isinstance(line, Subheading) or line not in skip
     )
 
 

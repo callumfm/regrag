@@ -19,7 +19,6 @@ def table_rows(node: Node) -> tuple[tuple[str, ...], ...]:
 
 
 def detach_data_tables(node: Node, dialect: Dialect) -> tuple[Section, ...]:
-    """Take data tables out of the tree, so their cells never re-appear as prose."""
     tables = node.css(dialect.data_table)
     sections = tuple(
         Section(kind=SectionKind.TABLE, rows=rows)
@@ -27,5 +26,5 @@ def detach_data_tables(node: Node, dialect: Dialect) -> tuple[Section, ...]:
         if (rows := table_rows(table))
     )
     for table in tables:
-        table.decompose()
+        table.replace_with("")
     return sections
