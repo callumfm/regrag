@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.ingestion.exceptions import ResolutionError
+from app.ingestion.exceptions import DocumentNotReadyError, ResolutionError
 from app.ingestion.fetch.models import DiscoveredDocument, Resolution
 from app.ingestion.fetch.resolve import (
     MISSING_MARKER,
@@ -36,6 +36,11 @@ def doc_response():
 
 def missing_response(status=404):
     return httpx.Response(status, text=MISSING_HTML_PAGE)
+
+
+def rendering_response():
+    """What EUR-Lex answers while it generates a document: 202, no body."""
+    return httpx.Response(202, content=b"")
 
 
 def test_missing_document_page_detected():
@@ -84,6 +89,21 @@ def test_raises_when_all_candidates_missing():
     responses = {"02023R2917-20231229": missing_response(404), "32023R2917": missing_response(200)}
     with httpx.Client(transport=transport(responses)) as client:
         with pytest.raises(ResolutionError, match="32023R2917"):
+            resolve_version(client, spec(celex="32023R2917", candidate="02023R2917-20231229"))
+
+
+def test_still_rendering_document_raises():
+    responses = {"32023R2917": rendering_response()}
+    with httpx.Client(transport=transport(responses)) as client:
+        with pytest.raises(DocumentNotReadyError, match="32023R2917"):
+            resolve_version(client, spec(celex="32023R2917"))
+
+
+def test_still_rendering_candidate_does_not_fall_back_to_the_original_act():
+    """Falling back would swap a consolidated version for the original act and call it changed."""
+    responses = {"02023R2917-20231229": rendering_response(), "32023R2917": doc_response()}
+    with httpx.Client(transport=transport(responses)) as client:
+        with pytest.raises(DocumentNotReadyError):
             resolve_version(client, spec(celex="32023R2917", candidate="02023R2917-20231229"))
 
 

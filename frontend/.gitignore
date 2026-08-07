@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# OpenAPI spec (generated, not committed)
+openapi.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
