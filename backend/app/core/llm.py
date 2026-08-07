@@ -9,7 +9,15 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "true")
 
 import litellm
 from fastapi import status
-from openai import OpenAIError as ProviderError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
+from openai import (
+    OpenAIError as ProviderError,
+)
 
 from app.core.config import config
 from app.core.exceptions import DomainError
@@ -17,6 +25,14 @@ from app.core.exceptions import DomainError
 litellm.suppress_debug_info = True
 
 logger = logging.getLogger(__name__)
+
+TRANSIENT_PROVIDER_ERRORS = (
+    RateLimitError,
+    APITimeoutError,
+    APIConnectionError,
+    InternalServerError,
+)
+"""Provider failures worth retrying; 400, 401, 403 and 404 never are."""
 
 
 class EmbedInput(StrEnum):
@@ -30,6 +46,10 @@ class LLMError(DomainError):
     """A model provider call failed, or returned a response we cannot trust."""
 
     status_code = status.HTTP_502_BAD_GATEWAY
+
+    def __init__(self, message: str, *, transient: bool = False):
+        super().__init__(message)
+        self.transient = transient
 
 
 async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]]:
@@ -47,7 +67,9 @@ async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]
         )
     except ProviderError as exc:
         logger.warning("embedding call failed: %s", exc)
-        raise LLMError("embedding call failed") from exc
+        raise LLMError(
+            "embedding call failed", transient=isinstance(exc, TRANSIENT_PROVIDER_ERRORS)
+        ) from exc
     if len(response.data) != len(texts):
         logger.warning(
             "embedding response misaligned: got %d items for %d inputs",
