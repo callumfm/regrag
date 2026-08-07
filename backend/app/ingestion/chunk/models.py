@@ -30,8 +30,8 @@ class Locator(FrozenModel):
     title: str | None = None
     heading_path: tuple[str, ...] = ()
 
-    def descend(self, section: Section) -> Self:
-        """Fold a section's identity into the locator its children inherit."""
+    def with_section(self, section: Section) -> Self:
+        """This locator with a section's identity folded in; its children inherit the result."""
         if section.kind is SectionKind.ARTICLE:
             return self.model_copy(
                 update={"article": section.number, "annex": None, "title": section.title}

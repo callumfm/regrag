@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ingestion.chunk import stage
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.chunk.stage import chunk_documents
+from app.ingestion.chunk.stage import chunk_and_store_documents
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
 from app.ingestion.parse.models import ParsedDocument, Section
@@ -26,7 +26,7 @@ async def test_reconciles_each_document_and_sums_one_result(
         topic="fueleu",
         sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
     )
-    result = await chunk_documents(
+    result = await chunk_and_store_documents(
         db_session, [document], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
     )
     assert (result.added, result.removed, result.unchanged) == (1, 0, 0)
@@ -40,10 +40,10 @@ async def test_a_second_identical_run_changes_nothing(
         topic="fueleu",
         sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
     )
-    await chunk_documents(
+    await chunk_and_store_documents(
         db_session, [document], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
     )
-    result = await chunk_documents(
+    result = await chunk_and_store_documents(
         db_session, [document], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
     )
     assert (result.added, result.removed, result.unchanged) == (0, 0, 1)
@@ -67,7 +67,7 @@ async def test_a_document_that_will_not_chunk_is_recorded_and_the_rest_persist(
         return chunk_document(document)
 
     monkeypatch.setattr("app.ingestion.chunk.stage.chunk_document", chunk_one)
-    result = await chunk_documents(
+    result = await chunk_and_store_documents(
         db_session,
         [parsed("broken"), parsed("32023R1805")],
         ingest_run_id=ingest_run.id,
@@ -90,7 +90,7 @@ async def test_a_database_failure_on_one_document_does_not_abort_the_rest(
         return await real(session, celex=celex, chunks=chunks, ingest_run_id=ingest_run_id)
 
     monkeypatch.setattr(stage, "upsert_document_chunks", fail_one)
-    result = await chunk_documents(
+    result = await chunk_and_store_documents(
         db_session,
         [parsed("broken"), parsed("32023R1805")],
         ingest_run_id=ingest_run.id,
@@ -107,7 +107,7 @@ async def test_chunks_of_a_celex_no_longer_discovered_are_dropped(
 ) -> None:
     db_session.add(make_chunk_row(ingest_run, celex="repealed", topic="fueleu"))
     await db_session.flush()
-    result = await chunk_documents(
+    result = await chunk_and_store_documents(
         db_session, [], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
     )
     assert result.removed == 1

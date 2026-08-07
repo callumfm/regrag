@@ -14,7 +14,7 @@ def iter_section_chunks(
     section: Section, document: ParsedDocument, locator: Locator, max_chars: int
 ) -> Iterator[Chunk]:
     """Emit a chunk per piece of this section's text, then recurse into its children."""
-    inherited = locator.descend(section)
+    inherited = locator.with_section(section)
     pieces = split_section_text(section, max_chars)
     for index, piece in enumerate(pieces, start=1):
         yield Chunk(

@@ -4,26 +4,26 @@ from app.ingestion.parse.models import Section
 from tests.conftest import chunk
 
 
-def test_descend_into_an_article_records_its_number_and_title() -> None:
+def test_folding_in_an_article_records_its_number_and_title() -> None:
     section = Section(kind=SectionKind.ARTICLE, number="6", title="Monitoring")
-    locator = Locator().descend(section)
+    locator = Locator().with_section(section)
     assert (locator.article, locator.title, locator.annex) == ("6", "Monitoring", None)
 
 
-def test_descend_into_an_annex_clears_the_article() -> None:
-    locator = Locator(article="6").descend(Section(kind=SectionKind.ANNEX, number="I"))
+def test_folding_in_an_annex_clears_the_article() -> None:
+    locator = Locator(article="6").with_section(Section(kind=SectionKind.ANNEX, number="I"))
     assert (locator.annex, locator.article) == ("I", None)
 
 
-def test_descend_into_a_heading_extends_the_heading_path() -> None:
-    first = Locator().descend(Section(kind=SectionKind.HEADING, title="Part A"))
-    second = first.descend(Section(kind=SectionKind.HEADING, title="Part B"))
+def test_folding_in_a_heading_extends_the_heading_path() -> None:
+    first = Locator().with_section(Section(kind=SectionKind.HEADING, title="Part A"))
+    second = first.with_section(Section(kind=SectionKind.HEADING, title="Part B"))
     assert second.heading_path == ("Part A", "Part B")
 
 
-def test_descend_into_a_paragraph_changes_nothing() -> None:
+def test_folding_in_a_paragraph_changes_nothing() -> None:
     locator = Locator(article="6")
-    assert locator.descend(Section(kind=SectionKind.PARAGRAPH, number="2")) == locator
+    assert locator.with_section(Section(kind=SectionKind.PARAGRAPH, number="2")) == locator
 
 
 def test_hash_is_stable_for_identical_content():

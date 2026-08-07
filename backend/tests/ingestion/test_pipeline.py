@@ -256,7 +256,7 @@ async def test_a_failure_after_fetch_still_marks_the_run_failed(
     async def explode(*args, **kwargs):
         raise RuntimeError("chunking blew up")
 
-    monkeypatch.setattr("app.ingestion.pipeline.chunk_documents", explode)
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", explode)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(RuntimeError):
         await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
@@ -481,7 +481,7 @@ async def test_an_interrupt_still_marks_the_run_failed(
     async def interrupt(*args, **kwargs):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("app.ingestion.pipeline.chunk_documents", interrupt)
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", interrupt)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(KeyboardInterrupt):
         await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
@@ -499,7 +499,7 @@ async def test_a_database_failure_does_not_mask_itself(
     async def explode(*args, **kwargs):
         await db_session.execute(text("SELECT * FROM no_such_table"))
 
-    monkeypatch.setattr("app.ingestion.pipeline.chunk_documents", explode)
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", explode)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(ProgrammingError):
         await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
