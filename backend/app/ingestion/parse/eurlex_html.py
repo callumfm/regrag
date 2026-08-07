@@ -6,6 +6,7 @@ from selectolax.parser import HTMLParser, Node
 
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
+from app.ingestion.parse.html.consolidated import CONSOLIDATED
 from app.ingestion.parse.html.dialect import (
     ANNEX_CONTAINER,
     ARTICLE_CONTAINER,
@@ -15,35 +16,23 @@ from app.ingestion.parse.html.dialect import (
 from app.ingestion.parse.html.lines import (
     Line,
     Subheading,
-    block_text,
     collect_lines,
     nest_under_subheadings,
     prose_lines,
 )
+from app.ingestion.parse.html.oj import OJ
 from app.ingestion.parse.html.tables import detach_data_tables
 from app.ingestion.parse.models import ParsedDocument, Section
 from app.ingestion.parse.text import (
     ANNEX_NUMBER_RE,
     ARTICLE_NUMBER_RE,
     FORMULA_PLACEHOLDER,
-    LEADING_NUMBER_RE,
     clean_text,
 )
 
-PARAGRAPH_ID = re.compile(r"^\d+\.\d+$")
 FOOTNOTE_REF = "span.superscript, span.oj-super"
 FOOTNOTE = "p.footnote, p.oj-note, div[id^=fnp]"
 DROP = ("p.modref", FOOTNOTE_REF, FOOTNOTE)
-
-OJ_PARAGRAPH = "div[id]"
-OJ_ANNEX_LABEL = "p.oj-doc-ti"
-CONS_PARAGRAPH = "div.norm"
-CONS_PARAGRAPH_NUMBER = "span.no-parag"
-CONS_PARAGRAPH_TEXT = "div.norm.inline-element"
-CONS_ANNEX_TITLE = "p.title-gr-seq-level-1"
-CONS_ANNEX_HEADING = 'p[class^="title-gr-seq-level-"]'
-OJ_DATA_TABLE = "table.oj-table"
-CONS_DATA_TABLE = "table.borderOj"
 
 
 def prepare(html: str) -> HTMLParser:
@@ -58,73 +47,7 @@ def prepare(html: str) -> HTMLParser:
     return tree
 
 
-def oj_paragraphs(node: Node) -> list[Node]:
-    """OJ paragraph containers have ids like 004.001; Node.css matches self, so exclude it."""
-    own_id = node.attributes.get("id")
-    return [
-        child
-        for child in node.css(OJ_PARAGRAPH)
-        if child.attributes.get("id") != own_id
-        and PARAGRAPH_ID.match(child.attributes.get("id") or "")
-    ]
-
-
-def cons_paragraphs(node: Node) -> list[Node]:
-    return [child for child in node.css(CONS_PARAGRAPH) if child.css_first(CONS_PARAGRAPH_NUMBER)]
-
-
-def oj_paragraph(node: Node) -> Section:
-    number, text = None, block_text(node)
-    match = LEADING_NUMBER_RE.match(text)
-    if match:
-        number, text = match.group(1), text[match.end() :]
-    return Section(kind=SectionKind.PARAGRAPH, number=number, text=text)
-
-
-def cons_paragraph(node: Node) -> Section:
-    marker = node.css_first(CONS_PARAGRAPH_NUMBER)
-    body = node.css_first(CONS_PARAGRAPH_TEXT)
-    number = LEADING_NUMBER_RE.match(clean_text(marker.text()) if marker else "")
-    return Section(
-        kind=SectionKind.PARAGRAPH,
-        number=number.group(1) if number else None,
-        text=block_text(body) if body is not None else "",
-    )
-
-
-def oj_annex_title(node: Node) -> str | None:
-    """OJ annexes repeat the same class for the label and the title that follows it."""
-    labels = node.css(OJ_ANNEX_LABEL)
-    return clean_text(labels[1].text()) if len(labels) > 1 else None
-
-
-def cons_annex_title(node: Node) -> str | None:
-    title = node.css_first(CONS_ANNEX_TITLE)
-    return clean_text(title.text()) if title is not None else None
-
-
-OJ = Dialect(
-    signature=".oj-normal",
-    article_heading="p.oj-ti-art",
-    annex_label=OJ_ANNEX_LABEL,
-    data_table=OJ_DATA_TABLE,
-    annex_title=oj_annex_title,
-    paragraph_nodes=oj_paragraphs,
-    paragraph_section=oj_paragraph,
-)
-
-CONS = Dialect(
-    signature="p.norm, div.norm",
-    article_heading="p.title-article-norm",
-    annex_label="p.title-annex-1",
-    data_table=CONS_DATA_TABLE,
-    annex_title=cons_annex_title,
-    paragraph_nodes=cons_paragraphs,
-    paragraph_section=cons_paragraph,
-    annex_subheading=CONS_ANNEX_HEADING,
-)
-
-DIALECTS = (OJ, CONS)
+DIALECTS = (OJ, CONSOLIDATED)
 
 
 def detect(tree: HTMLParser) -> Dialect:

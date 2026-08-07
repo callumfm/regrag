@@ -7,12 +7,12 @@ import pytest
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
 from app.ingestion.parse.eurlex_html import (
-    CONS,
     FOOTNOTE,
-    OJ,
     parse_eurlex_html,
     prepare,
 )
+from app.ingestion.parse.html.consolidated import CONSOLIDATED
+from app.ingestion.parse.html.oj import OJ
 from app.ingestion.parse.html.tables import detach_data_tables
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -190,7 +190,7 @@ def test_layout_tables_are_not_extracted_as_data_tables():
 
 
 def test_consolidated_data_table_rows_are_a_raw_grid():
-    grids = detach_data_tables(subdivision(MRV, "anx_I"), CONS)
+    grids = detach_data_tables(subdivision(MRV, "anx_I"), CONSOLIDATED)
     assert len(grids) == 2
     assert grids[0].kind is SectionKind.TABLE
     assert grids[0].rows[0] == ("Term", "Explanation")
