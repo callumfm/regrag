@@ -53,6 +53,38 @@ def test_counts_skips_a_field_the_subclass_declares_uncounted() -> None:
     assert Quiet(added=3, celexes=["a", "b"]).counts() == {"added": 3}
 
 
+def test_report_pairs_the_counts_with_the_failures() -> None:
+    result = Result(added=3, celexes=["a", "b"], failed={"c": "boom"})
+    assert result.report() == {"added": 3, "celexes": 2, "failed": {"c": "boom"}}
+
+
+def test_report_carries_a_new_bucket_without_being_told_about_it() -> None:
+    """Adding a field to a stage result must not need a reporting change."""
+
+    class Extra(Result):
+        skipped: int = 0
+
+    assert Extra(added=1, skipped=2).report() == {
+        "added": 1,
+        "celexes": 0,
+        "skipped": 2,
+        "failed": {},
+    }
+
+
+def test_report_caps_a_failure_message_a_provider_made_too_long() -> None:
+    result = Result(failed={"c": "x" * (StageRunResult.MAX_FAILURE_CHARS + 100)})
+    assert result.report()["failed"]["c"] == "x" * StageRunResult.MAX_FAILURE_CHARS
+
+
+def test_report_leaves_the_recorded_failure_message_whole() -> None:
+    """Capping is a storage concern: details() still prints the message in full."""
+    message = "x" * (StageRunResult.MAX_FAILURE_CHARS + 100)
+    result = Result(failed={"c": message})
+    result.report()
+    assert result.failed["c"] == message
+
+
 def test_a_stage_with_no_buckets_still_reports_its_failures() -> None:
     assert StageRunResult(failed={"c": "boom"}).summary() == "1 failed"
 

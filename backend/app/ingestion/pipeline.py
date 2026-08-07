@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import httpx
 from pydantic import BaseModel, Field
@@ -53,6 +54,10 @@ class IngestRunResult(BaseModel):
     @property
     def status(self) -> IngestRunStatus:
         return IngestRunStatus.COMPLETED if self.ok else IngestRunStatus.FAILED
+
+    def report(self) -> dict[str, Any]:
+        """The run as its row stores it: a report per stage, and nothing already in a column."""
+        return {name: result.report() for name, result in self.stages.items()}
 
     def summary(self) -> str:
         """The run as the CLI prints it: a line per stage, then the per-celex detail."""
@@ -141,6 +146,6 @@ async def ingest(
             chunk=chunk_result,
             embed=embed_result,
         )
-        await complete_ingest_run(session, run, status=result.status)
+        await complete_ingest_run(session, run, status=result.status, result=result.report())
         result.corpus_version = run.corpus_version
         return result

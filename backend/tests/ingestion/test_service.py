@@ -39,6 +39,24 @@ async def test_complete_run_sets_status_and_timestamp(db_session: AsyncSession):
     assert run.completed_at is not None
 
 
+async def test_complete_run_stores_the_stage_report_it_is_given(db_session: AsyncSession):
+    run = await create_ingest_run(db_session)
+    report = {"fetch": {"new": 1, "failed": {}}, "parse": {"parsed": 1, "failed": {}}}
+
+    await complete_ingest_run(db_session, run, status=IngestRunStatus.COMPLETED, result=report)
+
+    assert run.result == report
+
+
+async def test_a_run_closed_without_a_report_records_none(db_session: AsyncSession):
+    """An aborted run stores NULL, which means 'died before a result existed'."""
+    run = await create_ingest_run(db_session)
+
+    await complete_ingest_run(db_session, run, status=IngestRunStatus.FAILED)
+
+    assert run.result is None
+
+
 async def test_a_failed_run_is_not_given_a_corpus_version(db_session: AsyncSession, make_document):
     run = await create_ingest_run(db_session)
     db_session.add(make_document(run, "32015R0757"))
