@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.parse.eurlex_html import parse_eurlex_html
+from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument, Parser, ParseRunResult
 
 PARSERS: dict[str, Parser] = {".html": parse_eurlex_html}

@@ -15,7 +15,7 @@ from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import FetchRunResult
-from app.ingestion.parse.eurlex_html import parse_eurlex_html
+from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.pipeline import IngestRunResult, _known_corpus_celexes, ingest
 from app.ingestion.schemas import IngestRun
