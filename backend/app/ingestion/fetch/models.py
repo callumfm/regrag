@@ -1,11 +1,11 @@
-"""Fetch-stage values: what discovery found, what resolution turned it into, what the run did."""
+"""Fetch-stage values: what discovery found, which version it resolved to, what the run did."""
 
 from typing import ClassVar
 
 from pydantic import Field
 
 from app.core.models import FrozenModel
-from app.ingestion.enums import DocAction
+from app.ingestion.enums import DocChange
 from app.ingestion.models import StageRunResult
 
 
@@ -18,8 +18,8 @@ class DiscoveredDocument(FrozenModel):
     candidate_celex: str | None
 
 
-class Resolution(FrozenModel):
-    """A verified resolution: version-pinned celex and its fetchable HTML URL."""
+class ResolvedVersion(FrozenModel):
+    """A version-pinned celex and the HTML URL that served it."""
 
     resolved_celex: str
     url: str
@@ -48,6 +48,6 @@ class FetchRunResult(StageRunResult):
         ]
         return listed + super().details()
 
-    def record(self, action: DocAction, celex: str) -> None:
-        """Route a document's fetch outcome to the bucket its action names."""
-        getattr(self, action).append(celex)
+    def record(self, change: DocChange, celex: str) -> None:
+        """Append the celex to the bucket its change names."""
+        getattr(self, change).append(celex)

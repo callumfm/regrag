@@ -5,8 +5,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.ingestion.exceptions import DocumentNotReadyError, ResolutionError
-from app.ingestion.fetch.models import DiscoveredDocument, Resolution
+from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
+from app.ingestion.fetch.models import DiscoveredDocument, ResolvedVersion
 from app.ingestion.fetch.resolve import (
     MISSING_MARKER,
     is_missing_document,
@@ -55,7 +55,7 @@ def test_resolves_candidate_when_html_exists():
     responses = {"02015R0757-20250101": doc_response()}
     with httpx.Client(transport=transport(responses)) as client:
         resolution = resolve_version(client, spec(candidate="02015R0757-20250101"))
-    assert resolution == Resolution(
+    assert resolution == ResolvedVersion(
         resolved_celex="02015R0757-20250101",
         url="https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:02015R0757-20250101",
     )
@@ -88,14 +88,14 @@ def test_no_candidate_resolves_celex_directly():
 def test_raises_when_all_candidates_missing():
     responses = {"02023R2917-20231229": missing_response(404), "32023R2917": missing_response(200)}
     with httpx.Client(transport=transport(responses)) as client:
-        with pytest.raises(ResolutionError, match="32023R2917"):
+        with pytest.raises(NoFetchableVersionError, match="32023R2917"):
             resolve_version(client, spec(celex="32023R2917", candidate="02023R2917-20231229"))
 
 
 def test_still_rendering_document_raises():
     responses = {"32023R2917": rendering_response()}
     with httpx.Client(transport=transport(responses)) as client:
-        with pytest.raises(DocumentNotReadyError, match="32023R2917"):
+        with pytest.raises(DocumentStillRenderingError, match="32023R2917"):
             resolve_version(client, spec(celex="32023R2917"))
 
 
@@ -103,7 +103,7 @@ def test_still_rendering_candidate_does_not_fall_back_to_the_original_act():
     """Falling back would swap a consolidated version for the original act and call it changed."""
     responses = {"02023R2917-20231229": rendering_response(), "32023R2917": doc_response()}
     with httpx.Client(transport=transport(responses)) as client:
-        with pytest.raises(DocumentNotReadyError):
+        with pytest.raises(DocumentStillRenderingError):
             resolve_version(client, spec(celex="32023R2917", candidate="02023R2917-20231229"))
 
 

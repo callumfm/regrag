@@ -12,7 +12,7 @@ from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.embed.models import EmbedRunResult
 from app.ingestion.enums import IngestRunStatus, SectionKind
-from app.ingestion.exceptions import DiscoveryError
+from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.parse.html.parser import parse_eurlex_html
@@ -246,7 +246,7 @@ async def test_an_aborted_run_records_no_result(db_session, tmp_path, corpus_cli
 
 async def test_malformed_sparql_payload_raises_discovery_error(db_session, tmp_path, corpus_client):
     client, _ = corpus_client({"mrv": httpx.Response(200, json={"unexpected": True})}, {})
-    with pytest.raises(DiscoveryError, match="malformed"):
+    with pytest.raises(MalformedDiscoveryError, match="malformed"):
         await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
 
@@ -351,7 +351,7 @@ async def test_discovery_losing_most_of_the_corpus_aborts_and_deletes_nothing(
     assert before
 
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, wide_docs())
-    with pytest.raises(DiscoveryError, match="lost 4 of 5"):
+    with pytest.raises(CorpusShrankError, match="lost 4 of 5"):
         await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
     assert {row.id for row in await chunk_rows(db_session)} == before
