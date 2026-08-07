@@ -6,8 +6,8 @@ import httpx
 import pytest
 
 from app.ingestion.constants import PACE_SECONDS
-from app.ingestion.enums import DocAction
-from app.ingestion.exceptions import EmptyDocumentError, ParseError
+from app.ingestion.enums import DocChange
+from app.ingestion.exceptions import EmptyDownloadError, ParseError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.schemas import RawDocument
@@ -24,15 +24,15 @@ def spec(celex, topic="mrv"):
 
 
 def test_classify_no_baseline_is_new():
-    assert _classify(None, "32023R2449") is DocAction.NEW
+    assert _classify(None, "32023R2449") is DocChange.NEW
 
 
 def test_classify_differing_resolved_celex_is_changed():
-    assert _classify("02015R0757-20240101", "02015R0757-20250101") is DocAction.CHANGED
+    assert _classify("02015R0757-20240101", "02015R0757-20250101") is DocChange.CHANGED
 
 
 def test_classify_same_resolved_celex_is_unchanged():
-    assert _classify("02015R0757-20250101", "02015R0757-20250101") is DocAction.UNCHANGED
+    assert _classify("02015R0757-20250101", "02015R0757-20250101") is DocChange.UNCHANGED
 
 
 def test_dropped_celexes_are_baseline_celexes_absent_from_discovery():
@@ -54,7 +54,7 @@ def test_store_writes_file_and_returns_sha_and_size(tmp_path):
 
 
 def test_store_refuses_empty_content(tmp_path):
-    with pytest.raises(EmptyDocumentError, match="32023R2917"):
+    with pytest.raises(EmptyDownloadError, match="32023R2917"):
         _store(tmp_path / "raw", "32023R2917", b"")
 
 
@@ -62,7 +62,7 @@ def test_store_leaves_the_previous_file_intact_when_content_is_empty(tmp_path):
     """An empty body must not destroy the last good copy of the document."""
     data_dir = tmp_path / "raw"
     _store(data_dir, "32023R2917", b"<html>act</html>")
-    with pytest.raises(EmptyDocumentError):
+    with pytest.raises(EmptyDownloadError):
         _store(data_dir, "32023R2917", b"")
     assert (data_dir / "32023R2917.html").read_bytes() == b"<html>act</html>"
 

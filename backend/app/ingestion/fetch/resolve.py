@@ -3,8 +3,8 @@
 import httpx
 
 from app.core.http import http_retry
-from app.ingestion.exceptions import DocumentNotReadyError, ResolutionError
-from app.ingestion.fetch.models import DiscoveredDocument, Resolution
+from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
+from app.ingestion.fetch.models import DiscoveredDocument, ResolvedVersion
 
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}"
 MISSING_MARKER = "The requested document does not exist."
@@ -20,14 +20,14 @@ def is_still_rendering(response: httpx.Response) -> bool:
 
 
 @http_retry
-def resolve_version(client: httpx.Client, spec: DiscoveredDocument) -> Resolution:
-    """Return a verified Resolution for the latest consolidated version, else the original act."""
+def resolve_version(client: httpx.Client, spec: DiscoveredDocument) -> ResolvedVersion:
+    """Return the latest consolidated version if it is fetchable, else the original act."""
     candidates = [spec.candidate_celex, spec.celex] if spec.candidate_celex else [spec.celex]
     for candidate in candidates:
         url = HTML_URL.format(celex=candidate)
         response = client.get(url)
         if is_still_rendering(response):
-            raise DocumentNotReadyError(
+            raise DocumentStillRenderingError(
                 f"{spec.topic}:{spec.celex}: EUR-Lex is still rendering {candidate}"
             )
         if response.status_code == httpx.codes.NOT_FOUND or (
@@ -35,5 +35,7 @@ def resolve_version(client: httpx.Client, spec: DiscoveredDocument) -> Resolutio
         ):
             continue
         response.raise_for_status()
-        return Resolution(resolved_celex=candidate, url=url)
-    raise ResolutionError(f"{spec.topic}:{spec.celex}: no fetchable HTML, tried {candidates}")
+        return ResolvedVersion(resolved_celex=candidate, url=url)
+    raise NoFetchableVersionError(
+        f"{spec.topic}:{spec.celex}: no fetchable HTML, tried {candidates}"
+    )

@@ -11,7 +11,7 @@ class IngestRunStatus(StrEnum):
     FAILED = "failed"
 
 
-class DocAction(StrEnum):
+class DocChange(StrEnum):
     """How a discovered document compares to the previous run."""
 
     NEW = "new"

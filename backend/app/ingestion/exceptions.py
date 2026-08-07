@@ -6,18 +6,26 @@ class IngestionError(Exception):
 
 
 class DiscoveryError(IngestionError):
-    """Discovery returned an implausible result (e.g. seed act missing)."""
+    """Base for failures that make a topic's discovery result unusable."""
 
 
-class ResolutionError(IngestionError):
-    """No fetchable HTML could be found for a discovered document."""
+class MalformedDiscoveryError(DiscoveryError):
+    """The SPARQL response was unreadable, or came back without its seed act."""
 
 
-class DocumentNotReadyError(IngestionError):
-    """EUR-Lex has the document but is still rendering it; it is worth asking again later."""
+class CorpusShrankError(DiscoveryError):
+    """Discovery lost an implausible share of the baseline, so it is not trusted as a repeal."""
 
 
-class EmptyDocumentError(IngestionError):
+class NoFetchableVersionError(IngestionError):
+    """None of a document's candidate celexes served HTML."""
+
+
+class DocumentStillRenderingError(IngestionError):
+    """EUR-Lex is generating the document on demand; it is worth asking again later."""
+
+
+class EmptyDownloadError(IngestionError):
     """A download returned no bytes, which is never a valid source document."""
 
 

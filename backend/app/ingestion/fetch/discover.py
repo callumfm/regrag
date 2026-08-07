@@ -4,7 +4,7 @@ import httpx
 
 from app.core.http import http_retry
 from app.ingestion import celex
-from app.ingestion.exceptions import DiscoveryError
+from app.ingestion.exceptions import MalformedDiscoveryError
 from app.ingestion.fetch.models import DiscoveredDocument
 
 SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
@@ -68,5 +68,5 @@ def discover(client: httpx.Client, topic: str, seed_celex: str) -> list[Discover
     response.raise_for_status()
     specs = parse_topic_response(topic, response.json())
     if not any(spec.celex == seed_celex for spec in specs):
-        raise DiscoveryError(f"{topic}: seed {seed_celex} missing from discovery results")
+        raise MalformedDiscoveryError(f"{topic}: seed {seed_celex} missing from discovery results")
     return specs

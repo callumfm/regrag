@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.ingestion.constants import SEEDS
-from app.ingestion.exceptions import DiscoveryError
+from app.ingestion.exceptions import MalformedDiscoveryError
 from app.ingestion.fetch.discover import (
     discover,
     parse_topic_response,
@@ -105,7 +105,7 @@ def test_discover_raises_when_seed_missing_from_results():
         return httpx.Response(200, json=payload(binding("32023R2449", force="1")))
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(DiscoveryError, match="32015R0757"):
+        with pytest.raises(MalformedDiscoveryError, match="32015R0757"):
             discover(client, "mrv", "32015R0757")
 
 

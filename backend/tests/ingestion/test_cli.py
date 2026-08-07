@@ -6,8 +6,8 @@ import pytest
 from app.ingestion import cli
 from app.ingestion.cli import main
 from app.ingestion.constants import SEEDS
-from app.ingestion.enums import DocAction
-from app.ingestion.exceptions import DiscoveryError
+from app.ingestion.enums import DocChange
+from app.ingestion.exceptions import MalformedDiscoveryError
 from app.ingestion.pipeline import IngestRunResult
 
 
@@ -46,14 +46,14 @@ def test_unknown_topic_rejected(fake_ingest, capsys):
 
 def test_prints_summary_and_exits_zero_when_clean(fake_ingest, capsys):
     _, report = fake_ingest
-    report.fetch.record(DocAction.NEW, "32023R1805")
+    report.fetch.record(DocChange.NEW, "32023R1805")
     assert main([]) == 0
     assert "1 new" in capsys.readouterr().out
 
 
 def test_exits_nonzero_when_documents_failed(fake_ingest, capsys):
     _, report = fake_ingest
-    report.fetch.failed["32023R2917"] = "ResolutionError: no fetchable HTML"
+    report.fetch.failed["32023R2917"] = "NoFetchableVersionError: no fetchable HTML"
     assert main([]) == 1
     assert "fetch failed: 32023R2917" in capsys.readouterr().out
 
@@ -67,7 +67,7 @@ def test_exits_nonzero_when_a_document_failed_to_parse(fake_ingest, capsys):
 
 def test_abort_prints_error_and_exits_nonzero(monkeypatch, capsys):
     async def _boom(topics):
-        raise DiscoveryError("mrv: malformed SPARQL response")
+        raise MalformedDiscoveryError("mrv: malformed SPARQL response")
 
     monkeypatch.setattr(cli, "_ingest", _boom)
     assert main([]) == 1

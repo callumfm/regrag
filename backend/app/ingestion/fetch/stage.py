@@ -11,8 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import utc_now
 from app.core.http import download, pace
 from app.ingestion.constants import MAX_DROP_RATIO, MIN_SUSPICIOUS_DROPS, PACE_SECONDS, SEEDS
-from app.ingestion.enums import DocAction
-from app.ingestion.exceptions import DiscoveryError, EmptyDocumentError, IngestionError
+from app.ingestion.enums import DocChange
+from app.ingestion.exceptions import (
+    CorpusShrankError,
+    EmptyDownloadError,
+    IngestionError,
+    MalformedDiscoveryError,
+)
 from app.ingestion.fetch.discover import discover
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.resolve import resolve_version
@@ -21,12 +26,12 @@ from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.schemas import IngestRun
 
 
-def _classify(prev_resolved_celex: str | None, resolved_celex: str) -> DocAction:
+def _classify(prev_resolved_celex: str | None, resolved_celex: str) -> DocChange:
     if prev_resolved_celex is None:
-        return DocAction.NEW
+        return DocChange.NEW
     if prev_resolved_celex != resolved_celex:
-        return DocAction.CHANGED
-    return DocAction.UNCHANGED
+        return DocChange.CHANGED
+    return DocChange.UNCHANGED
 
 
 def _dropped_celexes(
@@ -40,7 +45,7 @@ def _dropped_celexes(
     baseline = set(baseline_celexes)
     dropped = sorted(baseline - discovered)
     if len(dropped) >= MIN_SUSPICIOUS_DROPS and len(dropped) > MAX_DROP_RATIO * len(baseline):
-        raise DiscoveryError(
+        raise CorpusShrankError(
             f"discovery lost {len(dropped)} of {len(baseline)} documents: {', '.join(dropped)}"
         )
     return dropped
@@ -51,7 +56,7 @@ def _store(data_dir: Path, celex: str, content: bytes) -> tuple[str, int]:
     Empty content is refused: it would overwrite the last good copy with nothing.
     """
     if not content:
-        raise EmptyDocumentError(f"{celex}: download returned an empty body")
+        raise EmptyDownloadError(f"{celex}: download returned an empty body")
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / RawDocument.filename(celex)).write_bytes(content)
     return hashlib.sha256(content).hexdigest(), len(content)
@@ -64,7 +69,7 @@ def _discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[Discov
         try:
             specs = discover(client, topic, SEEDS[topic])
         except (KeyError, json.JSONDecodeError) as exc:
-            raise DiscoveryError(f"{topic}: malformed SPARQL response: {exc!r}") from exc
+            raise MalformedDiscoveryError(f"{topic}: malformed SPARQL response: {exc!r}") from exc
         for spec in specs:
             by_celex.setdefault(spec.celex, spec)
     return list(by_celex.values())
@@ -85,24 +90,24 @@ def _fetch_document(
     prev: RawDocument | None,
     run: IngestRun,
     data_dir: Path,
-) -> tuple[RawDocument, DocAction]:
+) -> tuple[RawDocument, DocChange]:
     """Resolve one act, download it unless unchanged and still on disk, and build its row."""
-    resolution = resolve_version(client, spec)
-    action = _classify(prev.resolved_celex if prev else None, resolution.resolved_celex)
-    if action is DocAction.UNCHANGED and prev is not None and prev.path(data_dir).exists():
+    resolved = resolve_version(client, spec)
+    change = _classify(prev.resolved_celex if prev else None, resolved.resolved_celex)
+    if change is DocChange.UNCHANGED and prev is not None and prev.path(data_dir).exists():
         sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at
     else:
-        sha256, size_bytes = _store(data_dir, spec.celex, download(client, resolution.url))
+        sha256, size_bytes = _store(data_dir, spec.celex, download(client, resolved.url))
         fetched_at = utc_now()
     document = RawDocument(
         **spec.model_dump(exclude={"candidate_celex"}),
-        **resolution.model_dump(),
+        **resolved.model_dump(),
         run=run,
         sha256=sha256,
         size_bytes=size_bytes,
         fetched_at=fetched_at,
     )
-    return document, action
+    return document, change
 
 
 def _download_documents(
@@ -118,14 +123,14 @@ def _download_documents(
     result = FetchRunResult(discovered=[spec.celex for spec in specs])
     for spec in _paced(specs):
         try:
-            document, action = _fetch_document(
+            document, change = _fetch_document(
                 client, spec, prev=baseline.get(spec.celex), run=run, data_dir=data_dir
             )
         except (IngestionError, httpx.HTTPError, OSError) as exc:
             result.fail(spec.celex, exc)
             continue
         documents.append(document)
-        result.record(action, spec.celex)
+        result.record(change, spec.celex)
     return documents, result
 
 

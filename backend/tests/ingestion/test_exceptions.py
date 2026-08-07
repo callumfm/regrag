@@ -3,16 +3,36 @@
 import pytest
 
 from app.ingestion.exceptions import (
+    CorpusShrankError,
     DiscoveryError,
+    DocumentStillRenderingError,
+    EmptyDownloadError,
     IngestionError,
+    MalformedDiscoveryError,
+    NoFetchableVersionError,
     ParseError,
-    ResolutionError,
 )
 
 
-@pytest.mark.parametrize("error", [DiscoveryError, ResolutionError, ParseError])
+@pytest.mark.parametrize(
+    "error",
+    [
+        MalformedDiscoveryError,
+        CorpusShrankError,
+        NoFetchableVersionError,
+        DocumentStillRenderingError,
+        EmptyDownloadError,
+        ParseError,
+    ],
+)
 def test_ingestion_failures_share_a_base(error: type[IngestionError]) -> None:
     with pytest.raises(IngestionError):
+        raise error("boom")
+
+
+@pytest.mark.parametrize("error", [MalformedDiscoveryError, CorpusShrankError])
+def test_discovery_failures_share_a_base(error: type[DiscoveryError]) -> None:
+    with pytest.raises(DiscoveryError):
         raise error("boom")
 
 
