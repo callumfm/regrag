@@ -2,7 +2,7 @@
 
 import httpx
 
-from app.core.http import transient_retry
+from app.core.http import http_retry
 from app.ingestion import celex
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.fetch.models import DiscoveredDocument
@@ -58,7 +58,7 @@ def parse_topic_response(topic: str, payload: dict) -> list[DiscoveredDocument]:
     return specs
 
 
-@transient_retry
+@http_retry
 def discover(client: httpx.Client, topic: str, seed_celex: str) -> list[DiscoveredDocument]:
     """Run the topic query and parse it; a result set without the seed act is an error."""
     response = client.get(

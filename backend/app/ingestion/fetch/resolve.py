@@ -2,7 +2,7 @@
 
 import httpx
 
-from app.core.http import transient_retry
+from app.core.http import http_retry
 from app.ingestion.exceptions import ResolutionError
 from app.ingestion.fetch.models import DiscoveredDocument, Resolution
 
@@ -14,7 +14,7 @@ def is_missing_document(html: str) -> bool:
     return MISSING_MARKER in html
 
 
-@transient_retry
+@http_retry
 def resolve_version(client: httpx.Client, spec: DiscoveredDocument) -> Resolution:
     """Return a verified Resolution for the latest consolidated version, else the original act."""
     candidates = [spec.candidate_celex, spec.celex] if spec.candidate_celex else [spec.celex]

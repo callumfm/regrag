@@ -1,18 +1,10 @@
 """Shared outbound-HTTP policy: headers, timeout, and transient-failure retries."""
 
-import logging
 import time
 
 import httpx
-from tenacity import (
-    before_sleep_log,
-    retry,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential,
-)
 
-logger = logging.getLogger(__name__)
+from app.core.retry import transient_retry
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -20,7 +12,6 @@ DEFAULT_HEADERS = {
         "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
     )
 }
-MAX_ATTEMPTS = 3
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 
@@ -36,17 +27,11 @@ def _is_transient(exc: BaseException) -> bool:
     return isinstance(exc, httpx.TransportError)
 
 
-transient_retry = retry(
-    retry=retry_if_exception(_is_transient),
-    stop=stop_after_attempt(MAX_ATTEMPTS),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
-    before_sleep=before_sleep_log(logger, logging.WARNING),
-    reraise=True,
-)
+http_retry = transient_retry(_is_transient)
 """Decorator retrying transient HTTP failures with exponential backoff."""
 
 
-@transient_retry
+@http_retry
 def download(client: httpx.Client, url: str) -> bytes:
     """Fetch a URL's bytes, retrying transient failures."""
     response = client.get(url)
