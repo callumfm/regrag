@@ -12,7 +12,7 @@ from app.ingestion.chunk.models import Chunk, ChunkRunResult
 from app.ingestion.chunk.schemas import DocumentChunk
 
 
-def keyed(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
+def with_content_keys(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
     """Pair each chunk with its hash and the occurrence disambiguating identical siblings."""
     seen: Counter[str] = Counter()
     for chunk in chunks:
@@ -37,7 +37,9 @@ async def upsert_document_chunks(
     session: AsyncSession, *, celex: str, chunks: Sequence[Chunk], ingest_run_id: int
 ) -> ChunkRunResult:
     """Reconcile a document's chunks by content hash, leaving matched rows otherwise untouched."""
-    incoming = {(digest, occurrence): chunk for chunk, digest, occurrence in keyed(chunks)}
+    incoming = {
+        (digest, occurrence): chunk for chunk, digest, occurrence in with_content_keys(chunks)
+    }
     existing = {
         (content_hash, occurrence): row_id
         for row_id, content_hash, occurrence in await session.execute(

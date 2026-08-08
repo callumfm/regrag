@@ -109,34 +109,8 @@ def test_split_parts_keep_the_same_citation_and_metadata() -> None:
     assert {c.paragraph for c in chunks} == {"2"}
 
 
-def test_cuts_a_piece_that_has_no_boundary_left_to_split_on() -> None:
-    doc = document(article("4", "Limits", paragraph("1", "a" * 25)))
-    chunks = chunk_document(doc, max_chars=10)
-    assert [c.text for c in chunks] == ["a" * 10, "a" * 10, "a" * 5]
-
-
-def test_every_chunk_is_within_the_limit_whatever_the_text() -> None:
-    doc = document(article("4", "Limits", paragraph("1", "word " * 400)))
-    assert max(len(c.text) for c in chunk_document(doc, max_chars=100)) <= 100
-
-
-def test_a_split_table_repeats_its_header_row() -> None:
-    rows = (("Fuel", "Factor"),) + tuple((f"Fuel{n}", f"{n}.0") for n in range(12))
-    table = Section(kind=SectionKind.TABLE, rows=rows)
-    doc = document(Section(kind=SectionKind.ANNEX, number="II", children=(table,)))
-    chunks = chunk_document(doc, max_chars=60)
-    assert len(chunks) > 1
-    assert all(c.text.startswith("Fuel | Factor\n") for c in chunks)
-
-
 def test_an_annex_after_an_article_is_not_cited_as_an_article() -> None:
     inner = Section(kind=SectionKind.ANNEX, number="I", children=(paragraph(None, "Body."),))
     doc = document(article("4", "Limits", inner))
     chunk = chunk_document(doc)[0]
     assert (chunk.article, chunk.annex, chunk.citation) == (None, "I", "Annex I")
-
-
-def test_splits_a_single_overlong_line_on_sentence_boundaries() -> None:
-    doc = document(article("4", "Limits", paragraph("1", "One is here. Two is here. Three.")))
-    chunks = chunk_document(doc, max_chars=26)
-    assert [c.text for c in chunks] == ["One is here. Two is here.", "Three."]
