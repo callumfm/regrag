@@ -8,8 +8,13 @@ import pytest
 from app.ingestion.constants import SEEDS
 from app.ingestion.exceptions import MalformedDiscoveryError
 from app.ingestion.fetch.discover import (
-    discover,
-    parse_topic_response,
+    collect_candidate_acts,
+    discover_topic,
+    find_dropped_celexes,
+    is_folded_into_another_act,
+    is_in_force,
+    latest_own_consolidation,
+    select_topic_documents,
     topic_query,
 )
 from app.ingestion.fetch.models import DiscoveredDocument
@@ -47,6 +52,19 @@ def payload(*bindings):
     return {"results": {"bindings": list(bindings)}}
 
 
+def documents(topic, p):
+    return select_topic_documents(topic, collect_candidate_acts(p))
+
+
+def act(celex, force=None, cons=()):
+    bindings = [binding(celex, force=force)] + [binding(celex, force=force, cons=c) for c in cons]
+    return collect_candidate_acts(payload(*bindings))[0]
+
+
+def spec(celex, topic="mrv"):
+    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=None)
+
+
 def test_non_legislation_sectors_filtered():
     p = payload(
         binding("32015R0757", force="1"),
@@ -54,12 +72,12 @@ def test_non_legislation_sectors_filtered():
         binding("52024IP0025"),
         binding("E2021X0415(01)"),
     )
-    assert [s.celex for s in parse_topic_response("mrv", p)] == ["32015R0757"]
+    assert [s.celex for s in documents("mrv", p)] == ["32015R0757"]
 
 
 def test_not_in_force_filtered():
     p = payload(binding("32016R1927", force="0"), binding("32016R1928", force="1"))
-    assert [s.celex for s in parse_topic_response("mrv", p)] == ["32016R1928"]
+    assert [s.celex for s in documents("mrv", p)] == ["32016R1928"]
 
 
 def test_folded_amendment_filtered():
@@ -67,7 +85,7 @@ def test_folded_amendment_filtered():
         binding("32023R2776", force="1", cons="02015R0757-20240101"),
         binding("32015R0757", force="1", cons="02015R0757-20240101"),
     )
-    specs = parse_topic_response("mrv", p)
+    specs = documents("mrv", p)
     assert [s.celex for s in specs] == ["32015R0757"]
     assert specs[0].candidate_celex == "02015R0757-20240101"
 
@@ -78,17 +96,17 @@ def test_candidate_is_max_own_stem_consolidation():
         binding("32015R0757", force="1", cons="02015R0757-20250101"),
         binding("32015R0757", force="1", cons="02015R0757-20161216"),
     )
-    assert parse_topic_response("mrv", p)[0].candidate_celex == "02015R0757-20250101"
+    assert documents("mrv", p)[0].candidate_celex == "02015R0757-20250101"
 
 
 def test_no_consolidations_gives_none_candidate():
     p = payload(binding("32023R2449", force="1"))
-    assert parse_topic_response("mrv", p)[0].candidate_celex is None
+    assert documents("mrv", p)[0].candidate_celex is None
 
 
 def test_specs_carry_topic_and_source():
     p = payload(binding("32023R1805", force="1"))
-    spec = parse_topic_response("fueleu", p)[0]
+    spec = documents("fueleu", p)[0]
     assert spec == DiscoveredDocument(
         topic="fueleu", source="eurlex", celex="32023R1805", candidate_celex=None
     )
@@ -106,7 +124,7 @@ def test_discover_raises_when_seed_missing_from_results():
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         with pytest.raises(MalformedDiscoveryError, match="32015R0757"):
-            discover(client, "mrv", "32015R0757")
+            discover_topic(client, "mrv", "32015R0757")
 
 
 def test_discover_returns_parsed_specs():
@@ -121,7 +139,7 @@ def test_discover_returns_parsed_specs():
         )
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        specs = discover(client, "mrv", "32015R0757")
+        specs = discover_topic(client, "mrv", "32015R0757")
     assert [s.celex for s in specs] == ["32015R0757", "32023R2449"]
 
 
@@ -146,7 +164,54 @@ def corpus_handler(request: httpx.Request) -> httpx.Response:
 @pytest.mark.parametrize("topic", sorted(SEEDS))
 def test_topic_corpus_discovers_and_resolves(topic):
     with httpx.Client(transport=httpx.MockTransport(corpus_handler)) as client:
-        specs = discover(client, topic, SEEDS[topic])
+        specs = discover_topic(client, topic, SEEDS[topic])
         resolved = {f"{topic}:{s.celex}": resolve_version(client, s).resolved_celex for s in specs}
     expected = {k: v for k, v in EXPECTED_RESOLVED.items() if k.startswith(f"{topic}:")}
     assert resolved == expected
+
+
+def test_collect_candidate_acts_folds_every_binding_for_one_celex():
+    p = payload(
+        binding("32015R0757", force="1", cons="02015R0757-20240101"),
+        binding("32015R0757", force="1", cons="02015R0757-20250101"),
+    )
+    acts = collect_candidate_acts(p)
+    assert len(acts) == 1
+    assert acts[0].consolidations == frozenset({"02015R0757-20240101", "02015R0757-20250101"})
+
+
+def test_is_in_force_only_accepts_the_live_flag():
+    assert is_in_force(act("32016R1928", force="1"))
+    assert not is_in_force(act("32016R1927", force="0"))
+    assert not is_in_force(act("32016R1926"))
+
+
+def test_an_act_consolidated_only_into_another_act_is_folded():
+    assert is_folded_into_another_act(act("32023R2776", force="1", cons=["02015R0757-20240101"]))
+
+
+def test_an_act_with_its_own_consolidation_is_not_folded():
+    assert not is_folded_into_another_act(
+        act("32015R0757", force="1", cons=["02015R0757-20240101"])
+    )
+
+
+def test_an_act_with_no_consolidations_is_not_folded():
+    assert not is_folded_into_another_act(act("32023R2449", force="1"))
+
+
+def test_latest_own_consolidation_ignores_another_acts_versions():
+    versions = ["02015R0757-20240101", "02015R0757-20250101", "02023R1805-20260101"]
+    assert latest_own_consolidation(act("32015R0757", force="1", cons=versions)) == (
+        "02015R0757-20250101"
+    )
+
+
+def test_find_dropped_celexes_returns_baseline_celexes_absent_from_discovery():
+    found = [spec("32015R0757"), spec("32016R1928")]
+    baseline = ["32015R0757", "32016R1928", "32014R0666"]
+    assert find_dropped_celexes(found, baseline) == ["32014R0666"]
+
+
+def test_find_dropped_celexes_is_empty_when_all_are_discovered():
+    assert find_dropped_celexes([spec("32015R0757")], ["32015R0757"]) == []

@@ -9,6 +9,14 @@ from app.ingestion.enums import DocChange
 from app.ingestion.models import StageRunResult
 
 
+class CandidateAct(FrozenModel):
+    """One act the topic query returned, with every binding for it folded together."""
+
+    celex: str
+    in_force: str | None = None
+    consolidations: frozenset[str] = frozenset()
+
+
 class DiscoveredDocument(FrozenModel):
     """One document discovery found: what to fetch, and which version to try first."""
 
