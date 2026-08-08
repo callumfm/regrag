@@ -8,7 +8,7 @@ from app.ingestion.cli import main
 from app.ingestion.constants import SEEDS
 from app.ingestion.enums import DocChange
 from app.ingestion.exceptions import MalformedDiscoveryError
-from app.ingestion.pipeline import IngestRunResult
+from app.ingestion.result import IngestRunResult
 
 
 @pytest.fixture

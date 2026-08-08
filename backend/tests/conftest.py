@@ -21,7 +21,6 @@ from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
 from app.ingestion.embed.stage import _embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
-from app.ingestion.fetch import stage
 from app.ingestion.fetch.discover import discover_topic
 from app.ingestion.fetch.resolve import resolve_version
 from app.ingestion.fetch.schemas import RawDocument
@@ -152,14 +151,6 @@ def app() -> FastAPI:
 @pytest.fixture
 def client(app: FastAPI) -> TestClient:
     return TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    """Record pacing delays instead of sleeping through them."""
-    calls: list[float] = []
-    monkeypatch.setattr(stage, "pace", calls.append)
-    return calls
 
 
 class FakeProvider:

@@ -1,0 +1,58 @@
+"""One ingest run's outcome: a result per stage, as the run row stores it and the CLI prints it."""
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from app.ingestion.chunk.models import ChunkRunResult
+from app.ingestion.embed.models import EmbedRunResult
+from app.ingestion.enums import IngestRunStatus
+from app.ingestion.fetch.models import FetchRunResult
+from app.ingestion.models import StageRunResult
+from app.ingestion.parse.models import ParseRunResult
+
+
+class IngestRunResult(BaseModel):
+    """Outcome of one ingest run: one result per stage."""
+
+    run_id: int
+    corpus_version: str | None = None
+    fetch: FetchRunResult = Field(default_factory=FetchRunResult)
+    parse: ParseRunResult = Field(default_factory=ParseRunResult)
+    chunk: ChunkRunResult = Field(default_factory=ChunkRunResult)
+    embed: EmbedRunResult = Field(default_factory=EmbedRunResult)
+
+    @property
+    def stages(self) -> dict[str, StageRunResult]:
+        return {
+            "fetch": self.fetch,
+            "parse": self.parse,
+            "chunk": self.chunk,
+            "embed": self.embed,
+        }
+
+    @property
+    def ok(self) -> bool:
+        return all(result.ok for result in self.stages.values())
+
+    @property
+    def status(self) -> IngestRunStatus:
+        return IngestRunStatus.COMPLETED if self.ok else IngestRunStatus.FAILED
+
+    def report(self) -> dict[str, Any]:
+        """The run as its row stores it: a report per stage, and nothing already in a column."""
+        return {name: result.report() for name, result in self.stages.items()}
+
+    def summary(self) -> str:
+        """The run as the CLI prints it: a line per stage, then the per-celex detail."""
+        return "\n".join(
+            [
+                f"run {self.run_id} ({self.corpus_version or 'not stamped'})",
+                *(f"  [{name}] {result.summary()}" for name, result in self.stages.items()),
+                *(
+                    f"  {name} {line}"
+                    for name, result in self.stages.items()
+                    for line in result.details()
+                ),
+            ]
+        )

@@ -1,6 +1,7 @@
-"""Shared outbound-HTTP policy: headers, timeout, and transient-failure retries."""
+"""Shared outbound-HTTP policy: headers, timeout, pacing, and transient-failure retries."""
 
 import time
+from collections.abc import Callable
 
 import httpx
 
@@ -15,9 +16,31 @@ DEFAULT_HEADERS = {
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 
-def http_client(timeout: float = 30.0) -> httpx.Client:
-    """Client with default headers, timeout, and redirect following."""
-    return httpx.Client(headers=DEFAULT_HEADERS, timeout=timeout, follow_redirects=True)
+def pace_requests(seconds: float) -> Callable[[httpx.Request], None]:
+    """Hook spacing successive requests, so the last-call time is scoped to one client.
+
+    Pacing belongs to the host being talked to, not to any one call, and every request
+    counts: resolving a document and downloading it are two hits on the same rate limit.
+    """
+    last: float | None = None
+
+    def pace(request: httpx.Request) -> None:
+        nonlocal last
+        if last is not None and (remaining := seconds - (time.monotonic() - last)) > 0:
+            time.sleep(remaining)
+        last = time.monotonic()
+
+    return pace
+
+
+def http_client(timeout: float = 30.0, pace_seconds: float | None = None) -> httpx.Client:
+    """Client with default headers, timeout, redirect following, and optional request pacing."""
+    return httpx.Client(
+        headers=DEFAULT_HEADERS,
+        timeout=timeout,
+        follow_redirects=True,
+        event_hooks={"request": [pace_requests(pace_seconds)]} if pace_seconds else {},
+    )
 
 
 def _is_transient(exc: BaseException) -> bool:
@@ -37,8 +60,3 @@ def download(client: httpx.Client, url: str) -> bytes:
     response = client.get(url)
     response.raise_for_status()
     return response.content
-
-
-def pace(seconds: float) -> None:
-    """Space out requests to an upstream host."""
-    time.sleep(seconds)

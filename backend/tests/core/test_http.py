@@ -3,7 +3,31 @@
 import httpx
 import pytest
 
-from app.core.http import DEFAULT_HEADERS, download, http_client, http_retry, pace
+from app.core.http import DEFAULT_HEADERS, download, http_client, http_retry, pace_requests
+
+
+class FakeClock:
+    """A monotonic clock that only moves when something sleeps, or a test advances it."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.slept: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+    """Pacing's view of time, so tests assert on waits instead of serving them."""
+    fake = FakeClock()
+    monkeypatch.setattr("app.core.http.time.monotonic", fake.monotonic)
+    monkeypatch.setattr("app.core.http.time.sleep", fake.sleep)
+    return fake
 
 
 def test_default_headers_carry_browser_user_agent():
@@ -15,6 +39,16 @@ def test_client_is_configured():
         assert client.headers["user-agent"] == DEFAULT_HEADERS["User-Agent"]
         assert client.follow_redirects is True
         assert client.timeout.read == 5.0
+
+
+def test_client_does_not_pace_unless_asked():
+    with http_client() as client:
+        assert client.event_hooks["request"] == []
+
+
+def test_client_paces_when_given_an_interval():
+    with http_client(pace_seconds=1.0) as client:
+        assert len(client.event_hooks["request"]) == 1
 
 
 def flaky_client(responses):
@@ -83,8 +117,46 @@ def test_download_raises_on_a_client_error() -> None:
         download(client, "https://example.test/missing")
 
 
-def test_pace_sleeps_for_the_requested_interval(monkeypatch: pytest.MonkeyPatch) -> None:
-    slept: list[float] = []
-    monkeypatch.setattr("app.core.http.time.sleep", slept.append)
-    pace(0.25)
-    assert slept == [0.25]
+def paced_client(seconds: float) -> httpx.Client:
+    """A client whose requests are paced and answered locally."""
+    return httpx.Client(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200)),
+        event_hooks={"request": [pace_requests(seconds)]},
+    )
+
+
+def test_pacing_lets_the_first_request_straight_through(clock: FakeClock) -> None:
+    paced_client(1.0).get("https://example.test/doc")
+    assert clock.slept == []
+
+
+def test_pacing_waits_between_every_request_not_every_document(clock: FakeClock) -> None:
+    """A document costs two requests — resolve, then download — and both hit the rate limit."""
+    client = paced_client(1.0)
+    for _ in range(3):
+        client.get("https://example.test/doc")
+    assert clock.slept == [1.0, 1.0]
+
+
+def test_pacing_waits_only_for_what_is_left_of_the_interval(clock: FakeClock) -> None:
+    client = paced_client(1.0)
+    client.get("https://example.test/doc")
+    clock.now += 0.4
+    client.get("https://example.test/doc")
+    assert clock.slept == [pytest.approx(0.6)]
+
+
+def test_pacing_does_not_wait_when_the_interval_has_already_passed(clock: FakeClock) -> None:
+    client = paced_client(1.0)
+    client.get("https://example.test/doc")
+    clock.now += 5.0
+    client.get("https://example.test/doc")
+    assert clock.slept == []
+
+
+def test_each_client_paces_on_its_own_last_request(clock: FakeClock) -> None:
+    """State lives with the client, so one client's requests never delay another's."""
+    first, second = paced_client(1.0), paced_client(1.0)
+    first.get("https://example.test/doc")
+    second.get("https://example.test/doc")
+    assert clock.slept == []

@@ -4,74 +4,24 @@ import logging
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 import httpx
-from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.chunk.stage import chunk_and_store_documents
-from app.ingestion.embed.models import EmbedRunResult
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.fetch.service import get_other_topic_celexes
 from app.ingestion.fetch.stage import fetch_documents
-from app.ingestion.models import StageRunResult
 from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.parse.stage import parse_documents
+from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run
 
 logger = logging.getLogger(__name__)
-
-
-class IngestRunResult(BaseModel):
-    """Outcome of one ingest run: one result per stage."""
-
-    run_id: int
-    corpus_version: str | None = None
-    fetch: FetchRunResult = Field(default_factory=FetchRunResult)
-    parse: ParseRunResult = Field(default_factory=ParseRunResult)
-    chunk: ChunkRunResult = Field(default_factory=ChunkRunResult)
-    embed: EmbedRunResult = Field(default_factory=EmbedRunResult)
-
-    @property
-    def stages(self) -> dict[str, StageRunResult]:
-        return {
-            "fetch": self.fetch,
-            "parse": self.parse,
-            "chunk": self.chunk,
-            "embed": self.embed,
-        }
-
-    @property
-    def ok(self) -> bool:
-        return all(result.ok for result in self.stages.values())
-
-    @property
-    def status(self) -> IngestRunStatus:
-        return IngestRunStatus.COMPLETED if self.ok else IngestRunStatus.FAILED
-
-    def report(self) -> dict[str, Any]:
-        """The run as its row stores it: a report per stage, and nothing already in a column."""
-        return {name: result.report() for name, result in self.stages.items()}
-
-    def summary(self) -> str:
-        """The run as the CLI prints it: a line per stage, then the per-celex detail."""
-        return "\n".join(
-            [
-                f"run {self.run_id} ({self.corpus_version or 'not stamped'})",
-                *(f"  [{name}] {result.summary()}" for name, result in self.stages.items()),
-                *(
-                    f"  {name} {line}"
-                    for name, result in self.stages.items()
-                    for line in result.details()
-                ),
-            ]
-        )
 
 
 async def _mark_failed(session: AsyncSession, run: IngestRun) -> None:

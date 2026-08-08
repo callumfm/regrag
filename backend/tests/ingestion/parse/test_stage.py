@@ -58,8 +58,10 @@ def test_html_that_is_not_utf8_is_recorded_not_raised(
     assert result.failed["32023R1805"].startswith("UnicodeDecodeError")
 
 
-def test_an_unknown_file_type_is_a_parse_error(tmp_path: Path) -> None:
-    path = tmp_path / "32023R1805.pdf"
-    path.write_text("not html", encoding="utf-8")
+def test_an_unknown_file_type_is_a_parse_error(
+    tmp_path: Path, make_document: Callable[..., RawDocument], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    [document] = documents(make_document, "32023R1805")
+    monkeypatch.setattr(type(document), "path", lambda self, _: tmp_path / "32023R1805.pdf")
     with pytest.raises(ParseError, match="pdf"):
-        _parse_document(path, celex="32023R1805", topic="fueleu")
+        _parse_document(document, data_dir=tmp_path)

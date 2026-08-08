@@ -17,7 +17,8 @@ from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.pipeline import IngestRunResult, _known_corpus_celexes, ingest
+from app.ingestion.pipeline import _known_corpus_celexes, ingest
+from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from tests.conftest import MRV_SPARQL, binding, chunk_rows, chunk_versions, payload
 
@@ -436,7 +437,9 @@ async def test_missing_source_file_is_recorded_not_raised(
     db_session, tmp_path, corpus_client, monkeypatch
 ):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    monkeypatch.setattr(stage, "_store", lambda data_dir, celex, content: ("a" * 64, len(content)))
+    monkeypatch.setattr(
+        stage, "write_document", lambda data_dir, celex, content: ("a" * 64, len(content))
+    )
     report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
     assert sorted(report.parse.failed) == ["32015R0757", "32023R2449"]
@@ -466,7 +469,7 @@ async def test_a_disk_error_is_recorded_not_raised(
     def full_disk(*args, **kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(stage, "_store", full_disk)
+    monkeypatch.setattr(stage, "write_document", full_disk)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
