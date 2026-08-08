@@ -1,8 +1,7 @@
 """Fetch stage: version-diff against the previous run, download only what changed."""
 
 import hashlib
-import json
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 
 import httpx
@@ -10,15 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.http import download, pace
-from app.ingestion.constants import MAX_DROP_RATIO, MIN_SUSPICIOUS_DROPS, PACE_SECONDS, SEEDS
+from app.ingestion.constants import PACE_SECONDS
 from app.ingestion.enums import DocChange
-from app.ingestion.exceptions import (
-    CorpusShrankError,
-    EmptyDownloadError,
-    IngestionError,
-    MalformedDiscoveryError,
-)
-from app.ingestion.fetch.discover import discover
+from app.ingestion.exceptions import EmptyDownloadError, IngestionError
+from app.ingestion.fetch.discover import discover_topics, find_dropped_celexes
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.resolve import resolve_version
 from app.ingestion.fetch.schemas import RawDocument
@@ -34,23 +28,6 @@ def _classify(prev_resolved_celex: str | None, resolved_celex: str) -> DocChange
     return DocChange.UNCHANGED
 
 
-def _dropped_celexes(
-    specs: Sequence[DiscoveredDocument], baseline_celexes: Iterable[str]
-) -> list[str]:
-    """Baseline celexes discovery no longer returns; losing an implausible share is an error.
-
-    A truncated result set is indistinguishable from a mass repeal, so refuse to call it one.
-    """
-    discovered = {spec.celex for spec in specs}
-    baseline = set(baseline_celexes)
-    dropped = sorted(baseline - discovered)
-    if len(dropped) >= MIN_SUSPICIOUS_DROPS and len(dropped) > MAX_DROP_RATIO * len(baseline):
-        raise CorpusShrankError(
-            f"discovery lost {len(dropped)} of {len(baseline)} documents: {', '.join(dropped)}"
-        )
-    return dropped
-
-
 def _store(data_dir: Path, celex: str, content: bytes) -> tuple[str, int]:
     """Write the document's source file and return its (sha256, size_bytes).
     Empty content is refused: it would overwrite the last good copy with nothing.
@@ -60,19 +37,6 @@ def _store(data_dir: Path, celex: str, content: bytes) -> tuple[str, int]:
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / RawDocument.filename(celex)).write_bytes(content)
     return hashlib.sha256(content).hexdigest(), len(content)
-
-
-def _discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DiscoveredDocument]:
-    """Discover all topics, deduped by celex (first topic wins), wrapping parse errors."""
-    by_celex: dict[str, DiscoveredDocument] = {}
-    for topic in topics:
-        try:
-            specs = discover(client, topic, SEEDS[topic])
-        except (KeyError, json.JSONDecodeError) as exc:
-            raise MalformedDiscoveryError(f"{topic}: malformed SPARQL response: {exc!r}") from exc
-        for spec in specs:
-            by_celex.setdefault(spec.celex, spec)
-    return list(by_celex.values())
 
 
 def _paced(specs: Sequence[DiscoveredDocument]) -> Iterator[DiscoveredDocument]:
@@ -143,9 +107,9 @@ async def fetch_documents(
     run: IngestRun,
 ) -> tuple[list[RawDocument], FetchRunResult]:
     """Discover, resolve and download the corpus for topics, recording a row per document."""
-    specs = _discover_topics(client, topics)
+    specs = discover_topics(client, topics)
     baseline = await get_baseline_docs(session, topics)
-    dropped = _dropped_celexes(specs, baseline)
+    dropped = find_dropped_celexes(specs, baseline)
     documents, result = _download_documents(
         client, specs, baseline=baseline, run=run, data_dir=data_dir
     )

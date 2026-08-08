@@ -12,7 +12,7 @@ from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
-from app.ingestion.fetch.stage import _classify, _dropped_celexes, _store, fetch_documents
+from app.ingestion.fetch.stage import _classify, _store, fetch_documents
 from app.ingestion.service import create_ingest_run
 from tests.conftest import MRV_SPARQL, binding, payload
 
@@ -33,16 +33,6 @@ def test_classify_differing_resolved_celex_is_changed():
 
 def test_classify_same_resolved_celex_is_unchanged():
     assert _classify("02015R0757-20250101", "02015R0757-20250101") is DocChange.UNCHANGED
-
-
-def test_dropped_celexes_are_baseline_celexes_absent_from_discovery():
-    specs = [spec("32015R0757"), spec("32016R1928")]
-    baseline = ["32015R0757", "32016R1928", "32014R0666"]
-    assert _dropped_celexes(specs, baseline) == ["32014R0666"]
-
-
-def test_dropped_celexes_empty_when_all_discovered():
-    assert _dropped_celexes([spec("32015R0757")], ["32015R0757"]) == []
 
 
 def test_store_writes_file_and_returns_sha_and_size(tmp_path):

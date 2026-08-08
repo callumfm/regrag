@@ -9,7 +9,12 @@ from pathlib import Path
 
 from app.core.http import http_client
 from app.ingestion.constants import SEEDS
-from app.ingestion.fetch.discover import SPARQL_ENDPOINT, parse_topic_response, topic_query
+from app.ingestion.fetch.discover import (
+    SPARQL_ENDPOINT,
+    collect_candidate_acts,
+    select_topic_documents,
+    topic_query,
+)
 from app.ingestion.fetch.resolve import resolve_version
 
 FIXTURES = Path(__file__).parent
@@ -27,7 +32,7 @@ def main() -> None:
             response.raise_for_status()
             payload = response.json()
             (FIXTURES / f"sparql-{topic}.json").write_text(json.dumps(payload, indent=2) + "\n")
-            for spec in parse_topic_response(topic, payload):
+            for spec in select_topic_documents(topic, collect_candidate_acts(payload)):
                 time.sleep(1)
                 resolution = resolve_version(client, spec)
                 if spec.candidate_celex and resolution.resolved_celex == spec.celex:
