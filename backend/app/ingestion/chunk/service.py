@@ -53,7 +53,8 @@ async def delete_chunks(session: AsyncSession, chunk_ids: Collection[int]) -> No
     """Drop chunk rows by id."""
     if not chunk_ids:
         return
-    await session.execute(delete(DocumentChunk).where(DocumentChunk.id.in_(chunk_ids)))
+    stmt = delete(DocumentChunk).where(DocumentChunk.id.in_(chunk_ids))
+    await session.execute(stmt)
     await session.flush()
 
 
