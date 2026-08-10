@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import ProgrammingError
 
+from app.core.storage import StorageError
 from app.ingestion import pipeline
 from app.ingestion.celex import consolidated_stem
 from app.ingestion.chunk.chunker import chunk_document
@@ -20,7 +21,7 @@ from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.pipeline import _known_corpus_celexes, ingest
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
-from app.ingestion.storage import document_exists
+from app.ingestion.storage import document_key
 from tests.conftest import (
     MRV_SPARQL,
     binding,
@@ -442,16 +443,17 @@ async def test_unparseable_document_is_recorded_and_others_persist(
     assert run.status is IngestRunStatus.FAILED
 
 
-async def test_missing_source_file_is_recorded_not_raised(
+async def test_a_freshly_downloaded_document_is_parsed_without_reading_it_back(
     db_session, local_store, corpus_client, monkeypatch
 ):
+    """The download already holds the bytes, so parse must not pay a second storage round trip."""
+    reads: list[str] = []
+    monkeypatch.setattr(local_store, "get", lambda key: reads.append(key))
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    monkeypatch.setattr(local_store, "put", lambda key, content: None)
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert sorted(report.parse.failed) == ["32015R0757", "32023R2449"]
-    assert all("StorageError" in reason for reason in report.parse.failed.values())
-    assert not report.ok
+    assert reads == []
+    assert report.ok
 
 
 async def test_a_source_document_lost_from_the_store_is_downloaded_again(
@@ -467,17 +469,18 @@ async def test_a_source_document_lost_from_the_store_is_downloaded_again(
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     rows = await get_baseline_docs(db_session, ["mrv"])
-    assert document_exists(local_store, rows["32015R0757"])
+    row = rows["32015R0757"]
+    assert local_store.exists(document_key(row.celex, row.resolved_celex, row.sha256))
     assert report.ok
 
 
-async def test_a_disk_error_is_recorded_not_raised(
+async def test_a_store_write_failure_is_recorded_not_raised(
     db_session, local_store, corpus_client, monkeypatch
 ):
-    def full_disk(*args, **kwargs):
-        raise OSError(28, "No space left on device")
+    def full_disk(key, content):
+        raise StorageError("put", key, OSError(28, "No space left on device"))
 
-    monkeypatch.setattr(Path, "write_bytes", full_disk)
+    monkeypatch.setattr(local_store, "put", full_disk)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 

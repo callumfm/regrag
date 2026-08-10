@@ -8,8 +8,7 @@ import pytest
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
-from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
-from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.models import DiscoveredDocument, FetchedDocument, FetchRunResult
 from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.fetch.stage import _reuse_stored_version, fetch_documents
 from app.ingestion.schemas import IngestRun
@@ -26,22 +25,21 @@ def spec(celex, topic="mrv", candidate=None):
 
 def stored(store_document, celex="32023R1805"):
     """A previous run's row whose bytes are still in the store."""
-    return store_document(
-        IngestRun(status=IngestRunStatus.COMPLETED), b"<html>act</html>", celex=celex
-    )
+    return store_document(IngestRun(status=IngestRunStatus.COMPLETED), celex=celex)
 
 
-def html_of(documents, celex, local_store) -> bytes:
-    """The bytes the run stored for one celex, read back the way parse would."""
-    return read_document(local_store, {d.celex: d for d in documents}[celex])
+def html_of(fetched, celex, local_store) -> bytes:
+    """The bytes the run left in the store for one celex, read back the way a later run would."""
+    return read_document(local_store, {f.document.celex: f.document for f in fetched}[celex])
 
 
 def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store, store_document):
     prev = stored(store_document)
     reused = _reuse_stored_version(local_store, spec("32023R1805"), prev)
     assert reused is not None
-    resolution, bytes_ = reused
+    resolution, bytes_, content = reused
     assert resolution.resolved_celex == prev.resolved_celex
+    assert content == b"<html>act</html>"
     assert (bytes_.sha256, bytes_.size_bytes, bytes_.fetched_at) == (
         prev.sha256,
         prev.size_bytes,
@@ -74,13 +72,13 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
     } | (overrides or {})
 
 
-async def fetch(db_session, client, topics, store) -> tuple[FetchRunResult, list[RawDocument]]:
+async def fetch(db_session, client, topics, store) -> tuple[FetchRunResult, list[FetchedDocument]]:
     """Drive the fetch stage alone, with the run the orchestrator would supply."""
     run = await create_ingest_run(db_session)
-    documents, result = await fetch_documents(
+    fetched, result = await fetch_documents(
         db_session, client=client, topics=topics, store=store, run=run
     )
-    return result, documents
+    return result, fetched
 
 
 async def test_first_run_ingests_all_as_new(db_session, local_store, corpus_client):

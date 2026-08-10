@@ -9,7 +9,7 @@ from pathlib import Path
 from selectolax.parser import HTMLParser, Node
 
 from app.core.db.session import get_session
-from app.core.storage import get_object_store
+from app.core.storage import StorageError, get_object_store
 from app.ingestion.fetch.service import get_corpus_docs
 from app.ingestion.storage import read_document
 
@@ -36,14 +36,18 @@ def shrink(node: Node) -> None:
 
 
 async def stored_html() -> dict[str, str]:
-    """The corpus as it currently stands, read back out of object storage."""
+    """The documents KEEP names, read back out of object storage."""
     async with get_session(auto_commit=False) as session:
         documents = await get_corpus_docs(session)
     store = get_object_store()
-    return {doc.celex: read_document(store, doc).decode("utf-8") for doc in documents}
+    wanted = [doc for doc in documents if doc.celex in KEEP]
+    try:
+        return {doc.celex: read_document(store, doc).decode("utf-8") for doc in wanted}
+    except StorageError as exc:
+        raise SystemExit(f"{exc}; run `uv run ingest` first") from exc
 
 
-def trim(html: str, ids: tuple[str, ...]) -> str:
+def trim(celex: str, html: str, ids: tuple[str, ...]) -> str:
     """Keep only the named subdivisions, with base64 image payloads stubbed out."""
     tree = HTMLParser(html)
     for image in tree.css("img"):
@@ -53,7 +57,7 @@ def trim(html: str, ids: tuple[str, ...]) -> str:
     for node_id in ids:
         node = tree.css_first(f'div[id="{node_id}"]')
         if node is None:
-            raise SystemExit(f"no div with id {node_id}")
+            raise SystemExit(f"{celex}: no div with id {node_id}")
         shrink(node)
         kept.append(node.html or "")
     body = "<html><body>\n" + "\n".join(kept) + "\n</body></html>\n"
@@ -65,7 +69,7 @@ def main() -> None:
     for celex, ids in KEEP.items():
         if celex not in stored:
             raise SystemExit(f"{celex} is not in the stored corpus; run `uv run ingest` first")
-        html = trim(stored[celex], ids)
+        html = trim(celex, stored[celex], ids)
         (FIXTURES / f"{celex}.html").write_text(html, encoding="utf-8")
         print(f"{celex}: {len(html) // 1024} KB")
 

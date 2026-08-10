@@ -2,9 +2,9 @@
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.enums import Environment, StorageBackend
@@ -43,13 +43,16 @@ class StorageConfig(BaseConfig):
     STORAGE_BACKEND: StorageBackend = StorageBackend.LOCAL
     RAW_DATA_DIR: Path = PROJECT_ROOT / "data" / "raw"
 
+    @model_validator(mode="after")
+    def _prod_names_a_durable_backend(self) -> Self:
+        """Prod defaulting to local would archive the corpus to disk a redeploy throws away."""
+        if ENVIRONMENT is Environment.PROD and self.STORAGE_BACKEND is StorageBackend.LOCAL:
+            raise ValueError("STORAGE_BACKEND must be set to a durable backend in prod")
+        return self
+
 
 class R2Config(BaseConfig):
-    """Cloudflare R2 credentials, loaded only when that backend is the one selected.
-
-    Every field is required, so a half-configured bucket fails when the store is built,
-    before a run does any real work. Nothing else may depend on these being present.
-    """
+    """Cloudflare R2 credentials, every field required so a half-configured bucket fails early."""
 
     R2_ACCOUNT_ID: str
     R2_ACCESS_KEY_ID: str

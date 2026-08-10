@@ -4,26 +4,27 @@ import pytest
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings
 
-from app.core.config import BaseConfig, Config, EmbeddingConfig, R2Config, StorageConfig
-from app.core.enums import StorageBackend
-
-R2_ENV = {
-    "R2_ACCOUNT_ID": "acc",
-    "R2_ACCESS_KEY_ID": "key",
-    "R2_SECRET_ACCESS_KEY": "secret",
-    "R2_BUCKET": "regrag-raw",
-}
-
-
-def r2_config(monkeypatch, **overrides: str) -> R2Config:
-    """R2 settings as they really arrive — from the environment; an empty one is left unset."""
-    for name, value in {**R2_ENV, **overrides}.items():
-        monkeypatch.setenv(name, value)
-    return R2Config()
+from app.core import config as config_module
+from app.core.config import BaseConfig, Config, EmbeddingConfig, StorageConfig
+from app.core.enums import Environment, StorageBackend
+from tests.conftest import r2_config
 
 
 def test_storage_defaults_to_the_local_backend():
     assert StorageConfig().STORAGE_BACKEND is StorageBackend.LOCAL
+
+
+def test_prod_refuses_the_local_backend(monkeypatch):
+    """Local storage in prod is container-ephemeral, so the corpus would vanish on redeploy."""
+    monkeypatch.setattr(config_module, "ENVIRONMENT", Environment.PROD)
+
+    with pytest.raises(ValidationError, match="STORAGE_BACKEND"):
+        StorageConfig(STORAGE_BACKEND=StorageBackend.LOCAL)
+
+
+def test_prod_accepts_a_durable_backend(monkeypatch):
+    monkeypatch.setattr(config_module, "ENVIRONMENT", Environment.PROD)
+    assert StorageConfig(STORAGE_BACKEND=StorageBackend.R2).STORAGE_BACKEND is StorageBackend.R2
 
 
 def test_the_r2_endpoint_is_built_from_the_account_id(monkeypatch):

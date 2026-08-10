@@ -1,27 +1,33 @@
 """Object storage behind one S3-compatible interface: R2 in prod, local files in dev and tests."""
 
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
-import boto3
-from botocore.config import Config as BotoConfig
-from botocore.exceptions import BotoCoreError, ClientError
+from fastapi import status
 
-from app.core.config import R2Config, config
+from app.core.config import config
 from app.core.enums import StorageBackend
-
-BOTO_ERRORS = (ClientError, BotoCoreError)
-NOT_FOUND_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
-S3_MAX_ATTEMPTS = 3
+from app.core.exceptions import DomainError
 
 
-class StorageError(Exception):
-    """Raised when an object storage operation fails."""
+class StorageError(DomainError):
+    """An object storage operation failed, named by the operation and what refused it."""
 
-    def __init__(self, operation: str, key: str):
-        self.operation = operation
-        self.key = key
-        super().__init__(f"Storage {operation} failed for '{key}'")
+    status_code = status.HTTP_502_BAD_GATEWAY
+
+    def __init__(self, operation: str, key: str, reason: object | None = None):
+        detail = f": {reason}" if reason is not None else ""
+        super().__init__(f"Storage {operation} failed for '{key}'{detail}")
+
+
+def validate_key(key: str) -> None:
+    """Refuse anything but a plain relative path, so both backends accept the same keys.
+
+    Split on the raw string, not a path type: S3 keeps '.' and '' segments literally,
+    so a key the local backend would normalise is a different object there.
+    """
+    if not key or {"", ".", ".."} & set(key.split("/")):
+        raise StorageError("access", key, "key is not a plain relative path")
 
 
 class ObjectStore(Protocol):
@@ -44,14 +50,12 @@ class LocalObjectStore:
     """Objects as files under a root directory, so dev and tests need no network."""
 
     def __init__(self, root: Path):
-        self.root = root
+        self.root = root.resolve()
 
     def _path(self, key: str) -> Path:
-        """The file a key names, refusing keys that would escape the root."""
-        path = (self.root / key).resolve()
-        if not path.is_relative_to(self.root.resolve()):
-            raise StorageError("resolve", key)
-        return path
+        """The file a key names, once the key is known to stay inside the root."""
+        validate_key(key)
+        return self.root / key
 
     def put(self, key: str, content: bytes) -> None:
         path = self._path(key)
@@ -59,64 +63,24 @@ class LocalObjectStore:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
         except OSError as exc:
-            raise StorageError("put", key) from exc
+            raise StorageError("put", key, exc) from exc
 
     def get(self, key: str) -> bytes:
         try:
             return self._path(key).read_bytes()
         except OSError as exc:
-            raise StorageError("get", key) from exc
+            raise StorageError("get", key, exc) from exc
 
     def exists(self, key: str) -> bool:
         return self._path(key).is_file()
 
 
-class S3ObjectStore:
-    """Objects in an S3-compatible bucket; R2 is the one this project points it at."""
-
-    def __init__(self, client: Any, bucket: str):
-        self.client = client
-        self.bucket = bucket
-
-    def put(self, key: str, content: bytes) -> None:
-        try:
-            self.client.put_object(Bucket=self.bucket, Key=key, Body=content)
-        except BOTO_ERRORS as exc:
-            raise StorageError("put", key) from exc
-
-    def get(self, key: str) -> bytes:
-        try:
-            return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
-        except BOTO_ERRORS as exc:
-            raise StorageError("get", key) from exc
-
-    def exists(self, key: str) -> bool:
-        try:
-            self.client.head_object(Bucket=self.bucket, Key=key)
-        except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") in NOT_FOUND_CODES:
-                return False
-            raise StorageError("head", key) from exc
-        except BotoCoreError as exc:
-            raise StorageError("head", key) from exc
-        return True
-
-
-def r2_client(r2: R2Config) -> Any:
-    """An S3 client pointed at this account's R2 endpoint, retrying transient failures."""
-    return boto3.client(
-        "s3",
-        endpoint_url=r2.R2_ENDPOINT_URL,
-        aws_access_key_id=r2.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=r2.R2_SECRET_ACCESS_KEY,
-        region_name="auto",
-        config=BotoConfig(retries={"mode": "standard", "max_attempts": S3_MAX_ATTEMPTS}),
-    )
-
-
 def get_object_store() -> ObjectStore:
     """The store this environment is configured for; R2 credentials are read only if selected."""
-    if config.STORAGE_BACKEND is StorageBackend.R2:
-        r2 = R2Config()
-        return S3ObjectStore(r2_client(r2), r2.R2_BUCKET)
-    return LocalObjectStore(config.RAW_DATA_DIR)
+    match config.STORAGE_BACKEND:
+        case StorageBackend.LOCAL:
+            return LocalObjectStore(config.RAW_DATA_DIR)
+        case StorageBackend.R2:
+            from app.core.s3 import r2_object_store
+
+            return r2_object_store()

@@ -75,12 +75,12 @@ async def ingest(
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as (run, result):
-        documents, result.fetch = await fetch_documents(
+        fetched, result.fetch = await fetch_documents(
             session, client=client, topics=topics, store=store, run=run
         )
         logger.info("[fetch] %s", result.fetch.summary())
 
-        parsed, result.parse = parse_documents(documents, store=store)
+        parsed, result.parse = parse_documents(fetched)
         logger.info("[parse] %s", result.parse.summary())
 
         corpus_celexes = await _known_corpus_celexes(

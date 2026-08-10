@@ -10,12 +10,7 @@ from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import EmptyDownloadError
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
-from app.ingestion.storage import (
-    document_exists,
-    document_key,
-    read_document,
-    write_document,
-)
+from app.ingestion.storage import document_key, read_document, write_document
 
 HTML = b"<html>act</html>"
 
@@ -71,12 +66,3 @@ def test_read_raises_when_the_bytes_are_not_there(
 ):
     with pytest.raises(StorageError, match="get failed"):
         read_document(local_store, make_document(run()))
-
-
-def test_exists_is_true_only_once_the_bytes_are_written(
-    local_store: LocalObjectStore,
-    make_document: Callable[..., RawDocument],
-    store_document: Callable[..., RawDocument],
-):
-    assert not document_exists(local_store, make_document(run()))
-    assert document_exists(local_store, store_document(run(), HTML))
