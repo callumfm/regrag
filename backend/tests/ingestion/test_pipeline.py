@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import ProgrammingError
 
 from app.ingestion import pipeline
+from app.ingestion.celex import consolidated_stem
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
@@ -273,6 +274,11 @@ async def test_second_identical_run_adds_and_removes_nothing(db_session, tmp_pat
 ONLY_SEED_SPARQL = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
 
 
+def new_version(celex: str) -> str:
+    """A consolidated version the last run never saw, so the act has to be downloaded again."""
+    return f"{consolidated_stem(celex)}20250101"
+
+
 async def test_dropped_document_loses_its_chunks(db_session, tmp_path, corpus_client):
     docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
@@ -290,13 +296,25 @@ async def test_dropped_document_loses_its_chunks(db_session, tmp_path, corpus_cl
 async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fetch(
     db_session, tmp_path, corpus_client
 ):
-    """A failed fetch drops the doc from the next run's baseline; chunks must still go."""
+    """A failed fetch drops the doc from the next run's baseline; chunks must still go.
+
+    The failure has to land on a version the run actually downloads: an unchanged act is
+    never requested, so it has no way to fail.
+    """
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
     assert await chunk_rows(db_session, "32023R2449")
 
+    consolidated = httpx.Response(
+        200,
+        json=payload(
+            binding("32015R0757", force="1"),
+            binding("32023R2449", force="1", cons=new_version("32023R2449")),
+        ),
+    )
     client, _ = corpus_client(
-        {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
+        {"mrv": consolidated},
+        mrv_docs({new_version("32023R2449"): httpx.Response(400, text="bad")}),
     )
     await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
@@ -354,9 +372,12 @@ async def test_an_incomplete_run_prunes_nothing(db_session, tmp_path, corpus_cli
     await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
     assert await chunk_rows(db_session, "32023R2449")
 
+    seed_consolidated = httpx.Response(
+        200, json=payload(binding("32015R0757", force="1", cons=new_version("32015R0757")))
+    )
     client, _ = corpus_client(
-        {"mrv": ONLY_SEED_SPARQL},
-        mrv_docs({"32015R0757": httpx.Response(400, text="bad")}),
+        {"mrv": seed_consolidated},
+        mrv_docs({new_version("32015R0757"): httpx.Response(400, text="bad")}),
     )
     report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 

@@ -16,9 +16,10 @@ from app.ingestion.fetch.discover import (
     latest_own_consolidation,
     select_topic_documents,
     topic_query,
+    version_candidates,
 )
+from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.models import DiscoveredDocument
-from app.ingestion.fetch.resolve import resolve_version
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -104,6 +105,17 @@ def test_no_consolidations_gives_none_candidate():
     assert documents("mrv", p)[0].candidate_celex is None
 
 
+def test_version_candidates_try_the_consolidation_before_the_original_act():
+    consolidated = DiscoveredDocument(
+        topic="mrv", source="eurlex", celex="32015R0757", candidate_celex="02015R0757-20250101"
+    )
+    assert version_candidates(consolidated) == ["02015R0757-20250101", "32015R0757"]
+
+
+def test_version_candidates_without_a_consolidation_is_the_act_alone():
+    assert version_candidates(spec("32023R2449")) == ["32023R2449"]
+
+
 def test_specs_carry_topic_and_source():
     p = payload(binding("32023R1805", force="1"))
     spec = documents("fueleu", p)[0]
@@ -165,7 +177,10 @@ def corpus_handler(request: httpx.Request) -> httpx.Response:
 def test_topic_corpus_discovers_and_resolves(topic):
     with httpx.Client(transport=httpx.MockTransport(corpus_handler)) as client:
         specs = discover_topic(client, topic, SEEDS[topic])
-        resolved = {f"{topic}:{s.celex}": resolve_version(client, s).resolved_celex for s in specs}
+        resolved = {
+            f"{topic}:{s.celex}": download_fetchable_version(client, s)[0].resolved_celex
+            for s in specs
+        }
     expected = {k: v for k, v in EXPECTED_RESOLVED.items() if k.startswith(f"{topic}:")}
     assert resolved == expected
 

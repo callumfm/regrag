@@ -14,7 +14,7 @@ from app.ingestion.fetch.discover import (
     select_topic_documents,
     topic_query,
 )
-from app.ingestion.fetch.resolve import resolve_version
+from app.ingestion.fetch.download import download_fetchable_version
 
 FIXTURES = Path(__file__).parent
 
@@ -32,7 +32,7 @@ def main() -> None:
             payload = response.json()
             (FIXTURES / f"sparql-{topic}.json").write_text(json.dumps(payload, indent=2) + "\n")
             for spec in select_topic_documents(topic, collect_candidate_acts(payload)):
-                resolution = resolve_version(client, spec)
+                resolution, _ = download_fetchable_version(client, spec)
                 if spec.candidate_celex and resolution.resolved_celex == spec.celex:
                     missing.add(spec.candidate_celex)
                 expected[f"{topic}:{spec.celex}"] = resolution.resolved_celex
