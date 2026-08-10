@@ -1,17 +1,17 @@
-"""Reusing or downloading a document's bytes, and the fetch stage in isolation."""
+"""Reusing or downloading a document's version, and the fetch stage in isolation."""
 
 import hashlib
 
 import httpx
 import pytest
 
-from app.ingestion.enums import DocChange, IngestRunStatus
+from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
-from app.ingestion.fetch.stage import _reuse_stored_bytes, fetch_documents
+from app.ingestion.fetch.stage import _reuse_stored_version, fetch_documents
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import create_ingest_run
 from app.ingestion.storage import document_filename, write_document
@@ -20,8 +20,8 @@ from tests.conftest import MRV_SPARQL, binding, payload
 pytestmark = pytest.mark.anyio
 
 
-def spec(celex, topic="mrv"):
-    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=None)
+def spec(celex, topic="mrv", candidate=None):
+    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=candidate)
 
 
 def stored(make_document, tmp_path, celex="32023R1805"):
@@ -31,30 +31,34 @@ def stored(make_document, tmp_path, celex="32023R1805"):
     return document
 
 
-def test_unchanged_bytes_still_stored_are_reused(tmp_path, make_document):
+def test_stored_version_is_reused_when_discovery_still_points_at_it(tmp_path, make_document):
     prev = stored(make_document, tmp_path)
-    reused = _reuse_stored_bytes(tmp_path, prev, DocChange.UNCHANGED)
+    reused = _reuse_stored_version(tmp_path, spec("32023R1805"), prev)
     assert reused is not None
-    assert (reused.sha256, reused.size_bytes, reused.fetched_at) == (
+    resolution, bytes_ = reused
+    assert resolution.resolved_celex == prev.resolved_celex
+    assert (bytes_.sha256, bytes_.size_bytes, bytes_.fetched_at) == (
         prev.sha256,
         prev.size_bytes,
         prev.fetched_at,
     )
 
 
-def test_unchanged_bytes_no_longer_stored_are_not_reused(tmp_path, make_document):
+def test_a_newly_discovered_consolidation_is_not_reused(tmp_path, make_document):
+    """Discovery pointing somewhere new is exactly the case that has to hit the network."""
+    prev = stored(make_document, tmp_path)
+    newer = spec("32023R1805", candidate="02023R1805-20250101")
+    assert _reuse_stored_version(tmp_path, newer, prev) is None
+
+
+def test_stored_version_no_longer_on_disk_is_not_reused(tmp_path, make_document):
     prev = stored(make_document, tmp_path)
     (tmp_path / document_filename(prev.celex)).unlink()
-    assert _reuse_stored_bytes(tmp_path, prev, DocChange.UNCHANGED) is None
-
-
-@pytest.mark.parametrize("change", [DocChange.NEW, DocChange.CHANGED])
-def test_only_unchanged_documents_reuse_their_bytes(tmp_path, make_document, change):
-    assert _reuse_stored_bytes(tmp_path, stored(make_document, tmp_path), change) is None
+    assert _reuse_stored_version(tmp_path, spec("32023R1805"), prev) is None
 
 
 def test_a_document_with_no_previous_run_has_nothing_to_reuse(tmp_path):
-    assert _reuse_stored_bytes(tmp_path, None, DocChange.UNCHANGED) is None
+    assert _reuse_stored_version(tmp_path, spec("32023R1805"), None) is None
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
@@ -86,7 +90,10 @@ async def test_first_run_ingests_all_as_new(db_session, tmp_path, corpus_client)
     assert rows["32023R2449"].resolved_celex == "32023R2449"
 
 
-async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path, corpus_client):
+async def test_unchanged_run_makes_no_html_requests_and_carries_sha(
+    db_session, tmp_path, corpus_client
+):
+    """Steady state: discovery points at the versions already stored, so nothing is downloaded."""
     docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch(db_session, client, ["mrv"], tmp_path)
@@ -95,12 +102,13 @@ async def test_unchanged_doc_skips_download_and_carries_sha(db_session, tmp_path
     second, _ = await fetch(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(second.unchanged) == ["32015R0757", "32023R2449"]
-    assert calls.count("32015R0757") == 1
+    assert calls == []
     firsts = {r.celex: r.sha256 for r in (await get_baseline_docs(db_session, ["mrv"])).values()}
     assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
 
 
 async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_path, corpus_client):
+    """One request, not two: the download hands back the bytes it already pulled."""
     docs = mrv_docs({"32015R0757": httpx.Response(200, content=b"<html>v1</html>")})
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch(db_session, client, ["mrv"], tmp_path)
@@ -113,10 +121,11 @@ async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_pat
         ),
     )
     docs = mrv_docs({"02015R0757-20250101": httpx.Response(200, content=b"<html>v2</html>")})
-    client, _ = corpus_client({"mrv": consolidated}, docs)
+    client, calls = corpus_client({"mrv": consolidated}, docs)
     report, _ = await fetch(db_session, client, ["mrv"], tmp_path)
 
     assert report.changed == ["32015R0757"]
+    assert calls == ["02015R0757-20250101"]
     assert (tmp_path / "32015R0757.html").read_bytes() == b"<html>v2</html>"
     rows = await get_baseline_docs(db_session, ["mrv"])
     assert rows["32015R0757"].resolved_celex == "02015R0757-20250101"
@@ -125,12 +134,22 @@ async def test_new_consolidation_is_changed_and_redownloaded(db_session, tmp_pat
 async def test_still_rendering_doc_fails_without_destroying_its_raw_file(
     db_session, tmp_path, corpus_client
 ):
-    """The regression: a 202 used to be stored as an empty file, wiping the last good copy."""
+    """The regression: a 202 used to be stored as an empty file, wiping the last good copy.
+
+    A new consolidation is what forces the download; an unchanged act is never requested at all.
+    """
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     await fetch(db_session, client, ["mrv"], tmp_path)
 
-    rendering = mrv_docs({"32015R0757": httpx.Response(202, content=b"")})
-    client, _ = corpus_client({"mrv": MRV_SPARQL}, rendering)
+    consolidated = httpx.Response(
+        200,
+        json=payload(
+            binding("32015R0757", force="1", cons="02015R0757-20250101"),
+            binding("32023R2449", force="1"),
+        ),
+    )
+    rendering = mrv_docs({"02015R0757-20250101": httpx.Response(202, content=b"")})
+    client, _ = corpus_client({"mrv": consolidated}, rendering)
     report, _ = await fetch(db_session, client, ["mrv"], tmp_path)
 
     assert "32015R0757" in report.failed

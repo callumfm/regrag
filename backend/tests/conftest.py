@@ -15,20 +15,19 @@ from tenacity import wait_none
 from app.core.clock import utc_now
 from app.core.config import config
 from app.core.db.session import async_session_factory
-from app.core.http import download
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
 from app.ingestion.embed.stage import _embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch.discover import discover_topic
-from app.ingestion.fetch.resolve import resolve_version
+from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 
-RETRIED = (discover_topic, resolve_version, download, _embed_texts)
+RETRIED = (discover_topic, download_fetchable_version, _embed_texts)
 
 
 def recorded_run(run_id: int = 1, **overrides: Any) -> IngestRunResult:

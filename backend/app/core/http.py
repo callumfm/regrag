@@ -48,11 +48,3 @@ def _is_transient(exc: BaseException) -> bool:
 
 http_retry = transient_retry(_is_transient)
 """Decorator retrying transient HTTP failures with exponential backoff."""
-
-
-@http_retry
-def download(client: httpx.Client, url: str) -> bytes:
-    """Fetch a URL's bytes, retrying transient failures."""
-    response = client.get(url)
-    response.raise_for_status()
-    return response.content

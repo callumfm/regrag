@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from app.core.http import DEFAULT_HEADERS, download, http_client, http_retry, pace_requests
+from app.core.http import DEFAULT_HEADERS, http_client, http_retry, pace_requests
 
 
 class FakeClock:
@@ -99,19 +99,6 @@ def test_retries_transport_errors(get):
     assert len(calls) == 2
 
 
-def test_download_returns_the_response_body() -> None:
-    client = httpx.Client(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, content=b"hi"))
-    )
-    assert download(client, "https://example.test/doc") == b"hi"
-
-
-def test_download_raises_on_a_client_error() -> None:
-    client = httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(404)))
-    with pytest.raises(httpx.HTTPStatusError):
-        download(client, "https://example.test/missing")
-
-
 def paced_client(seconds: float) -> httpx.Client:
     """A client whose requests are paced and answered locally."""
     return httpx.Client(
@@ -126,7 +113,7 @@ def test_pacing_lets_the_first_request_straight_through(clock: FakeClock) -> Non
 
 
 def test_pacing_waits_between_every_request_not_every_document(clock: FakeClock) -> None:
-    """A document costs two requests — resolve, then download — and both hit the rate limit."""
+    """Pacing is per request: falling back to the original act costs two, and both wait."""
     client = paced_client(1.0)
     for _ in range(3):
         client.get("https://example.test/doc")

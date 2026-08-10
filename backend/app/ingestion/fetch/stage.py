@@ -7,35 +7,46 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
-from app.core.http import download
 from app.ingestion.enums import DocChange
 from app.ingestion.exceptions import IngestionError
 from app.ingestion.fetch.discover import discover_topics, find_dropped_celexes
-from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult, StoredBytes
-from app.ingestion.fetch.resolve import resolve_version
+from app.ingestion.fetch.download import download_fetchable_version, expected_version
+from app.ingestion.fetch.models import (
+    DiscoveredDocument,
+    FetchRunResult,
+    ResolvedVersion,
+    StoredBytes,
+)
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import document_exists, write_document
 
 
-def _reuse_stored_bytes(
-    data_dir: Path, prev: RawDocument | None, change: DocChange
-) -> StoredBytes | None:
-    """The previous run's bytes, if this act is unchanged and its file is still stored."""
-    if change is not DocChange.UNCHANGED or prev is None:
+def _reuse_stored_version(
+    data_dir: Path, spec: DiscoveredDocument, prev: RawDocument | None
+) -> tuple[ResolvedVersion, StoredBytes] | None:
+    """The version and bytes the previous run stored, if the download would land on that version.
+
+    Sparing the request is the point: an unchanged act is the common case, and its stored bytes
+    are the ones the download would return.
+    """
+    expected = expected_version(spec)
+    if prev is None or prev.resolved_celex != expected.resolved_celex:
         return None
     if not document_exists(data_dir, prev.celex):
         return None
-    return StoredBytes(sha256=prev.sha256, size_bytes=prev.size_bytes, fetched_at=prev.fetched_at)
+    stored = StoredBytes(sha256=prev.sha256, size_bytes=prev.size_bytes, fetched_at=prev.fetched_at)
+    return expected, stored
 
 
-def _download_and_store(
-    client: httpx.Client, data_dir: Path, *, celex: str, url: str
-) -> StoredBytes:
-    """Download the act's HTML, store it, and stamp the fetch time."""
-    sha256, size_bytes = write_document(data_dir, celex, download(client, url))
-    return StoredBytes(sha256=sha256, size_bytes=size_bytes, fetched_at=utc_now())
+def _download_new_version(
+    client: httpx.Client, data_dir: Path, spec: DiscoveredDocument
+) -> tuple[ResolvedVersion, StoredBytes]:
+    """Download the version EUR-Lex will serve, store its bytes, and stamp the fetch time."""
+    resolution, content = download_fetchable_version(client, spec)
+    sha256, size_bytes = write_document(data_dir, spec.celex, content)
+    return resolution, StoredBytes(sha256=sha256, size_bytes=size_bytes, fetched_at=utc_now())
 
 
 def _fetch_document(
@@ -46,12 +57,11 @@ def _fetch_document(
     run: IngestRun,
     data_dir: Path,
 ) -> tuple[RawDocument, DocChange]:
-    """Resolve one act, download it unless unchanged and still stored, and build its row."""
-    resolution = resolve_version(client, spec)
-    change = DocChange.between(prev.resolved_celex if prev else None, resolution.resolved_celex)
-    stored = _reuse_stored_bytes(data_dir, prev, change) or _download_and_store(
-        client, data_dir, celex=spec.celex, url=resolution.url
+    """Reuse the version the last run stored, or download the one discovery now points at."""
+    resolution, stored = _reuse_stored_version(data_dir, spec, prev) or _download_new_version(
+        client, data_dir, spec
     )
+    change = DocChange.between(prev.resolved_celex if prev else None, resolution.resolved_celex)
     document = RawDocument(
         **spec.model_dump(exclude={"candidate_celex"}),
         **resolution.model_dump(),
