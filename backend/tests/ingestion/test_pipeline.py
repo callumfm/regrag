@@ -8,18 +8,24 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import ProgrammingError
 
+from app.ingestion import pipeline
 from app.ingestion.chunk.chunker import chunk_document
-from app.ingestion.chunk.models import ChunkRunResult
-from app.ingestion.embed.models import EmbedRunResult
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.pipeline import IngestRunResult, _known_corpus_celexes, ingest
+from app.ingestion.pipeline import _known_corpus_celexes, ingest
+from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
-from tests.conftest import MRV_SPARQL, binding, chunk_rows, chunk_versions, payload
+from tests.conftest import (
+    MRV_SPARQL,
+    binding,
+    chunk_rows,
+    chunk_versions,
+    payload,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -32,79 +38,6 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
         "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
         "32023R2449": httpx.Response(200, content=FUELEU_HTML.encode()),
     } | (overrides or {})
-
-
-def test_stages_finds_every_result_and_nothing_else() -> None:
-    assert list(IngestRunResult(run_id=1).stages) == ["fetch", "parse", "chunk", "embed"]
-
-
-def test_a_run_is_ok_when_no_stage_failed() -> None:
-    assert IngestRunResult(run_id=1).ok
-    assert IngestRunResult(run_id=1).status is IngestRunStatus.COMPLETED
-
-
-def test_a_failure_in_any_stage_fails_the_run() -> None:
-    assert not IngestRunResult(run_id=1, fetch=FetchRunResult(failed={"a": "404"})).ok
-    assert not IngestRunResult(run_id=1, parse=ParseRunResult(failed={"a": "ParseError"})).ok
-    assert IngestRunResult(run_id=1, chunk=ChunkRunResult(failed={"a": "boom"})).status is (
-        IngestRunStatus.FAILED
-    )
-
-
-def test_summary_reports_every_stage_on_its_own_line() -> None:
-    result = IngestRunResult(
-        run_id=7,
-        corpus_version="2026-08-05-abc1234",
-        fetch=FetchRunResult(new=["a"], unchanged=["b"]),
-        parse=ParseRunResult(parsed=["a", "b"]),
-        chunk=ChunkRunResult(added=12, unchanged=30),
-        embed=EmbedRunResult(embedded=12, unchanged=30),
-    )
-    assert result.summary().splitlines() == [
-        "run 7 (2026-08-05-abc1234)",
-        "  [fetch] 1 new, 0 changed, 1 unchanged, 0 dropped, 0 failed",
-        "  [parse] 2 parsed, 0 failed",
-        "  [chunk] 12 added, 0 removed, 30 unchanged, 0 failed",
-        "  [embed] 12 embedded, 30 unchanged, 0 failed",
-        "  fetch new: a",
-    ]
-
-
-def test_summary_says_so_when_no_version_was_stamped() -> None:
-    assert IngestRunResult(run_id=7).summary().startswith("run 7 (not stamped)")
-
-
-def test_summary_lists_each_stage_s_failures() -> None:
-    result = IngestRunResult(
-        run_id=7,
-        fetch=FetchRunResult(failed={"a": "HTTPError: 404"}),
-        parse=ParseRunResult(failed={"b": "ParseError: no body"}),
-    )
-    assert "  fetch failed: a (HTTPError: 404)" in result.summary()
-    assert "  parse failed: b (ParseError: no body)" in result.summary()
-
-
-def test_report_covers_every_stage_with_its_counts_and_failures() -> None:
-    result = IngestRunResult(
-        run_id=7,
-        fetch=FetchRunResult(discovered=["a", "b"], new=["a"], unchanged=["b"]),
-        parse=ParseRunResult(parsed=["a"], failed={"b": "ParseError: no body"}),
-        chunk=ChunkRunResult(added=12, unchanged=30),
-        embed=EmbedRunResult(embedded=12),
-    )
-    assert result.report() == {
-        "fetch": {"new": 1, "changed": 0, "unchanged": 1, "dropped": 0, "failed": {}},
-        "parse": {"parsed": 1, "failed": {"b": "ParseError: no body"}},
-        "chunk": {"added": 12, "removed": 0, "unchanged": 30, "failed": {}},
-        "embed": {"embedded": 12, "unchanged": 0, "failed": {}},
-    }
-
-
-def test_report_leaves_out_the_run_s_own_columns() -> None:
-    """Both are columns already, and corpus_version is stamped after the row is written."""
-    report = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234").report()
-    assert "run_id" not in report
-    assert "corpus_version" not in report
 
 
 async def test_known_corpus_celexes_unions_this_run_with_the_topics_it_left_alone(
@@ -235,13 +168,15 @@ async def test_a_stage_failure_is_answerable_from_the_run_row(db_session, tmp_pa
     assert run.result["fetch"]["new"] == 1
 
 
-async def test_an_aborted_run_records_no_result(db_session, tmp_path, corpus_client):
+async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_null(
+    db_session, tmp_path, corpus_client
+):
     client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
     with pytest.raises(httpx.HTTPStatusError):
         await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.result is None
+    assert run.result == {"fetch": None, "parse": None, "chunk": None, "embed": None}
 
 
 async def test_malformed_sparql_payload_raises_discovery_error(db_session, tmp_path, corpus_client):
@@ -264,6 +199,49 @@ async def test_a_failure_after_fetch_still_marks_the_run_failed(
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
     assert run.completed_at is not None
+
+
+async def test_a_failure_closing_the_run_out_still_marks_it_failed(
+    db_session, tmp_path, corpus_client, monkeypatch
+):
+    """The closing commit is where an integrity error or a Ctrl-C lands, so it must be covered."""
+    real = pipeline.complete_ingest_run
+    calls = []
+
+    async def explode_once(session, run, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise RuntimeError("commit blew up")
+        return await real(session, run, **kwargs)
+
+    monkeypatch.setattr(pipeline, "complete_ingest_run", explode_once)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    with pytest.raises(RuntimeError, match="commit blew up"):
+        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    run = (await db_session.scalars(select(IngestRun))).one()
+    assert run.status is IngestRunStatus.FAILED
+    assert run.completed_at is not None
+
+
+async def test_a_run_aborted_mid_pipeline_keeps_the_stages_that_did_report(
+    db_session, tmp_path, corpus_client, monkeypatch
+):
+    """Fetch and parse detail is the whole reason to look at an aborted run's row."""
+
+    async def explode(*args, **kwargs):
+        raise RuntimeError("chunking blew up")
+
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", explode)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    with pytest.raises(RuntimeError):
+        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+
+    run = (await db_session.scalars(select(IngestRun))).one()
+    assert run.result["fetch"]["new"] == 2
+    assert run.result["parse"]["parsed"] == 2
+    assert run.result["chunk"] is None
+    assert run.result["embed"] is None
 
 
 async def test_run_persists_chunks_for_every_document(db_session, tmp_path, corpus_client):
@@ -436,7 +414,9 @@ async def test_missing_source_file_is_recorded_not_raised(
     db_session, tmp_path, corpus_client, monkeypatch
 ):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    monkeypatch.setattr(stage, "_store", lambda data_dir, celex, content: ("a" * 64, len(content)))
+    monkeypatch.setattr(
+        stage, "write_document", lambda data_dir, celex, content: ("a" * 64, len(content))
+    )
     report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 
     assert sorted(report.parse.failed) == ["32015R0757", "32023R2449"]
@@ -466,7 +446,7 @@ async def test_a_disk_error_is_recorded_not_raised(
     def full_disk(*args, **kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(stage, "_store", full_disk)
+    monkeypatch.setattr(stage, "write_document", full_disk)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
 

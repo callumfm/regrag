@@ -21,14 +21,21 @@ from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
 from app.ingestion.embed.stage import _embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
-from app.ingestion.fetch import stage
 from app.ingestion.fetch.discover import discover_topic
 from app.ingestion.fetch.resolve import resolve_version
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 
 RETRIED = (discover_topic, resolve_version, download, _embed_texts)
+
+
+def recorded_run(run_id: int = 1, **overrides: Any) -> IngestRunResult:
+    """A result every stage reported into, so ok turns on stage failures alone."""
+    empty = IngestRunResult(run_id=run_id)
+    stages = {name: getattr(empty, name) for name in IngestRunResult.STAGES}
+    return IngestRunResult(run_id=run_id, **{**stages, **overrides})
 
 
 @pytest.fixture
@@ -152,14 +159,6 @@ def app() -> FastAPI:
 @pytest.fixture
 def client(app: FastAPI) -> TestClient:
     return TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def paces(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    """Record pacing delays instead of sleeping through them."""
-    calls: list[float] = []
-    monkeypatch.setattr(stage, "pace", calls.append)
-    return calls
 
 
 class FakeProvider:

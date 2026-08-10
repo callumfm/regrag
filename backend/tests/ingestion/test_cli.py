@@ -1,21 +1,25 @@
 """Ingest CLI: argument validation, exit codes, report printing."""
 
+import contextlib
+
 import httpx
 import pytest
 
 from app.ingestion import cli
 from app.ingestion.cli import main
-from app.ingestion.constants import SEEDS
+from app.ingestion.constants import PACE_SECONDS, SEEDS
 from app.ingestion.enums import DocChange
 from app.ingestion.exceptions import MalformedDiscoveryError
-from app.ingestion.pipeline import IngestRunResult
+from tests.conftest import recorded_run
+
+pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
 def fake_ingest(monkeypatch):
     """Replace the DB+network coroutine with a stub recording requested topics."""
     calls = []
-    report = IngestRunResult(run_id=1)
+    report = recorded_run()
 
     async def _fake(topics):
         calls.append(list(topics))
@@ -81,3 +85,25 @@ def test_abort_on_http_error(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_ingest", _boom)
     assert main([]) == 1
     assert "ingest aborted" in capsys.readouterr().err
+
+
+async def test_ingest_builds_a_client_that_paces_eurlex(monkeypatch):
+    """Pacing is the client's job now, so the one caller that must ask for it is pinned here."""
+    built = {}
+
+    def fake_client(**kwargs):
+        built.update(kwargs)
+        return contextlib.nullcontext(httpx.Client())
+
+    @contextlib.asynccontextmanager
+    async def fake_session(**_):
+        yield None
+
+    async def fake_ingest_call(*_, **__):
+        return recorded_run()
+
+    monkeypatch.setattr(cli, "http_client", fake_client)
+    monkeypatch.setattr(cli, "get_session", fake_session)
+    monkeypatch.setattr(cli, "ingest", fake_ingest_call)
+    await cli._ingest(["mrv"])
+    assert built["pace_seconds"] == PACE_SECONDS

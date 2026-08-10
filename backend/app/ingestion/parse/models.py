@@ -1,7 +1,5 @@
 """Format-neutral parser IR: every parser produces a ParsedDocument section tree."""
 
-from typing import Protocol
-
 from pydantic import Field
 
 from app.core.models import FrozenModel
@@ -26,10 +24,6 @@ class ParsedDocument(FrozenModel):
     celex: str
     topic: str
     sections: tuple[Section, ...]
-
-
-class Parser(Protocol):
-    def __call__(self, html: str, celex: str, topic: str) -> ParsedDocument: ...
 
 
 class ParseRunResult(StageRunResult):

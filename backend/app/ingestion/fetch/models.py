@@ -1,5 +1,6 @@
 """Fetch-stage values: what discovery found, which version it resolved to, what the run did."""
 
+from datetime import datetime
 from typing import ClassVar
 
 from pydantic import Field
@@ -31,6 +32,14 @@ class ResolvedVersion(FrozenModel):
 
     resolved_celex: str
     url: str
+
+
+class StoredBytes(FrozenModel):
+    """What a run records about a document's stored bytes."""
+
+    sha256: str
+    size_bytes: int
+    fetched_at: datetime
 
 
 class FetchRunResult(StageRunResult):

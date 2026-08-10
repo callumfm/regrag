@@ -12,10 +12,7 @@ class StageRunResult(BaseModel):
     """One ingest stage's outcome; every field a subclass declares is a reported bucket."""
 
     UNCOUNTED: ClassVar[frozenset[str]] = frozenset({"failed"})
-    """Fields counts() leaves out, because summary() reports them itself or not at all."""
-
     MAX_FAILURE_CHARS: ClassVar[int] = 500
-    """Cap on a stored failure message; providers return unbounded prose. details() is uncapped."""
 
     failed: dict[str, str] = Field(default_factory=dict)
 

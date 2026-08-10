@@ -1,19 +1,20 @@
-"""Fetch decision logic, download and store, and the fetch stage in isolation."""
+"""Reusing or downloading a document's bytes, and the fetch stage in isolation."""
 
 import hashlib
 
 import httpx
 import pytest
 
-from app.ingestion.constants import PACE_SECONDS
-from app.ingestion.enums import DocChange
-from app.ingestion.exceptions import EmptyDownloadError, ParseError
+from app.ingestion.enums import DocChange, IngestRunStatus
+from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
-from app.ingestion.fetch.stage import _classify, _store, fetch_documents
+from app.ingestion.fetch.stage import _reuse_stored_bytes, fetch_documents
+from app.ingestion.schemas import IngestRun
 from app.ingestion.service import create_ingest_run
+from app.ingestion.storage import document_filename, write_document
 from tests.conftest import MRV_SPARQL, binding, payload
 
 pytestmark = pytest.mark.anyio
@@ -23,38 +24,37 @@ def spec(celex, topic="mrv"):
     return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=None)
 
 
-def test_classify_no_baseline_is_new():
-    assert _classify(None, "32023R2449") is DocChange.NEW
+def stored(make_document, tmp_path, celex="32023R1805"):
+    """A previous run's row whose bytes are still on disk."""
+    document = make_document(IngestRun(status=IngestRunStatus.COMPLETED), celex=celex)
+    write_document(tmp_path, celex, b"<html>act</html>")
+    return document
 
 
-def test_classify_differing_resolved_celex_is_changed():
-    assert _classify("02015R0757-20240101", "02015R0757-20250101") is DocChange.CHANGED
+def test_unchanged_bytes_still_stored_are_reused(tmp_path, make_document):
+    prev = stored(make_document, tmp_path)
+    reused = _reuse_stored_bytes(tmp_path, prev, DocChange.UNCHANGED)
+    assert reused is not None
+    assert (reused.sha256, reused.size_bytes, reused.fetched_at) == (
+        prev.sha256,
+        prev.size_bytes,
+        prev.fetched_at,
+    )
 
 
-def test_classify_same_resolved_celex_is_unchanged():
-    assert _classify("02015R0757-20250101", "02015R0757-20250101") is DocChange.UNCHANGED
+def test_unchanged_bytes_no_longer_stored_are_not_reused(tmp_path, make_document):
+    prev = stored(make_document, tmp_path)
+    (tmp_path / document_filename(prev.celex)).unlink()
+    assert _reuse_stored_bytes(tmp_path, prev, DocChange.UNCHANGED) is None
 
 
-def test_store_writes_file_and_returns_sha_and_size(tmp_path):
-    content = b"<html>act</html>"
-    sha256, size = _store(tmp_path / "raw", "32023R1805", content)
-    assert (tmp_path / "raw" / "32023R1805.html").read_bytes() == content
-    assert sha256 == hashlib.sha256(content).hexdigest()
-    assert size == len(content)
+@pytest.mark.parametrize("change", [DocChange.NEW, DocChange.CHANGED])
+def test_only_unchanged_documents_reuse_their_bytes(tmp_path, make_document, change):
+    assert _reuse_stored_bytes(tmp_path, stored(make_document, tmp_path), change) is None
 
 
-def test_store_refuses_empty_content(tmp_path):
-    with pytest.raises(EmptyDownloadError, match="32023R2917"):
-        _store(tmp_path / "raw", "32023R2917", b"")
-
-
-def test_store_leaves_the_previous_file_intact_when_content_is_empty(tmp_path):
-    """An empty body must not destroy the last good copy of the document."""
-    data_dir = tmp_path / "raw"
-    _store(data_dir, "32023R2917", b"<html>act</html>")
-    with pytest.raises(EmptyDownloadError):
-        _store(data_dir, "32023R2917", b"")
-    assert (data_dir / "32023R2917.html").read_bytes() == b"<html>act</html>"
+def test_a_document_with_no_previous_run_has_nothing_to_reuse(tmp_path):
+    assert _reuse_stored_bytes(tmp_path, None, DocChange.UNCHANGED) is None
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
@@ -196,9 +196,3 @@ async def test_duplicate_celex_across_topics_ingested_once(db_session, tmp_path,
     assert report.ok
     rows = await get_baseline_docs(db_session, ["fueleu", "mrv"])
     assert rows["32015R0757"].topic == "fueleu"
-
-
-async def test_paces_between_documents(db_session, tmp_path, corpus_client, paces):
-    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    await fetch(db_session, client, ["mrv"], tmp_path)
-    assert paces == [PACE_SECONDS]

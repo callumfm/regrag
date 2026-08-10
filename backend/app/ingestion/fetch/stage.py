@@ -1,50 +1,41 @@
 """Fetch stage: version-diff against the previous run, download only what changed."""
 
-import hashlib
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
-from app.core.http import download, pace
-from app.ingestion.constants import PACE_SECONDS
+from app.core.http import download
 from app.ingestion.enums import DocChange
-from app.ingestion.exceptions import EmptyDownloadError, IngestionError
+from app.ingestion.exceptions import IngestionError
 from app.ingestion.fetch.discover import discover_topics, find_dropped_celexes
-from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
+from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult, StoredBytes
 from app.ingestion.fetch.resolve import resolve_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.schemas import IngestRun
+from app.ingestion.storage import document_exists, write_document
 
 
-def _classify(prev_resolved_celex: str | None, resolved_celex: str) -> DocChange:
-    if prev_resolved_celex is None:
-        return DocChange.NEW
-    if prev_resolved_celex != resolved_celex:
-        return DocChange.CHANGED
-    return DocChange.UNCHANGED
+def _reuse_stored_bytes(
+    data_dir: Path, prev: RawDocument | None, change: DocChange
+) -> StoredBytes | None:
+    """The previous run's bytes, if this act is unchanged and its file is still stored."""
+    if change is not DocChange.UNCHANGED or prev is None:
+        return None
+    if not document_exists(data_dir, prev.celex):
+        return None
+    return StoredBytes(sha256=prev.sha256, size_bytes=prev.size_bytes, fetched_at=prev.fetched_at)
 
 
-def _store(data_dir: Path, celex: str, content: bytes) -> tuple[str, int]:
-    """Write the document's source file and return its (sha256, size_bytes).
-    Empty content is refused: it would overwrite the last good copy with nothing.
-    """
-    if not content:
-        raise EmptyDownloadError(f"{celex}: download returned an empty body")
-    data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / RawDocument.filename(celex)).write_bytes(content)
-    return hashlib.sha256(content).hexdigest(), len(content)
-
-
-def _paced(specs: Sequence[DiscoveredDocument]) -> Iterator[DiscoveredDocument]:
-    """Yield each spec, waiting between them to stay within the source's rate limit."""
-    for index, spec in enumerate(specs):
-        if index > 0:
-            pace(PACE_SECONDS)
-        yield spec
+def _download_and_store(
+    client: httpx.Client, data_dir: Path, *, celex: str, url: str
+) -> StoredBytes:
+    """Download the act's HTML, store it, and stamp the fetch time."""
+    sha256, size_bytes = write_document(data_dir, celex, download(client, url))
+    return StoredBytes(sha256=sha256, size_bytes=size_bytes, fetched_at=utc_now())
 
 
 def _fetch_document(
@@ -55,21 +46,17 @@ def _fetch_document(
     run: IngestRun,
     data_dir: Path,
 ) -> tuple[RawDocument, DocChange]:
-    """Resolve one act, download it unless unchanged and still on disk, and build its row."""
-    resolved = resolve_version(client, spec)
-    change = _classify(prev.resolved_celex if prev else None, resolved.resolved_celex)
-    if change is DocChange.UNCHANGED and prev is not None and prev.path(data_dir).exists():
-        sha256, size_bytes, fetched_at = prev.sha256, prev.size_bytes, prev.fetched_at
-    else:
-        sha256, size_bytes = _store(data_dir, spec.celex, download(client, resolved.url))
-        fetched_at = utc_now()
+    """Resolve one act, download it unless unchanged and still stored, and build its row."""
+    resolution = resolve_version(client, spec)
+    change = DocChange.between(prev.resolved_celex if prev else None, resolution.resolved_celex)
+    stored = _reuse_stored_bytes(data_dir, prev, change) or _download_and_store(
+        client, data_dir, celex=spec.celex, url=resolution.url
+    )
     document = RawDocument(
         **spec.model_dump(exclude={"candidate_celex"}),
-        **resolved.model_dump(),
+        **resolution.model_dump(),
+        **stored.model_dump(),
         run=run,
-        sha256=sha256,
-        size_bytes=size_bytes,
-        fetched_at=fetched_at,
     )
     return document, change
 
@@ -85,7 +72,7 @@ def _download_documents(
     """Fetch every discovered document, recording the ones that would not download."""
     documents: list[RawDocument] = []
     result = FetchRunResult(discovered=[spec.celex for spec in specs])
-    for spec in _paced(specs):
+    for spec in specs:
         try:
             document, change = _fetch_document(
                 client, spec, prev=baseline.get(spec.celex), run=run, data_dir=data_dir
