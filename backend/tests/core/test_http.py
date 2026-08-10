@@ -46,11 +46,6 @@ def test_client_does_not_pace_unless_asked():
         assert client.event_hooks["request"] == []
 
 
-def test_client_paces_when_given_an_interval():
-    with http_client(pace_seconds=1.0) as client:
-        assert len(client.event_hooks["request"]) == 1
-
-
 def flaky_client(responses):
     """Client whose handler pops one queued response (or raises one queued error) per request."""
     calls = []

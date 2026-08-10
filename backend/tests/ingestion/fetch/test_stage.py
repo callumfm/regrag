@@ -11,10 +11,10 @@ from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import DiscoveredDocument, FetchRunResult
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_baseline_docs
-from app.ingestion.fetch.stage import fetch_documents, reuse_stored_bytes
-from app.ingestion.fetch.storage import write_document
+from app.ingestion.fetch.stage import _reuse_stored_bytes, fetch_documents
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import create_ingest_run
+from app.ingestion.storage import document_filename, write_document
 from tests.conftest import MRV_SPARQL, binding, payload
 
 pytestmark = pytest.mark.anyio
@@ -33,7 +33,7 @@ def stored(make_document, tmp_path, celex="32023R1805"):
 
 def test_unchanged_bytes_still_stored_are_reused(tmp_path, make_document):
     prev = stored(make_document, tmp_path)
-    reused = reuse_stored_bytes(tmp_path, prev, DocChange.UNCHANGED)
+    reused = _reuse_stored_bytes(tmp_path, prev, DocChange.UNCHANGED)
     assert reused is not None
     assert (reused.sha256, reused.size_bytes, reused.fetched_at) == (
         prev.sha256,
@@ -44,17 +44,17 @@ def test_unchanged_bytes_still_stored_are_reused(tmp_path, make_document):
 
 def test_unchanged_bytes_no_longer_stored_are_not_reused(tmp_path, make_document):
     prev = stored(make_document, tmp_path)
-    prev.path(tmp_path).unlink()
-    assert reuse_stored_bytes(tmp_path, prev, DocChange.UNCHANGED) is None
+    (tmp_path / document_filename(prev.celex)).unlink()
+    assert _reuse_stored_bytes(tmp_path, prev, DocChange.UNCHANGED) is None
 
 
 @pytest.mark.parametrize("change", [DocChange.NEW, DocChange.CHANGED])
 def test_only_unchanged_documents_reuse_their_bytes(tmp_path, make_document, change):
-    assert reuse_stored_bytes(tmp_path, stored(make_document, tmp_path), change) is None
+    assert _reuse_stored_bytes(tmp_path, stored(make_document, tmp_path), change) is None
 
 
 def test_a_document_with_no_previous_run_has_nothing_to_reuse(tmp_path):
-    assert reuse_stored_bytes(tmp_path, None, DocChange.UNCHANGED) is None
+    assert _reuse_stored_bytes(tmp_path, None, DocChange.UNCHANGED) is None
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
@@ -172,7 +172,7 @@ async def test_any_ingestion_error_is_recorded_per_document(
     def unparseable(*args, **kwargs):
         raise ParseError("unrecognised EUR-Lex dialect")
 
-    monkeypatch.setattr(stage, "fetch_document", unparseable)
+    monkeypatch.setattr(stage, "_fetch_document", unparseable)
     report, _ = await fetch(db_session, client, ["mrv"], tmp_path)
 
     assert sorted(report.failed) == ["32015R0757", "32023R2449"]

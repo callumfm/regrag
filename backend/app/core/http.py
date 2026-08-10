@@ -17,11 +17,7 @@ RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 
 def pace_requests(seconds: float) -> Callable[[httpx.Request], None]:
-    """Hook spacing successive requests, so the last-call time is scoped to one client.
-
-    Pacing belongs to the host being talked to, not to any one call, and every request
-    counts: resolving a document and downloading it are two hits on the same rate limit.
-    """
+    """Hook spacing every request this client makes, keeping last-call time scoped to it."""
     last: float | None = None
 
     def pace(request: httpx.Request) -> None:

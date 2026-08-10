@@ -5,21 +5,15 @@ from pathlib import Path
 
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.fetch.storage import read_document
 from app.ingestion.parse.html.parser import parse_eurlex_html
-from app.ingestion.parse.models import ParsedDocument, Parser, ParseRunResult
-
-PARSERS: dict[str, Parser] = {".html": parse_eurlex_html}
+from app.ingestion.parse.models import ParsedDocument, ParseRunResult
+from app.ingestion.storage import read_document
 
 
 def _parse_document(document: RawDocument, *, data_dir: Path) -> ParsedDocument:
-    """Parse one stored document, choosing the parser its file type calls for."""
-    suffix = document.path(data_dir).suffix
-    parser = PARSERS.get(suffix)
-    if parser is None:
-        raise ParseError(f"{document.celex}: no parser for {suffix or 'a file with no extension'}")
-    content = read_document(data_dir, document).decode("utf-8")
-    return parser(content, document.celex, document.topic)
+    """Parse one stored document's HTML, the one format storage keeps, into a section tree."""
+    content = read_document(data_dir, document.celex).decode("utf-8")
+    return parse_eurlex_html(content, document.celex, document.topic)
 
 
 def parse_documents(

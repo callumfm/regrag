@@ -24,12 +24,14 @@ from app.ingestion.service import complete_ingest_run, create_ingest_run
 logger = logging.getLogger(__name__)
 
 
-async def _mark_failed(session: AsyncSession, run: IngestRun) -> None:
+async def _mark_failed(session: AsyncSession, run: IngestRun, result: IngestRunResult) -> None:
     """Discard the aborted transaction, then close the run out without masking why it aborted."""
     run_id = run.id
     await session.rollback()
     try:
-        await complete_ingest_run(session, run, status=IngestRunStatus.FAILED)
+        await complete_ingest_run(
+            session, run, status=IngestRunStatus.FAILED, result=result.report()
+        )
     except SQLAlchemyError:
         logger.exception("run %s could not be marked failed", run_id)
 
@@ -51,14 +53,17 @@ async def _known_corpus_celexes(
 
 
 @asynccontextmanager
-async def ingest_run(session: AsyncSession) -> AsyncIterator[IngestRun]:
-    """Open a run, and mark it failed if the pipeline raises or is interrupted."""
+async def ingest_run(session: AsyncSession) -> AsyncIterator[tuple[IngestRun, IngestRunResult]]:
+    """Open a run and close it out, marking it failed if the body raises or is interrupted."""
     run = await create_ingest_run(session)
+    result = IngestRunResult(run_id=run.id)
     try:
-        yield run
+        yield run, result
+        await complete_ingest_run(session, run, status=result.status, result=result.report())
     except BaseException:
-        await _mark_failed(session, run)
+        await _mark_failed(session, run, result)
         raise
+    result.corpus_version = run.corpus_version
 
 
 async def ingest(
@@ -69,33 +74,24 @@ async def ingest(
     data_dir: Path,
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
-    async with ingest_run(session) as run:
-        documents, fetch_result = await fetch_documents(
+    async with ingest_run(session) as (run, result):
+        documents, result.fetch = await fetch_documents(
             session, client=client, topics=topics, data_dir=data_dir, run=run
         )
-        logger.info("[fetch] %s", fetch_result.summary())
+        logger.info("[fetch] %s", result.fetch.summary())
 
-        parsed, parse_result = parse_documents(documents, data_dir=data_dir)
-        logger.info("[parse] %s", parse_result.summary())
+        parsed, result.parse = parse_documents(documents, data_dir=data_dir)
+        logger.info("[parse] %s", result.parse.summary())
 
         corpus_celexes = await _known_corpus_celexes(
-            session, fetch_result=fetch_result, parse_result=parse_result, topics=topics
+            session, fetch_result=result.fetch, parse_result=result.parse, topics=topics
         )
-        chunk_result = await chunk_and_store_documents(
+        result.chunk = await chunk_and_store_documents(
             session, parsed, ingest_run_id=run.id, corpus_celexes=corpus_celexes
         )
-        logger.info("[chunk] %s", chunk_result.summary())
+        logger.info("[chunk] %s", result.chunk.summary())
 
-        embed_result = await embed_chunks(session)
-        logger.info("[embed] %s", embed_result.summary())
+        result.embed = await embed_chunks(session)
+        logger.info("[embed] %s", result.embed.summary())
 
-        result = IngestRunResult(
-            run_id=run.id,
-            fetch=fetch_result,
-            parse=parse_result,
-            chunk=chunk_result,
-            embed=embed_result,
-        )
-        await complete_ingest_run(session, run, status=result.status, result=result.report())
-        result.corpus_version = run.corpus_version
-        return result
+    return result
