@@ -1,46 +1,82 @@
 """Reading, writing and checking for a fetched document's stored bytes."""
 
 import hashlib
-from pathlib import Path
+from collections.abc import Callable
 
 import pytest
 
+from app.core.storage import LocalObjectStore, StorageError
+from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import EmptyDownloadError
-from app.ingestion.storage import document_exists, read_document, write_document
+from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.schemas import IngestRun
+from app.ingestion.storage import (
+    document_exists,
+    document_key,
+    read_document,
+    write_document,
+)
+
+HTML = b"<html>act</html>"
 
 
-def test_write_stores_the_bytes_and_returns_their_sha_and_size(tmp_path: Path) -> None:
-    content = b"<html>act</html>"
-    sha256, size = write_document(tmp_path / "raw", "32023R1805", content)
-    assert (tmp_path / "raw" / "32023R1805.html").read_bytes() == content
-    assert sha256 == hashlib.sha256(content).hexdigest()
-    assert size == len(content)
+def run() -> IngestRun:
+    return IngestRun(status=IngestRunStatus.COMPLETED)
 
 
-def test_write_refuses_empty_content(tmp_path: Path) -> None:
+def test_the_key_names_the_document_its_version_and_its_content():
+    assert document_key("32023R1805", "02023R1805-20250101", "abc") == (
+        "32023R1805/02023R1805-20250101/abc.html"
+    )
+
+
+def test_write_stores_the_bytes_and_returns_their_sha_and_size(local_store: LocalObjectStore):
+    sha256, size = write_document(local_store, "32023R1805", "32023R1805", HTML)
+    assert local_store.get(document_key("32023R1805", "32023R1805", sha256)) == HTML
+    assert sha256 == hashlib.sha256(HTML).hexdigest()
+    assert size == len(HTML)
+
+
+def test_write_refuses_empty_content(local_store: LocalObjectStore):
     with pytest.raises(EmptyDownloadError, match="32023R2917"):
-        write_document(tmp_path / "raw", "32023R2917", b"")
+        write_document(local_store, "32023R2917", "32023R2917", b"")
 
 
-def test_write_leaves_the_previous_bytes_intact_when_content_is_empty(tmp_path: Path) -> None:
-    """An empty body must not destroy the last good copy of the document."""
-    write_document(tmp_path, "32023R2917", b"<html>act</html>")
-    with pytest.raises(EmptyDownloadError):
-        write_document(tmp_path, "32023R2917", b"")
-    assert (tmp_path / "32023R2917.html").read_bytes() == b"<html>act</html>"
+def test_changed_content_is_stored_beside_the_bytes_an_earlier_parse_ran_against(
+    local_store: LocalObjectStore,
+):
+    """The point of keying on the hash: a new version never overwrites the one already parsed."""
+    old, _ = write_document(local_store, "32015R0757", "32015R0757", b"<html>v1</html>")
+    new, _ = write_document(local_store, "32015R0757", "32015R0757", b"<html>v2</html>")
+
+    assert local_store.get(document_key("32015R0757", "32015R0757", old)) == b"<html>v1</html>"
+    assert local_store.get(document_key("32015R0757", "32015R0757", new)) == b"<html>v2</html>"
 
 
-def test_read_returns_what_write_stored(tmp_path: Path) -> None:
-    write_document(tmp_path, "32023R1805", b"<html>act</html>")
-    assert read_document(tmp_path, "32023R1805") == b"<html>act</html>"
+def test_restoring_unchanged_content_lands_on_the_same_key(local_store: LocalObjectStore):
+    first, _ = write_document(local_store, "32023R1805", "32023R1805", HTML)
+    second, _ = write_document(local_store, "32023R1805", "32023R1805", HTML)
+    assert first == second
 
 
-def test_read_raises_when_the_bytes_are_not_there(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError):
-        read_document(tmp_path, "32023R1805")
+def test_read_returns_what_write_stored(
+    local_store: LocalObjectStore, store_document: Callable[..., RawDocument]
+):
+    document = store_document(run(), HTML)
+    assert read_document(local_store, document) == HTML
 
 
-def test_exists_is_true_only_once_the_bytes_are_written(tmp_path: Path) -> None:
-    assert not document_exists(tmp_path, "32023R1805")
-    write_document(tmp_path, "32023R1805", b"<html>act</html>")
-    assert document_exists(tmp_path, "32023R1805")
+def test_read_raises_when_the_bytes_are_not_there(
+    local_store: LocalObjectStore, make_document: Callable[..., RawDocument]
+):
+    with pytest.raises(StorageError, match="get failed"):
+        read_document(local_store, make_document(run()))
+
+
+def test_exists_is_true_only_once_the_bytes_are_written(
+    local_store: LocalObjectStore,
+    make_document: Callable[..., RawDocument],
+    store_document: Callable[..., RawDocument],
+):
+    assert not document_exists(local_store, make_document(run()))
+    assert document_exists(local_store, store_document(run(), HTML))

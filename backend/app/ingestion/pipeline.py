@@ -3,12 +3,12 @@
 import logging
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import httpx
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.storage import ObjectStore
 from app.ingestion.chunk.stage import chunk_and_store_documents
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
@@ -71,16 +71,16 @@ async def ingest(
     *,
     client: httpx.Client,
     topics: Sequence[str],
-    data_dir: Path,
+    store: ObjectStore,
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as (run, result):
         documents, result.fetch = await fetch_documents(
-            session, client=client, topics=topics, data_dir=data_dir, run=run
+            session, client=client, topics=topics, store=store, run=run
         )
         logger.info("[fetch] %s", result.fetch.summary())
 
-        parsed, result.parse = parse_documents(documents, data_dir=data_dir)
+        parsed, result.parse = parse_documents(documents, store=store)
         logger.info("[parse] %s", result.parse.summary())
 
         corpus_celexes = await _known_corpus_celexes(

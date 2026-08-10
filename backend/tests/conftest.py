@@ -1,6 +1,7 @@
 """Shared test fixtures."""
 
 from collections.abc import AsyncGenerator, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -15,6 +16,7 @@ from tenacity import wait_none
 from app.core.clock import utc_now
 from app.core.config import config
 from app.core.db.session import async_session_factory
+from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
@@ -25,6 +27,7 @@ from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
+from app.ingestion.storage import write_document
 from app.main import configure_app
 
 RETRIED = (discover_topic, download_fetchable_version, _embed_texts)
@@ -99,6 +102,38 @@ def make_document() -> Callable[..., RawDocument]:
         return RawDocument(**{**defaults, **overrides})
 
     return _make
+
+
+@pytest.fixture
+def local_store(tmp_path: Path) -> LocalObjectStore:
+    """The real local store, rooted in tmp_path, so the suite needs no network."""
+    return LocalObjectStore(tmp_path / "raw")
+
+
+@pytest.fixture
+def store_document(
+    local_store: LocalObjectStore, make_document: Callable[..., RawDocument]
+) -> Callable[..., RawDocument]:
+    """Store bytes and return the row that keys them, so the row's sha is the stored one."""
+
+    def _store(
+        run: IngestRun,
+        content: bytes = b"<html>act</html>",
+        celex: str = "32023R1805",
+        **overrides: Any,
+    ) -> RawDocument:
+        resolved_celex = overrides.pop("resolved_celex", celex)
+        sha256, size_bytes = write_document(local_store, celex, resolved_celex, content)
+        return make_document(
+            run,
+            celex=celex,
+            resolved_celex=resolved_celex,
+            sha256=sha256,
+            size_bytes=size_bytes,
+            **overrides,
+        )
+
+    return _store
 
 
 @pytest.fixture

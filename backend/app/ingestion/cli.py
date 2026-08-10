@@ -6,10 +6,10 @@ import sys
 
 import httpx
 
-from app.core.config import config
 from app.core.db.session import get_session
 from app.core.http import http_client
 from app.core.logger import setup_logging
+from app.core.storage import get_object_store
 from app.ingestion.constants import PACE_SECONDS, SEEDS
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.pipeline import ingest
@@ -28,9 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _ingest(topics: list[str]) -> IngestRunResult:
+    store = get_object_store()
     with http_client(pace_seconds=PACE_SECONDS) as client:
         async with get_session(auto_commit=False) as session:
-            return await ingest(session, client=client, topics=topics, data_dir=config.RAW_DATA_DIR)
+            return await ingest(session, client=client, topics=topics, store=store)
 
 
 def main(argv: list[str] | None = None) -> int:
