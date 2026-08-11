@@ -56,12 +56,23 @@ https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32023R1805
 
 HTML is preferred over PDF because it carries the document's structure as markup — articles, paragraphs and tables are each marked up as such. A naive approach to chunking PDF text is to split every N characters with overlap, which cuts through those boundaries.
 
-Each act is downloaded at the latest consolidated version discovery carried forward. That version is not always available: an act that has never been amended has a consolidated id but no consolidated text to serve. FuelEU's `02023R1805-20230922` returns a 404, while MRV's, which has been amended four times, downloads normally. Where the consolidated version cannot be downloaded, download falls back to the original act.
+Each act is downloaded at the latest consolidated version discovery carried forward. That version is not always available: an act that has never been amended has a consolidated id but no consolidated text to serve. Where the consolidated version cannot be downloaded, download falls back to the original act.
 
-Documents are saved under their durable id and overwritten on later runs, so a new consolidation replaces the file rather than adding one. The version actually downloaded is recorded in the database.
+Refusal has to be recognised rather than trusted to the status code. EUR-Lex denies a version either with a 404 or with a 200 carrying its "does not exist" page, and answers 202 with an empty body while it is still generating one on demand. Only the first two are refusals and fall back to the next candidate. A 202 is not: falling back there would quietly ingest an older version of an act whose newest one was merely a moment away, so the document is recorded as failed and left for the next run.
+
+Documents are stored as objects — files on disk in dev, a Cloudflare R2 bucket in prod — keyed by act, version and a hash of the bytes:
+
+```
+{act}/{version downloaded}/{sha256 of the bytes}.html
+32023R1805/32023R1805/9f86d081….html      FuelEU, served as published
+```
+
+A new consolidation is therefore a new object rather than a replacement for the old one. This is deliberate: the database keeps one row per document per run, each recording the hash of the bytes that run read, and those bytes are verified against that hash on every later read. Overwriting would leave every earlier run pointing at bytes that no longer match.
 
 ### 1.4 Re-fetching
 Fetch compares each act's resolved version against the previous run's, so an unchanged document is not downloaded or written again. The comparison is on the version id, not the text — a new consolidation is a new id.
+
+Reusing a version means reading its stored bytes, which also proves they are still there. The row and the object are backed up separately, so a restore can leave them disagreeing; bytes that are missing, or that no longer hash to what the row recorded, are treated as bytes we do not have and the version is downloaded again.
 
 ## 2 Parse
 Parse turns each downloaded page into a structure: the articles, paragraphs and annexes the document is made of.

@@ -9,6 +9,7 @@ FastAPI backend for RegRag: the ingestion pipeline, the retrieval agent and the 
 | Web Framework          | [FastAPI](https://github.com/fastapi/fastapi)                 |
 | Database               | [PostgreSQL](https://www.postgresql.org/)                     |
 | Vector Search          | [pgvector](https://github.com/pgvector/pgvector)              |
+| Object Storage         | [Cloudflare R2](https://developers.cloudflare.com/r2/)        |
 | ORM                    | [SQLAlchemy](https://github.com/sqlalchemy/sqlalchemy)        |
 | Database Migrations    | [Alembic](https://github.com/sqlalchemy/alembic)              |
 | Data Validation        | [Pydantic](https://github.com/pydantic/pydantic)              |
@@ -24,7 +25,7 @@ FastAPI backend for RegRag: the ingestion pipeline, the retrieval agent and the 
 
 | Directory        | Contents                                                    |
 | ---------------- | ----------------------------------------------------------- |
-| `app/core/`      | Shared contracts: config, db session, http, llm, logging     |
+| `app/core/`      | Shared contracts: config, db session, http, llm, storage     |
 | `app/ingestion/` | The corpus pipeline: fetch → parse → chunk → embed           |
 | `migrations/`    | Alembic revisions                                            |
 | `tests/`         | Mirrors `app/`, with shared fixtures in `tests/conftest.py`  |
@@ -74,9 +75,14 @@ uv run ingest             # every seed topic
 uv run ingest fueleu      # one topic
 ```
 
-A run writes documents to `RAW_DATA_DIR` (defaults to `<repo>/data/raw`) and
-calls the embedding model, so it needs `VOYAGE_API_KEY` set. Re-running is
-cheap and safe: unchanged documents are neither downloaded nor re-embedded.
+A run stores the documents it downloads and calls the embedding model, so it
+needs `VOYAGE_API_KEY` set. Re-running is cheap and safe: unchanged documents
+are neither downloaded nor re-embedded.
+
+Where the documents are stored depends on `STORAGE_BACKEND`. It defaults to
+`local`, writing files under `RAW_DATA_DIR` (`<repo>/data/raw`), so dev and
+tests need no network. Set it to `r2` and fill in the `R2_*` variables to use
+the Cloudflare bucket instead.
 
 What each stage does, and why, is in
 [`app/ingestion/README.md`](app/ingestion/README.md).
