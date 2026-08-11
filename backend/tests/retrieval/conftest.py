@@ -53,10 +53,18 @@ async def vacuum_chunks(db_engine: AsyncEngine) -> None:
         await conn.execute(text("VACUUM document_chunks"))
 
 
+async def clear_ingest_tables(db_engine: AsyncEngine) -> None:
+    """Drop what an interrupted run committed, so a stale corpus cannot survive into this one."""
+    async with async_session_factory(bind=db_engine) as session:
+        await session.execute(delete(IngestRun))
+        await session.commit()
+
+
 async def store_corpus(
     db_engine: AsyncEngine, fueleu: ParsedDocument, mrv: ParsedDocument
 ) -> list[DocumentChunk]:
     """Chunk, store and embed both fixture acts, committed so every test reads the same rows."""
+    await clear_ingest_tables(db_engine)
     await vacuum_chunks(db_engine)
     async with async_session_factory(bind=db_engine) as session:
         run = IngestRun(status=IngestRunStatus.RUNNING)
