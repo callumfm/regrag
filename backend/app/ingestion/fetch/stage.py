@@ -23,30 +23,32 @@ Fetched = tuple[ResolvedVersion, StoredBytes, bytes]
 
 
 def _reuse_stored_version(
-    store: ObjectStore, spec: DiscoveredDocument, prev: RawDocument | None
+    store: ObjectStore, discovered: DiscoveredDocument, previous: RawDocument | None
 ) -> Fetched | None:
     """The version and bytes the previous run stored, if the download would land on that version.
 
     Sparing the request is the point: an unchanged act is the common case, and reading its
     stored bytes both proves they are still there and gives parse what it needs.
     """
-    expected = expected_version(spec)
-    if prev is None or prev.resolved_celex != expected.resolved_celex:
+    expected = expected_version(discovered)
+    if previous is None or previous.resolved_celex != expected.resolved_celex:
         return None
     try:
-        content = read_document(store, prev)
+        content = read_document(store, previous)
     except StorageError:
         return None
-    stored = StoredBytes(sha256=prev.sha256, size_bytes=prev.size_bytes, fetched_at=prev.fetched_at)
+    stored = StoredBytes(
+        sha256=previous.sha256, size_bytes=previous.size_bytes, fetched_at=previous.fetched_at
+    )
     return expected, stored, content
 
 
 def _download_new_version(
-    client: httpx.Client, store: ObjectStore, spec: DiscoveredDocument
+    client: httpx.Client, store: ObjectStore, discovered: DiscoveredDocument
 ) -> Fetched:
     """Download the version EUR-Lex will serve, store its bytes, and stamp the fetch time."""
-    resolution, content = download_fetchable_version(client, spec)
-    sha256, size_bytes = write_document(store, spec.celex, resolution.resolved_celex, content)
+    resolution, content = download_fetchable_version(client, discovered)
+    sha256, size_bytes = write_document(store, discovered.celex, resolution.resolved_celex, content)
     stored = StoredBytes(sha256=sha256, size_bytes=size_bytes, fetched_at=utc_now())
     return resolution, stored, content
 

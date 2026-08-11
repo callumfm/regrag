@@ -9,14 +9,16 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
-from app.ingestion.chunk.stage import chunk_and_store_documents, prune_chunks
+from app.ingestion.chunk.models import ChunkRunResult
+from app.ingestion.chunk.stage import chunk_and_store_document, prune_chunks
 from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.models import FetchedDocument, FetchRunResult
-from app.ingestion.fetch.service import get_baseline_docs, get_other_topic_celexes
+from app.ingestion.fetch.models import FetchRunResult
+from app.ingestion.fetch.service import get_other_topic_celexes, get_previous_docs
 from app.ingestion.fetch.stage import fetch_document
-from app.ingestion.parse.stage import parse_documents
+from app.ingestion.parse.models import ParseRunResult
+from app.ingestion.parse.stage import parse_document
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run
@@ -72,16 +74,19 @@ async def ingest(
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as (run, result):
-        previous = await get_baseline_docs(session, topics)
+        previous = await get_previous_docs(session, topics)
         discovered, result.discover = discover_corpus(
             client, topics=topics, previous_celexes=previous
         )
         logger.info("[discover] %s", result.discover.summary())
 
-        fetched: list[FetchedDocument] = []
-        result.fetch = FetchRunResult()
+        result.fetch, result.parse, result.chunk = (
+            FetchRunResult(),
+            ParseRunResult(),
+            ChunkRunResult(),
+        )
         for document in discovered:
-            item, fetch_result = await fetch_document(
+            fetched, fetch_result = await fetch_document(
                 session,
                 client=client,
                 discovered=document,
@@ -90,15 +95,18 @@ async def ingest(
                 store=store,
             )
             result.fetch += fetch_result
-            if item is not None:
-                fetched.append(item)
+            if fetched is None:
+                continue
+            parsed, parse_result = parse_document(fetched)
+            result.parse += parse_result
+            if parsed is None:
+                continue
+            result.chunk += await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
+            await session.commit()
         logger.info("[fetch] %s", result.fetch.summary())
-
-        parsed, result.parse = parse_documents(fetched)
         logger.info("[parse] %s", result.parse.summary())
 
         corpus_celexes = await _known_corpus_celexes(session, result=result, topics=topics)
-        result.chunk = await chunk_and_store_documents(session, parsed, ingest_run_id=run.id)
         if corpus_celexes is not None:
             result.chunk += await prune_chunks(session, corpus_celexes=corpus_celexes)
         logger.info("[chunk] %s", result.chunk.summary())

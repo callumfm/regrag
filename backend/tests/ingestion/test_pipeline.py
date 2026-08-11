@@ -15,7 +15,7 @@ from app.ingestion.discover.models import DiscoverRunResult
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch.models import FetchRunResult
-from app.ingestion.fetch.service import get_baseline_docs
+from app.ingestion.fetch.service import get_previous_docs
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.pipeline import _known_corpus_celexes, ingest
@@ -214,7 +214,7 @@ async def test_a_failure_after_fetch_still_marks_the_run_failed(
     async def explode(*args, **kwargs):
         raise RuntimeError("chunking blew up")
 
-    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", explode)
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_document", explode)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(RuntimeError):
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
@@ -250,20 +250,24 @@ async def test_a_failure_closing_the_run_out_still_marks_it_failed(
 async def test_a_run_aborted_mid_pipeline_keeps_the_stages_that_did_report(
     db_session, local_store, corpus_client, monkeypatch
 ):
-    """Fetch and parse detail is the whole reason to look at an aborted run's row."""
+    """Fetch and parse detail is the whole reason to look at an aborted run's row.
+
+    Streaming means the row shows how far the loop got, not a whole stage: chunking dies on the
+    first document, so fetch and parse report one each, and only embed never ran at all.
+    """
 
     async def explode(*args, **kwargs):
         raise RuntimeError("chunking blew up")
 
-    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", explode)
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_document", explode)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(RuntimeError):
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.result["fetch"]["new"] == 2
-    assert run.result["parse"]["parsed"] == 2
-    assert run.result["chunk"] is None
+    assert run.result["fetch"]["new"] == 1
+    assert run.result["parse"]["parsed"] == 1
+    assert run.result["chunk"] == {"added": 0, "removed": 0, "unchanged": 0, "failed": {}}
     assert run.result["embed"] is None
 
 
@@ -320,7 +324,7 @@ async def test_dropped_document_loses_its_chunks(db_session, local_store, corpus
 async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fetch(
     db_session, local_store, corpus_client
 ):
-    """A failed fetch drops the doc from the next run's baseline; chunks must still go.
+    """A failed fetch drops the doc from what the next run treats as previous; chunks must still go.
 
     The failure has to land on a version the run actually downloads: an unchanged act is
     never requested, so it has no way to fail.
@@ -480,7 +484,7 @@ async def test_a_source_document_lost_from_the_store_is_downloaded_again(
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    rows = await get_baseline_docs(db_session, ["mrv"])
+    rows = await get_previous_docs(db_session, ["mrv"])
     row = rows["32015R0757"]
     assert local_store.exists(document_key(row.celex, row.resolved_celex, row.sha256))
     assert report.ok
@@ -507,7 +511,7 @@ async def test_an_interrupt_still_marks_the_run_failed(
     async def interrupt(*args, **kwargs):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", interrupt)
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_document", interrupt)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(KeyboardInterrupt):
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
@@ -525,7 +529,7 @@ async def test_a_database_failure_does_not_mask_itself(
     async def explode(*args, **kwargs):
         await db_session.execute(text("SELECT * FROM no_such_table"))
 
-    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", explode)
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_document", explode)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(ProgrammingError):
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
@@ -678,3 +682,37 @@ async def test_a_second_run_embeds_nothing_and_reports_the_rest_unchanged(
     assert second.ok
     assert second.embed.failed == {}
     assert (second.embed.embedded, second.embed.unchanged) == (0, stored)
+
+
+async def test_a_document_that_fails_does_not_stop_the_documents_after_it(
+    db_session, local_store, corpus_client
+):
+    """The loop is per document across three stages: one bad document skips only itself."""
+    docs = mrv_docs({"32015R0757": httpx.Response(400, text="bad")})
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    assert list(report.fetch.failed) == ["32015R0757"]
+    assert report.fetch.new == ["32023R2449"]
+    assert report.parse.parsed == ["32023R2449"]
+    assert report.chunk.added > 0
+    assert not report.ok
+
+
+async def test_a_run_that_dies_in_embed_keeps_its_documents_and_chunks(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """A late failure must not discard the fetch and chunk work the run already committed."""
+
+    async def provider_gone(session):
+        raise RuntimeError("provider gone")
+
+    monkeypatch.setattr(pipeline, "embed_chunks", provider_gone)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+
+    with pytest.raises(RuntimeError):
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    assert await chunk_versions(db_session) != set()
+    assert set(await get_previous_docs(db_session, ["mrv"])) == {"32015R0757", "32023R2449"}

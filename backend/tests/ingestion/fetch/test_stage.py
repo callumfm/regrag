@@ -11,7 +11,7 @@ from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import FetchedDocument, FetchRunResult
-from app.ingestion.fetch.service import get_baseline_docs
+from app.ingestion.fetch.service import get_previous_docs
 from app.ingestion.fetch.stage import _reuse_stored_version, fetch_document
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import create_ingest_run
@@ -86,7 +86,7 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 async def fetch(db_session, client, topics, store) -> tuple[FetchRunResult, list[FetchedDocument]]:
     """Drive the fetch stage alone, with the run and the discovery the orchestrator would supply."""
     run = await create_ingest_run(db_session)
-    previous = await get_baseline_docs(db_session, topics)
+    previous = await get_previous_docs(db_session, topics)
     discovered, _ = discover_corpus(client, topics=topics, previous_celexes=previous)
     fetched: list[FetchedDocument] = []
     result = FetchRunResult()
@@ -112,7 +112,7 @@ async def test_first_run_ingests_all_as_new(db_session, local_store, corpus_clie
     assert sorted(report.new) == ["32015R0757", "32023R2449"]
     assert report.ok
     assert html_of(documents, "32015R0757", local_store) == b"<html>mrv</html>"
-    rows = await get_baseline_docs(db_session, ["mrv"])
+    rows = await get_previous_docs(db_session, ["mrv"])
     assert rows["32023R2449"].celex == "32023R2449"
     assert rows["32023R2449"].resolved_celex == "32023R2449"
 
@@ -130,7 +130,7 @@ async def test_unchanged_run_makes_no_html_requests_and_carries_sha(
 
     assert sorted(second.unchanged) == ["32015R0757", "32023R2449"]
     assert calls == []
-    firsts = {r.celex: r.sha256 for r in (await get_baseline_docs(db_session, ["mrv"])).values()}
+    firsts = {r.celex: r.sha256 for r in (await get_previous_docs(db_session, ["mrv"])).values()}
     assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
 
 
@@ -156,7 +156,7 @@ async def test_new_consolidation_is_changed_and_redownloaded(
     assert report.changed == ["32015R0757"]
     assert calls == ["02015R0757-20250101"]
     assert html_of(documents, "32015R0757", local_store) == b"<html>v2</html>"
-    rows = await get_baseline_docs(db_session, ["mrv"])
+    rows = await get_previous_docs(db_session, ["mrv"])
     assert rows["32015R0757"].resolved_celex == "02015R0757-20250101"
 
 
@@ -198,7 +198,7 @@ async def test_a_vanished_doc_gets_no_row_from_this_run(db_session, local_store,
     report, _ = await fetch(db_session, client, ["mrv"], local_store)
 
     assert report.unchanged == ["32015R0757"]
-    assert "32023R2449" not in await get_baseline_docs(db_session, ["mrv"])
+    assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
 
 
 async def test_per_doc_failure_continues_and_is_recorded(db_session, local_store, corpus_client):
@@ -209,7 +209,7 @@ async def test_per_doc_failure_continues_and_is_recorded(db_session, local_store
     assert report.new == ["32015R0757"]
     assert "32023R2449" in report.failed
     assert not report.ok
-    assert "32023R2449" not in await get_baseline_docs(db_session, ["mrv"])
+    assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
 
 
 async def test_any_ingestion_error_is_recorded_per_document(
@@ -243,5 +243,5 @@ async def test_duplicate_celex_across_topics_ingested_once(db_session, local_sto
     report, _ = await fetch(db_session, client, ["fueleu", "mrv"], local_store)
 
     assert report.ok
-    rows = await get_baseline_docs(db_session, ["fueleu", "mrv"])
+    rows = await get_previous_docs(db_session, ["fueleu", "mrv"])
     assert rows["32015R0757"].topic == "fueleu"

@@ -89,10 +89,10 @@ def test_topic_corpus_discovers_and_resolves(topic):
     assert resolved == expected
 
 
-def test_find_dropped_celexes_returns_baseline_celexes_absent_from_discovery():
+def test_find_dropped_celexes_returns_previous_celexes_absent_from_discovery():
     found = [spec("32015R0757"), spec("32016R1928")]
-    baseline = ["32015R0757", "32016R1928", "32014R0666"]
-    assert find_dropped_celexes(found, baseline) == ["32014R0666"]
+    previous = ["32015R0757", "32016R1928", "32014R0666"]
+    assert find_dropped_celexes(found, previous) == ["32014R0666"]
 
 
 def test_find_dropped_celexes_is_empty_when_all_are_discovered():

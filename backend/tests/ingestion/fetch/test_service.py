@@ -1,17 +1,17 @@
-"""The fetch diff baseline query."""
+"""The previous-run query the fetch diff reads."""
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.service import get_baseline_docs
+from app.ingestion.fetch.service import get_previous_docs
 from app.ingestion.schemas import IngestRun
 
 pytestmark = pytest.mark.anyio
 
 
 async def test_baseline_empty_when_no_prior_runs(db_session: AsyncSession):
-    assert await get_baseline_docs(db_session, ["mrv"]) == {}
+    assert await get_previous_docs(db_session, ["mrv"]) == {}
 
 
 async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
@@ -28,9 +28,9 @@ async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
     )
     await db_session.flush()
 
-    baseline = await get_baseline_docs(db_session, ["mrv"])
-    assert set(baseline) == {"32015R0757"}
-    assert baseline["32015R0757"].resolved_celex == "02015R0757-20250101"
+    previous = await get_previous_docs(db_session, ["mrv"])
+    assert set(previous) == {"32015R0757"}
+    assert previous["32015R0757"].resolved_celex == "02015R0757-20250101"
 
 
 async def test_baseline_survives_a_newer_run_of_another_topic(
@@ -45,7 +45,7 @@ async def test_baseline_survives_a_newer_run_of_another_topic(
     await db_session.flush()
 
     assert fueleu_run.id > mrv_run.id
-    assert set(await get_baseline_docs(db_session, ["mrv"])) == {"32015R0757"}
+    assert set(await get_previous_docs(db_session, ["mrv"])) == {"32015R0757"}
 
 
 async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, make_document):
@@ -54,4 +54,4 @@ async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, m
     db_session.add(IngestRun(status=IngestRunStatus.FAILED))
     await db_session.flush()
 
-    assert set(await get_baseline_docs(db_session, ["mrv"])) == {"32015R0757"}
+    assert set(await get_previous_docs(db_session, ["mrv"])) == {"32015R0757"}

@@ -1,6 +1,6 @@
 """Chunk stage: parsed documents to reconciled document_chunks rows."""
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,25 +12,21 @@ from app.ingestion.exceptions import IngestionError
 from app.ingestion.parse.models import ParsedDocument
 
 
-async def chunk_and_store_documents(
-    session: AsyncSession,
-    documents: Sequence[ParsedDocument],
-    *,
-    ingest_run_id: int,
+async def chunk_and_store_document(
+    session: AsyncSession, document: ParsedDocument, *, ingest_run_id: int
 ) -> ChunkRunResult:
-    """Reconcile each document's chunks against the rows already stored for it."""
+    """Reconcile one document's chunks against the rows already stored for it."""
     result = ChunkRunResult()
-    for document in documents:
-        try:
-            async with session.begin_nested():
-                result += await upsert_document_chunks(
-                    session,
-                    celex=document.celex,
-                    chunks=chunk_document(document),
-                    ingest_run_id=ingest_run_id,
-                )
-        except (IngestionError, SQLAlchemyError) as exc:
-            result.fail(document.celex, exc)
+    try:
+        async with session.begin_nested():
+            result += await upsert_document_chunks(
+                session,
+                celex=document.celex,
+                chunks=chunk_document(document),
+                ingest_run_id=ingest_run_id,
+            )
+    except (IngestionError, SQLAlchemyError) as exc:
+        result.fail(document.celex, exc)
     return result
 
 

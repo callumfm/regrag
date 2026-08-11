@@ -41,18 +41,19 @@ def discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[Discove
 
 
 def find_dropped_celexes(
-    documents: Sequence[DiscoveredDocument], baseline_celexes: Iterable[str]
+    documents: Sequence[DiscoveredDocument], previous_celexes: Iterable[str]
 ) -> list[str]:
-    """Baseline celexes discovery no longer returns; losing an implausible share is an error.
+    """Celexes the previous run held that discovery no longer returns.
 
-    A truncated result set is indistinguishable from a mass repeal, so refuse to call it one.
+    Losing an implausible share is an error: a truncated result set is indistinguishable from a
+    mass repeal, so refuse to call it one.
     """
     discovered = {document.celex for document in documents}
-    baseline = set(baseline_celexes)
-    dropped = sorted(baseline - discovered)
-    if len(dropped) >= MIN_SUSPICIOUS_DROPS and len(dropped) > MAX_DROP_RATIO * len(baseline):
+    previous = set(previous_celexes)
+    dropped = sorted(previous - discovered)
+    if len(dropped) >= MIN_SUSPICIOUS_DROPS and len(dropped) > MAX_DROP_RATIO * len(previous):
         raise CorpusShrankError(
-            f"discovery lost {len(dropped)} of {len(baseline)} documents: {', '.join(dropped)}"
+            f"discovery lost {len(dropped)} of {len(previous)} documents: {', '.join(dropped)}"
         )
     return dropped
 

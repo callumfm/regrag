@@ -1,4 +1,4 @@
-"""Queries over raw_documents: the corpus as it currently stands, and the fetch diff baseline."""
+"""Queries over raw_documents: the corpus as it stands, and what the previous run recorded."""
 
 from collections.abc import Sequence
 
@@ -35,7 +35,7 @@ async def get_other_topic_celexes(session: AsyncSession, topics: Sequence[str]) 
     return {row.celex for row in rows}
 
 
-async def get_baseline_docs(session: AsyncSession, topics: Sequence[str]) -> dict[str, RawDocument]:
+async def get_previous_docs(session: AsyncSession, topics: Sequence[str]) -> dict[str, RawDocument]:
     """Rows from each topic's own latest recorded run, keyed by celex."""
     stmt = (
         latest_run_docs().where(RawDocument.topic.in_(topics)).order_by(RawDocument.ingest_run_id)
