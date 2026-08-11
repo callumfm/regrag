@@ -7,12 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.storage import ObjectStore, StorageError
+from app.ingestion.discover.models import DiscoveredDocument
+from app.ingestion.discover.stage import discover_topics, find_dropped_celexes
 from app.ingestion.enums import DocChange
 from app.ingestion.exceptions import IngestionError
-from app.ingestion.fetch.discover import discover_topics, find_dropped_celexes
 from app.ingestion.fetch.download import download_fetchable_version, expected_version
 from app.ingestion.fetch.models import (
-    DiscoveredDocument,
     FetchedDocument,
     FetchRunResult,
     ResolvedVersion,

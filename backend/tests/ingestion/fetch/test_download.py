@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
 from app.ingestion.fetch.download import (
     MISSING_MARKER,
@@ -12,8 +13,9 @@ from app.ingestion.fetch.download import (
     expected_version,
     is_missing,
     is_missing_document_page,
+    version_candidates,
 )
-from app.ingestion.fetch.models import DiscoveredDocument, ResolvedVersion
+from app.ingestion.fetch.models import ResolvedVersion
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DOC_HTML = (FIXTURES / "doc.html").read_text()
@@ -160,3 +162,14 @@ def test_unexpected_error_status_raises():
     with httpx.Client(transport=transport(responses)) as client:
         with pytest.raises(httpx.HTTPStatusError):
             download_fetchable_version(client, spec(celex="32023R2449"))
+
+
+def test_version_candidates_try_the_consolidation_before_the_original_act():
+    consolidated = DiscoveredDocument(
+        topic="mrv", source="eurlex", celex="32015R0757", candidate_celex="02015R0757-20250101"
+    )
+    assert version_candidates(consolidated) == ["02015R0757-20250101", "32015R0757"]
+
+
+def test_version_candidates_without_a_consolidation_is_the_act_alone():
+    assert version_candidates(spec("32023R2449")) == ["32023R2449"]

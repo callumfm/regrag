@@ -5,10 +5,11 @@ import hashlib
 import httpx
 import pytest
 
+from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
-from app.ingestion.fetch.models import DiscoveredDocument, FetchedDocument, FetchRunResult
+from app.ingestion.fetch.models import FetchedDocument, FetchRunResult
 from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.fetch.stage import _reuse_stored_version, fetch_documents
 from app.ingestion.schemas import IngestRun

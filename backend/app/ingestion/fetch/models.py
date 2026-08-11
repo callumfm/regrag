@@ -1,4 +1,4 @@
-"""Fetch-stage values: what discovery found, which version it resolved to, what the run did."""
+"""Fetch-stage values: which version a download resolved to, and what the run did."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,23 +10,6 @@ from app.core.models import FrozenModel
 from app.ingestion.enums import DocChange
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.models import StageRunResult
-
-
-class CandidateAct(FrozenModel):
-    """One act the topic query returned, with every binding for it folded together."""
-
-    celex: str
-    in_force: str | None = None
-    consolidations: frozenset[str] = frozenset()
-
-
-class DiscoveredDocument(FrozenModel):
-    """One document discovery found: what to fetch, and which version to try first."""
-
-    topic: str
-    source: str
-    celex: str
-    candidate_celex: str | None
 
 
 class ResolvedVersion(FrozenModel):

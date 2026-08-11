@@ -20,9 +20,9 @@ from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
+from app.ingestion.discover.stage import discover_topic
 from app.ingestion.embed.stage import _embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
-from app.ingestion.fetch.discover import discover_topic
 from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.parse.html.parser import parse_eurlex_html

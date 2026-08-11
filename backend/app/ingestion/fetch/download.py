@@ -3,12 +3,19 @@
 import httpx
 
 from app.core.http import http_retry
+from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
-from app.ingestion.fetch.discover import version_candidates
-from app.ingestion.fetch.models import DiscoveredDocument, ResolvedVersion
+from app.ingestion.fetch.models import ResolvedVersion
 
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}"
 MISSING_MARKER = "The requested document does not exist."
+
+
+def version_candidates(document: DiscoveredDocument) -> list[str]:
+    """The versions to try in order: the consolidation discovery found, then the original act."""
+    if document.candidate_celex:
+        return [document.candidate_celex, document.celex]
+    return [document.celex]
 
 
 def html_url(celex: str) -> str:
