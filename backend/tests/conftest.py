@@ -1,6 +1,7 @@
 """Shared test fixtures."""
 
 from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -85,22 +86,32 @@ def db_engine() -> AsyncEngine:
     return create_async_engine(config.SQLALCHEMY_DATABASE_URI, poolclass=NullPool)
 
 
-@pytest.fixture
-async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
-    """Session bound to a transaction that is always rolled back, with ingest tables cleared.
+@asynccontextmanager
+async def rolled_back_session(
+    db_engine: AsyncEngine, *, clear: bool = True
+) -> AsyncGenerator[AsyncSession, None]:
+    """Session bound to a transaction that is always rolled back, optionally clearing ingest tables.
 
     Savepoint join mode so a commit inside the session outlives a later rollback, as in production.
     """
     async with db_engine.connect() as conn:
         trans = await conn.begin()
-        await conn.execute(delete(DocumentChunk))
-        await conn.execute(delete(RawDocument))
-        await conn.execute(delete(IngestRun))
+        if clear:
+            await conn.execute(delete(DocumentChunk))
+            await conn.execute(delete(RawDocument))
+            await conn.execute(delete(IngestRun))
         async with async_session_factory(
             bind=conn, join_transaction_mode="create_savepoint"
         ) as session:
             yield session
         await trans.rollback()
+
+
+@pytest.fixture
+async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    """A session over empty ingest tables, whose writes never outlive the test."""
+    async with rolled_back_session(db_engine) as session:
+        yield session
 
 
 @pytest.fixture

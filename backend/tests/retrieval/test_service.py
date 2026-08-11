@@ -2,7 +2,7 @@ import random
 from collections.abc import Callable
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import config
@@ -21,11 +21,18 @@ SURVIVORS = 50
 """Live rows a ring farther out, far more than the limit so the assertion is not about recall."""
 WANTED = 5
 HUGGING, BEHIND = 0.01, 0.1
+SEED = 8
+"""Fixed, so the graph this test builds and walks is the same one on every run."""
 
 
-def nudge(query: list[float], scale: float) -> list[float]:
+def random_query(rng: random.Random) -> list[float]:
+    """A signed query vector, which the corpus's non-negative vectors all sit far from."""
+    return [rng.uniform(-1.0, 1.0) for _ in range(config.EMBED_DIMENSIONS)]
+
+
+def nudge(rng: random.Random, query: list[float], scale: float) -> list[float]:
     """The query pushed a set distance in a fresh random direction."""
-    return [value + scale * (random.random() - 0.5) for value in query]
+    return [value + scale * (rng.random() - 0.5) for value in query]
 
 
 async def citations_for(session: AsyncSession, chunk_ids: list[int]) -> list[str]:
@@ -59,9 +66,10 @@ async def test_the_vector_leg_meets_its_limit_past_dead_tuples(
     make_chunk_row: Callable[..., DocumentChunk],
 ) -> None:
     """Re-ingesting a document leaves old vectors dead in the graph, nearer than its new ones."""
-    query = [random.random() for _ in range(config.EMBED_DIMENSIONS)]
-    vectors = [nudge(query, HUGGING) for _ in range(SUPERSEDED)]
-    vectors += [nudge(query, BEHIND) for _ in range(SURVIVORS)]
+    rng = random.Random(SEED)
+    query = random_query(rng)
+    vectors = [nudge(rng, query, HUGGING) for _ in range(SUPERSEDED)]
+    vectors += [nudge(rng, query, BEHIND) for _ in range(SURVIVORS)]
     rows = [
         make_chunk_row(ingest_run, content_hash=f"{index:064d}", embedding=vector)
         for index, vector in enumerate(vectors)
@@ -82,8 +90,9 @@ async def test_the_vector_leg_skips_chunks_with_no_vector(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
     unembedded = corpus[0]
-    unembedded.embedding = None
-    await db_session.flush()
+    await db_session.execute(
+        update(DocumentChunk).where(DocumentChunk.id == unembedded.id).values(embedding=None)
+    )
 
     found = await vector_search(db_session, toy_embed("energy"), NO_FILTERS, limit=50)
 

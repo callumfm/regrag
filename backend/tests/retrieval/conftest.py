@@ -2,20 +2,25 @@
 
 import re
 import zlib
+from collections.abc import AsyncGenerator, Iterator
 from functools import cache
 from math import sqrt
 from typing import Any
 
+import anyio
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select, text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.core.config import config
+from app.core.db.session import async_session_factory
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import upsert_document_chunks
+from app.ingestion.enums import IngestRunStatus
 from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.schemas import IngestRun
-from tests.conftest import chunk_rows
+from tests.conftest import rolled_back_session
 
 TOKEN = re.compile(r"\w+")
 PROBES = 64
@@ -41,23 +46,73 @@ def toy_embed(text: str) -> list[float]:
     return [value / norm for value in vector] if norm else vector
 
 
-@pytest.fixture
-async def corpus(
-    db_session: AsyncSession, ingest_run: IngestRun, fueleu: ParsedDocument, mrv: ParsedDocument
+async def vacuum_chunks(db_engine: AsyncEngine) -> None:
+    """Reclaim the HNSW entries every rolled-back insert left behind, as autovacuum does live."""
+    autocommit = db_engine.execution_options(isolation_level="AUTOCOMMIT")
+    async with autocommit.connect() as conn:
+        await conn.execute(text("VACUUM document_chunks"))
+
+
+async def store_corpus(
+    db_engine: AsyncEngine, fueleu: ParsedDocument, mrv: ParsedDocument
 ) -> list[DocumentChunk]:
-    """Both fixture acts chunked, stored and embedded, without going near a provider."""
-    for document in (fueleu, mrv):
-        await upsert_document_chunks(
-            db_session,
-            celex=document.celex,
-            chunks=chunk_document(document),
-            ingest_run_id=ingest_run.id,
+    """Chunk, store and embed both fixture acts, committed so every test reads the same rows."""
+    await vacuum_chunks(db_engine)
+    async with async_session_factory(bind=db_engine) as session:
+        run = IngestRun(status=IngestRunStatus.RUNNING)
+        session.add(run)
+        await session.flush()
+        for document in (fueleu, mrv):
+            await upsert_document_chunks(
+                session,
+                celex=document.celex,
+                chunks=chunk_document(document),
+                ingest_run_id=run.id,
+            )
+        stmt = (
+            select(DocumentChunk)
+            .where(DocumentChunk.ingest_run_id == run.id)
+            .order_by(DocumentChunk.id)
         )
-    rows = await chunk_rows(db_session)
-    for row in rows:
-        row.embedding = toy_embed(row.text)
-    await db_session.flush()
-    return rows
+        rows = list(await session.scalars(stmt))
+        for row in rows:
+            row.embedding = toy_embed(row.text)
+        await session.commit()
+        session.expunge_all()
+        return rows
+
+
+async def drop_corpus(db_engine: AsyncEngine, ingest_run_id: int) -> None:
+    """Delete the run the corpus hangs off, which cascades to its chunks."""
+    async with async_session_factory(bind=db_engine) as session:
+        await session.execute(delete(IngestRun).where(IngestRun.id == ingest_run_id))
+        await session.commit()
+
+
+@pytest.fixture(scope="session")
+def corpus(
+    db_engine: AsyncEngine, fueleu: ParsedDocument, mrv: ParsedDocument
+) -> Iterator[list[DocumentChunk]]:
+    """Both fixture acts stored once for the whole session, since retrieval only ever reads them."""
+    rows = anyio.run(store_corpus, db_engine, fueleu, mrv)
+    yield rows
+    anyio.run(drop_corpus, db_engine, rows[0].ingest_run_id)
+
+
+@pytest.fixture
+async def db_session(
+    db_engine: AsyncEngine, corpus: list[DocumentChunk]
+) -> AsyncGenerator[AsyncSession, None]:
+    """Retrieval reads the committed corpus, so its session must not clear it away."""
+    async with rolled_back_session(db_engine, clear=False) as session:
+        yield session
+
+
+@pytest.fixture
+async def empty_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    """A session that hides the committed corpus, for the one test about an empty table."""
+    async with rolled_back_session(db_engine) as session:
+        yield session
 
 
 @pytest.fixture(autouse=True)

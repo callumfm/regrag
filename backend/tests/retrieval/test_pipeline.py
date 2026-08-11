@@ -68,8 +68,8 @@ async def test_a_query_matching_no_keywords_still_returns_vector_hits(
     assert all(result.text_rank is None for result in found)
 
 
-async def test_a_search_over_an_empty_corpus_returns_nothing(db_session: AsyncSession) -> None:
-    assert await search(db_session, "verification period") == ()
+async def test_a_search_over_an_empty_corpus_returns_nothing(empty_session: AsyncSession) -> None:
+    assert await search(empty_session, "verification period") == ()
 
 
 async def test_the_candidate_pool_can_be_narrowed_per_call(
