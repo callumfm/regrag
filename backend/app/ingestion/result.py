@@ -46,7 +46,7 @@ class IngestRunResult(BaseModel):
 
     @property
     def status(self) -> IngestRunStatus:
-        return IngestRunStatus.COMPLETED if self.ok else IngestRunStatus.FAILED
+        return IngestRunStatus.SUCCESS if self.ok else IngestRunStatus.FAILED
 
     def report(self) -> dict[str, Any]:
         """The run as its row stores it: a report per stage, and null for one that never ran."""

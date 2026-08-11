@@ -6,7 +6,7 @@ from sqlalchemy import ColumnElement, ScalarSelect, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.ingestion.enums import CLOSED_OUT, IngestRunStatus
+from app.ingestion.enums import COMPLETED, IngestRunStatus
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
 
@@ -37,7 +37,7 @@ def standing_docs() -> Select[tuple[RawDocument]]:
     A run that died mid-loop still downloaded what it committed; only a run that closed
     out can retire the rows before it.
     """
-    floor = _latest_run_id(IngestRun.status.in_(CLOSED_OUT))
+    floor = _latest_run_id(IngestRun.status.in_(COMPLETED))
     return select(RawDocument).where(RawDocument.ingest_run_id >= floor)
 
 

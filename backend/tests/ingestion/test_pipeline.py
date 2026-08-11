@@ -47,7 +47,7 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 async def test_celexes_to_keep_unions_this_run_with_the_topics_it_left_alone(
     db_session, make_document
 ):
-    other = IngestRun(status=IngestRunStatus.COMPLETED)
+    other = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add(make_document(other, "32015R0757", topic="mrv"))
     await db_session.flush()
 
@@ -105,7 +105,7 @@ async def test_completed_run_is_stamped_with_a_dated_corpus_version(
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = await db_session.get(IngestRun, report.run_id)
-    assert run.status is IngestRunStatus.COMPLETED
+    assert run.status is IngestRunStatus.SUCCESS
     assert run.completed_at is not None
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{7}", run.corpus_version)
 

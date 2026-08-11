@@ -22,7 +22,7 @@ def test_stages_finds_every_result_and_nothing_else() -> None:
 
 def test_a_run_is_ok_when_no_stage_failed() -> None:
     assert recorded_run().ok
-    assert recorded_run().status is IngestRunStatus.COMPLETED
+    assert recorded_run().status is IngestRunStatus.SUCCESS
 
 
 def test_a_failure_in_any_stage_fails_the_run() -> None:

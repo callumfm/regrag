@@ -22,7 +22,7 @@ pytestmark = pytest.mark.anyio
 
 def stored(store_document, celex="32023R1805"):
     """A previous run's row whose bytes are still in the store."""
-    return store_document(IngestRun(status=IngestRunStatus.COMPLETED), celex=celex)
+    return store_document(IngestRun(status=IngestRunStatus.SUCCESS), celex=celex)
 
 
 def html_of(fetched, celex, local_store) -> bytes:
@@ -97,7 +97,7 @@ async def fetch(db_session, client, topics, store) -> tuple[FetchRunResult, list
         result += one
         if item is not None:
             fetched.append(item)
-    await complete_ingest_run(db_session, run, status=IngestRunStatus.COMPLETED)
+    await complete_ingest_run(db_session, run, status=IngestRunStatus.SUCCESS)
     return result, fetched
 
 

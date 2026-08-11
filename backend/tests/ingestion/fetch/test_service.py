@@ -17,7 +17,7 @@ async def test_baseline_empty_when_no_prior_runs(db_session: AsyncSession):
 async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
     db_session: AsyncSession, make_document
 ):
-    old = IngestRun(status=IngestRunStatus.COMPLETED)
+    old = IngestRun(status=IngestRunStatus.SUCCESS)
     latest = IngestRun(status=IngestRunStatus.FAILED)
     db_session.add_all(
         [
@@ -36,11 +36,11 @@ async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
 async def test_baseline_survives_a_newer_run_of_another_topic(
     db_session: AsyncSession, make_document
 ):
-    mrv_run = IngestRun(status=IngestRunStatus.COMPLETED)
+    mrv_run = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add(make_document(mrv_run, "32015R0757", topic="mrv"))
     await db_session.flush()
 
-    fueleu_run = IngestRun(status=IngestRunStatus.COMPLETED)
+    fueleu_run = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add(make_document(fueleu_run, "32023R1805", topic="fueleu"))
     await db_session.flush()
 
@@ -49,7 +49,7 @@ async def test_baseline_survives_a_newer_run_of_another_topic(
 
 
 async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, make_document):
-    with_rows = IngestRun(status=IngestRunStatus.COMPLETED)
+    with_rows = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add(make_document(with_rows, "32015R0757", topic="mrv"))
     db_session.add(IngestRun(status=IngestRunStatus.FAILED))
     await db_session.flush()
@@ -59,7 +59,7 @@ async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, m
 
 async def test_an_aborted_runs_rows_are_still_held(db_session: AsyncSession, make_document):
     """A run that died mid-loop downloaded what it committed, so the next run may reuse it."""
-    complete = IngestRun(status=IngestRunStatus.COMPLETED)
+    complete = IngestRun(status=IngestRunStatus.SUCCESS)
     aborted = IngestRun(status=IngestRunStatus.ABORTED)
     db_session.add_all(
         [
@@ -79,7 +79,7 @@ async def test_an_aborted_run_does_not_stand_for_the_corpus(
     db_session: AsyncSession, make_document
 ):
     """The fingerprint describes a whole corpus, so a prefix must not be the topic's latest."""
-    complete = IngestRun(status=IngestRunStatus.COMPLETED)
+    complete = IngestRun(status=IngestRunStatus.SUCCESS)
     aborted = IngestRun(status=IngestRunStatus.ABORTED)
     db_session.add_all(
         [

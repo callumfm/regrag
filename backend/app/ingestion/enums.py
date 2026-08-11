@@ -7,12 +7,12 @@ class IngestRunStatus(StrEnum):
     """Lifecycle of a corpus ingest run."""
 
     RUNNING = "running"
-    COMPLETED = "completed"
+    SUCCESS = "success"
     FAILED = "failed"
     ABORTED = "aborted"
 
 
-CLOSED_OUT = (IngestRunStatus.COMPLETED, IngestRunStatus.FAILED)
+COMPLETED = (IngestRunStatus.SUCCESS, IngestRunStatus.FAILED)
 """Runs that finished enumerating their corpus; an aborted one holds only the prefix it reached."""
 
 
