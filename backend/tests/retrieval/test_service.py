@@ -2,19 +2,21 @@ import random
 from collections.abc import Callable
 
 import pytest
-from sqlalchemy import select, text, update
+from sqlalchemy import Select, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import EMBED_DIMENSIONS
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import SearchFilters
-from app.retrieval.service import get_article, hydrate, natural_key, text_search, vector_search
+from app.retrieval.service import ITERATIVE_SCAN, get_article, text_leg, vector_leg
 from tests.retrieval.conftest import toy_embed
 
 pytestmark = pytest.mark.anyio
 
 NO_FILTERS = SearchFilters()
+INVENTED_CELEX = "39999R9999"
+"""An act no fixture holds, so a test can give it whatever paragraphs it needs to sort."""
 SUPERSEDED = 300
 """Dead vectors hugging the query: enough to exhaust hnsw.ef_search, whose default is 40."""
 SURVIVORS = 50
@@ -35,6 +37,12 @@ def nudge(rng: random.Random, query: list[float], scale: float) -> list[float]:
     return [value + scale * (rng.random() - 0.5) for value in query]
 
 
+async def leg_ids(session: AsyncSession, leg: Select) -> list[int]:
+    """The ids one leg returns in its own rank order, run as the fused query would run it."""
+    await session.execute(ITERATIVE_SCAN)
+    return [row.id for row in await session.execute(leg)]
+
+
 async def citations_for(session: AsyncSession, chunk_ids: list[int]) -> list[str]:
     """The citation of each id, in the order the ids were given."""
     stmt = select(DocumentChunk.id, DocumentChunk.citation).where(DocumentChunk.id.in_(chunk_ids))
@@ -47,7 +55,7 @@ async def test_the_vector_leg_ranks_the_chunk_whose_text_was_embedded_first(
 ) -> None:
     target = corpus[0]
 
-    found = await vector_search(db_session, toy_embed(target.text), NO_FILTERS, limit=5)
+    found = await leg_ids(db_session, vector_leg(toy_embed(target.text), NO_FILTERS, limit=5))
 
     assert found[0] == target.id
 
@@ -55,7 +63,7 @@ async def test_the_vector_leg_ranks_the_chunk_whose_text_was_embedded_first(
 async def test_the_vector_leg_respects_its_limit(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await vector_search(db_session, toy_embed("energy"), NO_FILTERS, limit=3)
+    found = await leg_ids(db_session, vector_leg(toy_embed("energy"), NO_FILTERS, limit=3))
 
     assert len(found) == 3
 
@@ -81,7 +89,7 @@ async def test_the_vector_leg_meets_its_limit_past_dead_tuples(
     await db_session.flush()
     await db_session.execute(text("SET LOCAL enable_seqscan = off"))
 
-    found = await vector_search(db_session, query, NO_FILTERS, limit=WANTED)
+    found = await leg_ids(db_session, vector_leg(query, NO_FILTERS, limit=WANTED))
 
     assert len(found) == WANTED
 
@@ -94,7 +102,7 @@ async def test_the_vector_leg_skips_chunks_with_no_vector(
         update(DocumentChunk).where(DocumentChunk.id == unembedded.id).values(embedding=None)
     )
 
-    found = await vector_search(db_session, toy_embed("energy"), NO_FILTERS, limit=50)
+    found = await leg_ids(db_session, vector_leg(toy_embed("energy"), NO_FILTERS, limit=50))
 
     assert unembedded.id not in found
 
@@ -102,7 +110,7 @@ async def test_the_vector_leg_skips_chunks_with_no_vector(
 async def test_the_keyword_leg_finds_an_article_by_its_citation(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await text_search(db_session, "Article 11a", NO_FILTERS, limit=4)
+    found = await leg_ids(db_session, text_leg("Article 11a", NO_FILTERS, limit=4))
 
     assert found
     assert all(
@@ -127,28 +135,28 @@ async def test_the_keyword_leg_does_not_confuse_article_11_with_article_11a(
     db_session.add(article_11)
     await db_session.flush()
 
-    found_11a = await text_search(db_session, "Article 11a", NO_FILTERS, limit=4)
+    found_11a = await leg_ids(db_session, text_leg("Article 11a", NO_FILTERS, limit=4))
     assert article_11.id not in found_11a
     assert all(
         citation.startswith("Article 11a")
         for citation in await citations_for(db_session, found_11a)
     )
 
-    found_11 = await text_search(db_session, "Article 11", NO_FILTERS, limit=5)
+    found_11 = await leg_ids(db_session, text_leg("Article 11", NO_FILTERS, limit=5))
     assert found_11[0] == article_11.id
 
 
 async def test_a_query_of_only_stopwords_matches_nothing(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    assert await text_search(db_session, "the of and", NO_FILTERS, limit=50) == []
+    assert await leg_ids(db_session, text_leg("the of and", NO_FILTERS, limit=50)) == []
 
 
 async def test_a_topic_filter_excludes_the_other_act(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await vector_search(
-        db_session, toy_embed("energy"), SearchFilters(topic="mrv"), limit=50
+    found = await leg_ids(
+        db_session, vector_leg(toy_embed("energy"), SearchFilters(topic="mrv"), limit=50)
     )
 
     stmt = select(DocumentChunk.topic).where(DocumentChunk.id.in_(found))
@@ -158,37 +166,42 @@ async def test_a_topic_filter_excludes_the_other_act(
 async def test_a_celex_filter_narrows_the_keyword_leg_to_one_act(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await text_search(db_session, "energy", SearchFilters(celex="32023R1805"), limit=50)
+    found = await leg_ids(
+        db_session, text_leg("energy", SearchFilters(celex="32023R1805"), limit=50)
+    )
 
     stmt = select(DocumentChunk.celex).where(DocumentChunk.id.in_(found))
     assert set(await db_session.scalars(stmt)) == {"32023R1805"}
 
 
-async def test_hydrate_returns_the_chunks_asked_for_keyed_by_id(
-    db_session: AsyncSession, corpus: list[DocumentChunk]
+async def test_get_article_sorts_a_chapeau_first_and_a_lettered_paragraph_after_its_number(
+    db_session: AsyncSession,
+    corpus: list[DocumentChunk],
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
 ) -> None:
-    wanted = [corpus[0].id, corpus[3].id]
+    """The orderings no fixture act exercises: '2' before '11', '11' before '11a'."""
+    for index, paragraph in enumerate(["11a", "2", "11", None]):
+        db_session.add(
+            make_chunk_row(
+                ingest_run,
+                celex=INVENTED_CELEX,
+                article="7",
+                paragraph=paragraph,
+                citation=f"Article 7({paragraph})" if paragraph else "Article 7",
+                content_hash=f"{index:064d}",
+            )
+        )
+    await db_session.flush()
 
-    chunks = await hydrate(db_session, wanted)
+    found = await get_article(db_session, celex=INVENTED_CELEX, article="7")
 
-    assert sorted(chunks) == sorted(wanted)
-    assert chunks[corpus[0].id].text == corpus[0].text
-
-
-async def test_hydrate_of_nothing_makes_no_query(db_session: AsyncSession) -> None:
-    assert await hydrate(db_session, []) == {}
-
-
-def test_a_paragraph_number_sorts_by_its_numeric_half() -> None:
-    assert sorted(["10", "2", "1"], key=natural_key) == ["1", "2", "10"]
-
-
-def test_a_lettered_paragraph_sorts_after_its_bare_number() -> None:
-    assert sorted(["11a", "11"], key=natural_key) == ["11", "11a"]
-
-
-def test_an_article_chapeau_sorts_before_its_numbered_paragraphs() -> None:
-    assert sorted(["1", None], key=natural_key) == [None, "1"]
+    assert [chunk.citation for chunk in found] == [
+        "Article 7",
+        "Article 7(2)",
+        "Article 7(11)",
+        "Article 7(11a)",
+    ]
 
 
 async def test_get_article_returns_paragraphs_in_reading_order_not_text_order(

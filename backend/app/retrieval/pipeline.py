@@ -1,12 +1,11 @@
-"""Search: embed the query, run both legs, fuse their ranks, load the winners."""
+"""Search: embed the query, then let one query run both legs and fuse their ranks."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import EmbedInput, embed, llm_retry
 from app.retrieval.constants import CANDIDATES, DEFAULT_LIMIT, RRF_K
-from app.retrieval.fusion import reciprocal_rank_fusion
 from app.retrieval.models import SearchFilters, SearchResult
-from app.retrieval.service import hydrate, text_search, vector_search
+from app.retrieval.service import hybrid_search
 
 
 @llm_retry
@@ -26,19 +25,13 @@ async def search(
     k: int = RRF_K,
 ) -> tuple[SearchResult, ...]:
     """The corpus's best answers to a query, fused across the vector and keyword legs."""
-    filters = filters or SearchFilters()
     embedding = await _embed_query(query)
-    vector_ids = await vector_search(session, embedding, filters, limit=candidates)
-    text_ids = await text_search(session, query, filters, limit=candidates)
-    fused = reciprocal_rank_fusion(vector_ids, text_ids, k=k)[:limit]
-    chunks = await hydrate(session, [rank.chunk_id for rank in fused])
-    return tuple(
-        SearchResult(
-            **chunks[rank.chunk_id].model_dump(),
-            score=rank.score,
-            vector_rank=rank.vector_rank,
-            text_rank=rank.text_rank,
-        )
-        for rank in fused
-        if rank.chunk_id in chunks
+    return await hybrid_search(
+        session,
+        embedding,
+        query,
+        filters or SearchFilters(),
+        candidates=candidates,
+        k=k,
+        limit=limit,
     )

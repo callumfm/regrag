@@ -53,10 +53,13 @@ async def vacuum_chunks(db_engine: AsyncEngine) -> None:
         await conn.execute(text("VACUUM document_chunks"))
 
 
-async def clear_ingest_tables(db_engine: AsyncEngine) -> None:
-    """Drop what an interrupted run committed, so a stale corpus cannot survive into this one."""
+async def delete_runs(db_engine: AsyncEngine, ingest_run_id: int | None = None) -> None:
+    """Committed delete of one run or every run, cascading to the chunks hanging off it."""
+    stmt = delete(IngestRun)
+    if ingest_run_id is not None:
+        stmt = stmt.where(IngestRun.id == ingest_run_id)
     async with async_session_factory(bind=db_engine) as session:
-        await session.execute(delete(IngestRun))
+        await session.execute(stmt)
         await session.commit()
 
 
@@ -64,7 +67,7 @@ async def store_corpus(
     db_engine: AsyncEngine, fueleu: ParsedDocument, mrv: ParsedDocument
 ) -> list[DocumentChunk]:
     """Chunk, store and embed both fixture acts, committed so every test reads the same rows."""
-    await clear_ingest_tables(db_engine)
+    await delete_runs(db_engine)
     await vacuum_chunks(db_engine)
     async with async_session_factory(bind=db_engine) as session:
         run = IngestRun(status=IngestRunStatus.RUNNING)
@@ -90,13 +93,6 @@ async def store_corpus(
         return rows
 
 
-async def drop_corpus(db_engine: AsyncEngine, ingest_run_id: int) -> None:
-    """Delete the run the corpus hangs off, which cascades to its chunks."""
-    async with async_session_factory(bind=db_engine) as session:
-        await session.execute(delete(IngestRun).where(IngestRun.id == ingest_run_id))
-        await session.commit()
-
-
 @pytest.fixture(scope="session")
 def corpus(
     db_engine: AsyncEngine, fueleu: ParsedDocument, mrv: ParsedDocument
@@ -104,7 +100,7 @@ def corpus(
     """Both fixture acts stored once for the whole session, since retrieval only ever reads them."""
     rows = anyio.run(store_corpus, db_engine, fueleu, mrv)
     yield rows
-    anyio.run(drop_corpus, db_engine, rows[0].ingest_run_id)
+    anyio.run(delete_runs, db_engine, rows[0].ingest_run_id)
 
 
 @pytest.fixture

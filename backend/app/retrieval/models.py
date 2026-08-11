@@ -27,12 +27,3 @@ class SearchResult(RetrievedChunk):
     score: float
     vector_rank: int | None
     text_rank: int | None
-
-
-class FusedRank(FrozenModel):
-    """One chunk's standing after fusion, before its text is loaded."""
-
-    chunk_id: int
-    score: float
-    vector_rank: int | None
-    text_rank: int | None
