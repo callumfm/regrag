@@ -9,11 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ingestion.chunk import stage
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.chunk.stage import chunk_and_store_documents
+from app.ingestion.chunk.stage import chunk_and_store_documents, prune_chunks
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
 from app.ingestion.parse.models import ParsedDocument, Section
 from app.ingestion.schemas import IngestRun
+from tests.conftest import chunk_versions
 
 pytestmark = pytest.mark.anyio
 
@@ -26,9 +27,7 @@ async def test_reconciles_each_document_and_sums_one_result(
         topic="fueleu",
         sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
     )
-    result = await chunk_and_store_documents(
-        db_session, [document], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
-    )
+    result = await chunk_and_store_documents(db_session, [document], ingest_run_id=ingest_run.id)
     assert (result.added, result.removed, result.unchanged) == (1, 0, 0)
 
 
@@ -40,12 +39,8 @@ async def test_a_second_identical_run_changes_nothing(
         topic="fueleu",
         sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
     )
-    await chunk_and_store_documents(
-        db_session, [document], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
-    )
-    result = await chunk_and_store_documents(
-        db_session, [document], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
-    )
+    await chunk_and_store_documents(db_session, [document], ingest_run_id=ingest_run.id)
+    result = await chunk_and_store_documents(db_session, [document], ingest_run_id=ingest_run.id)
     assert (result.added, result.removed, result.unchanged) == (0, 0, 1)
 
 
@@ -71,7 +66,6 @@ async def test_a_document_that_will_not_chunk_is_recorded_and_the_rest_persist(
         db_session,
         [parsed("broken"), parsed("32023R1805")],
         ingest_run_id=ingest_run.id,
-        corpus_celexes=["broken", "32023R1805"],
     )
     assert "broken" in result.failed
     assert result.added == 1
@@ -94,20 +88,37 @@ async def test_a_database_failure_on_one_document_does_not_abort_the_rest(
         db_session,
         [parsed("broken"), parsed("32023R1805")],
         ingest_run_id=ingest_run.id,
-        corpus_celexes=["broken", "32023R1805"],
     )
     assert "IntegrityError" in result.failed["broken"]
     assert result.added == 1
 
 
-async def test_chunks_of_a_celex_no_longer_discovered_are_dropped(
+async def test_prune_chunks_removes_every_celex_outside_the_corpus(
     db_session: AsyncSession,
     ingest_run: IngestRun,
     make_chunk_row: Callable[..., DocumentChunk],
 ) -> None:
     db_session.add(make_chunk_row(ingest_run, celex="repealed", topic="fueleu"))
     await db_session.flush()
-    result = await chunk_and_store_documents(
-        db_session, [], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
-    )
+
+    result = await prune_chunks(db_session, corpus_celexes=["32023R1805"])
+
     assert result.removed == 1
+    assert await chunk_versions(db_session, "repealed") == set()
+
+
+async def test_chunking_no_longer_prunes(
+    db_session: AsyncSession,
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    """Pruning needs the whole corpus, so a per-document chunk call must leave outsiders alone."""
+    db_session.add(make_chunk_row(ingest_run, celex="repealed", topic="fueleu"))
+    await db_session.flush()
+
+    result = await chunk_and_store_documents(
+        db_session, [parsed("32023R1805")], ingest_run_id=ingest_run.id
+    )
+
+    assert result.removed == 0
+    assert await chunk_versions(db_session, "repealed") != set()

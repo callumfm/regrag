@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
-from app.ingestion.chunk.stage import chunk_and_store_documents
+from app.ingestion.chunk.stage import chunk_and_store_documents, prune_chunks
 from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
@@ -98,9 +98,9 @@ async def ingest(
         logger.info("[parse] %s", result.parse.summary())
 
         corpus_celexes = await _known_corpus_celexes(session, result=result, topics=topics)
-        result.chunk = await chunk_and_store_documents(
-            session, parsed, ingest_run_id=run.id, corpus_celexes=corpus_celexes
-        )
+        result.chunk = await chunk_and_store_documents(session, parsed, ingest_run_id=run.id)
+        if corpus_celexes is not None:
+            result.chunk += await prune_chunks(session, corpus_celexes=corpus_celexes)
         logger.info("[chunk] %s", result.chunk.summary())
 
         result.embed = await embed_chunks(session)

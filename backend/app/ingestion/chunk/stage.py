@@ -17,12 +17,8 @@ async def chunk_and_store_documents(
     documents: Sequence[ParsedDocument],
     *,
     ingest_run_id: int,
-    corpus_celexes: Collection[str] | None,
 ) -> ChunkRunResult:
-    """Reconcile each document's chunks, then drop the chunks of every celex outside the corpus.
-
-    A None corpus is an unknown one, and an unknown corpus prunes nothing.
-    """
+    """Reconcile each document's chunks against the rows already stored for it."""
     result = ChunkRunResult()
     for document in documents:
         try:
@@ -35,7 +31,10 @@ async def chunk_and_store_documents(
                 )
         except (IngestionError, SQLAlchemyError) as exc:
             result.fail(document.celex, exc)
-    if corpus_celexes is None:
-        return result
-    dropped = await delete_chunks_outside(session, corpus_celexes=corpus_celexes)
-    return result + ChunkRunResult(removed=dropped)
+    return result
+
+
+async def prune_chunks(session: AsyncSession, *, corpus_celexes: Collection[str]) -> ChunkRunResult:
+    """Drop the chunks of every celex the corpus no longer holds."""
+    removed = await delete_chunks_outside(session, corpus_celexes=corpus_celexes)
+    return ChunkRunResult(removed=removed)
