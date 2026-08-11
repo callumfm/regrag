@@ -2,7 +2,7 @@
 
 import hashlib
 
-from app.core.storage import ObjectStore
+from app.core.storage import ObjectStore, StorageError
 from app.ingestion.exceptions import EmptyDownloadError
 from app.ingestion.fetch.schemas import RawDocument
 
@@ -26,5 +26,13 @@ def write_document(
 
 
 def read_document(store: ObjectStore, document: RawDocument) -> bytes:
-    """The bytes stored for a document the run recorded."""
-    return store.get(document_key(document.celex, document.resolved_celex, document.sha256))
+    """The bytes stored for a document, refusing any that are not the ones the row recorded.
+
+    The row and the object are backed up separately, so a restore can leave them disagreeing;
+    the reuse path treats that as bytes it does not have and downloads the version again.
+    """
+    key = document_key(document.celex, document.resolved_celex, document.sha256)
+    content = store.get(key)
+    if hashlib.sha256(content).hexdigest() != document.sha256:
+        raise StorageError("verify", key, "stored bytes do not match the recorded hash")
+    return content

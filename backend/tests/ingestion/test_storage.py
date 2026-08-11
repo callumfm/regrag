@@ -66,3 +66,16 @@ def test_read_raises_when_the_bytes_are_not_there(
 ):
     with pytest.raises(StorageError, match="get failed"):
         read_document(local_store, make_document(run()))
+
+
+def test_read_refuses_bytes_that_are_not_the_ones_the_row_recorded(
+    local_store: LocalObjectStore, store_document: Callable[..., RawDocument]
+):
+    """A restore can leave the row and the object disagreeing; parsing the wrong version is
+    worse than failing."""
+    document = store_document(run(), HTML)
+    key = document_key(document.celex, document.resolved_celex, document.sha256)
+    local_store.put(key, b"<html>something else</html>")
+
+    with pytest.raises(StorageError, match="verify failed"):
+        read_document(local_store, document)

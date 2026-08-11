@@ -64,6 +64,15 @@ def test_a_document_with_no_previous_run_has_nothing_to_reuse(local_store):
     assert _reuse_stored_version(local_store, spec("32023R1805"), None) is None
 
 
+def test_stored_bytes_that_do_not_match_the_row_are_not_reused(local_store, store_document):
+    """A row and an object restored from different points in time: download it again."""
+    prev = stored(store_document)
+    key = document_key(prev.celex, prev.resolved_celex, prev.sha256)
+    local_store.put(key, b"<html>a different version</html>")
+
+    assert _reuse_stored_version(local_store, spec("32023R1805"), prev) is None
+
+
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
     """The two-document mrv corpus, with per-celex responses overridable."""
     return {
