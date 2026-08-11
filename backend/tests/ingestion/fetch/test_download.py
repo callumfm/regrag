@@ -188,30 +188,31 @@ EXPECTED_RESOLVED = {
 }
 
 MISSING_HTML = {"02023R1805-20230922", "02023R2917-20231229", "02024R2027-20240729"}
-SPARQL_FIXTURES = {topic: (FIXTURES / f"sparql-{topic}.json").read_text() for topic in SEEDS}
 
 
-def corpus_handler(request: httpx.Request) -> httpx.Response:
-    if request.url.host == "publications.europa.eu":
-        query = request.url.params["query"]
-        for topic, seed in SEEDS.items():
-            if seed in query:
-                return httpx.Response(200, text=SPARQL_FIXTURES[topic])
-        raise AssertionError(f"no seed in query: {query[:120]}")
-    celex = request.url.params["uri"].removeprefix("CELEX:")
-    if celex in MISSING_HTML:
-        return httpx.Response(404, text=MISSING_HTML_PAGE)
-    return httpx.Response(200, text=DOC_HTML)
+def corpus_sparql() -> dict[str, httpx.Response]:
+    """The recorded SPARQL response for every topic seed."""
+    return {
+        topic: httpx.Response(200, text=(FIXTURES / f"sparql-{topic}.json").read_text())
+        for topic in SEEDS
+    }
+
+
+def corpus_docs() -> dict[str, httpx.Response]:
+    """A 200 for every version EUR-Lex serves, a 404 for the consolidations it does not."""
+    return {celex: httpx.Response(200, text=DOC_HTML) for celex in EXPECTED_RESOLVED.values()} | {
+        celex: httpx.Response(404, text=MISSING_HTML_PAGE) for celex in MISSING_HTML
+    }
 
 
 @pytest.mark.parametrize("topic", sorted(SEEDS))
-def test_every_discovered_document_resolves_to_the_version_eurlex_serves(topic):
+def test_every_discovered_document_resolves_to_the_version_eurlex_serves(topic, corpus_client):
     """The handshake between the two packages: what discovery points at is what download gets."""
-    with httpx.Client(transport=httpx.MockTransport(corpus_handler)) as client:
-        discovered = discover_topic(client, topic, SEEDS[topic])
-        resolved = {
-            f"{topic}:{d.celex}": download_fetchable_version(client, d)[0].resolved_celex
-            for d in discovered
-        }
+    client, _ = corpus_client(corpus_sparql(), corpus_docs())
+    discovered = discover_topic(client, topic, SEEDS[topic])
+    resolved = {
+        f"{topic}:{d.celex}": download_fetchable_version(client, d)[0].resolved_celex
+        for d in discovered
+    }
     expected = {k: v for k, v in EXPECTED_RESOLVED.items() if k.startswith(f"{topic}:")}
     assert resolved == expected
