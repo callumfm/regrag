@@ -22,6 +22,13 @@ class DocumentChunk(BaseSchema):
     __tablename__ = "document_chunks"
     __table_args__ = (
         UniqueConstraint("celex", "content_hash", "occurrence"),
+        Index("ix_document_chunks_search_vector", "search_vector", postgresql_using="gin"),
+        Index(
+            "ix_document_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
         Index(
             "ix_document_chunks_unembedded_cursor",
             "celex",
