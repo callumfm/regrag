@@ -1,35 +1,38 @@
 """Where a fetched document's bytes live: the only module that reads or writes them."""
 
 import hashlib
-from pathlib import Path
 
+from app.core.storage import ObjectStore, StorageError
 from app.ingestion.exceptions import EmptyDownloadError
+from app.ingestion.fetch.schemas import RawDocument
 
 
-def document_filename(celex: str) -> str:
-    """The one definition of what a fetched document is called in storage."""
-    return f"{celex}.html"
+def document_key(celex: str, resolved_celex: str, sha256: str) -> str:
+    """Where a document's bytes live, keyed by content so a new version never overwrites a
+    version an earlier parse ran against."""
+    return f"{celex}/{resolved_celex}/{sha256}.html"
 
 
-def _document_path(data_dir: Path, celex: str) -> Path:
-    return data_dir / document_filename(celex)
-
-
-def write_document(data_dir: Path, celex: str, content: bytes) -> tuple[str, int]:
+def write_document(
+    store: ObjectStore, celex: str, resolved_celex: str, content: bytes
+) -> tuple[str, int]:
     """Store the document's bytes and return their (sha256, size_bytes), refusing empty
-    content so a failed download cannot overwrite the last good copy."""
+    content so a failed download cannot be recorded as a version."""
     if not content:
         raise EmptyDownloadError(f"{celex}: download returned an empty body")
-    data_dir.mkdir(parents=True, exist_ok=True)
-    _document_path(data_dir, celex).write_bytes(content)
-    return hashlib.sha256(content).hexdigest(), len(content)
+    sha256 = hashlib.sha256(content).hexdigest()
+    store.put(document_key(celex, resolved_celex, sha256), content)
+    return sha256, len(content)
 
 
-def read_document(data_dir: Path, celex: str) -> bytes:
-    """The bytes stored for a document the run recorded."""
-    return _document_path(data_dir, celex).read_bytes()
+def read_document(store: ObjectStore, document: RawDocument) -> bytes:
+    """The bytes stored for a document, refusing any that are not the ones the row recorded.
 
-
-def document_exists(data_dir: Path, celex: str) -> bool:
-    """Whether a document the run recorded still has its bytes stored."""
-    return _document_path(data_dir, celex).is_file()
+    The row and the object are backed up separately, so a restore can leave them disagreeing;
+    the reuse path treats that as bytes it does not have and downloads the version again.
+    """
+    key = document_key(document.celex, document.resolved_celex, document.sha256)
+    content = store.get(key)
+    if hashlib.sha256(content).hexdigest() != document.sha256:
+        raise StorageError("verify", key, "stored bytes do not match the recorded hash")
+    return content

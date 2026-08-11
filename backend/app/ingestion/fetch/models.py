@@ -1,5 +1,6 @@
 """Fetch-stage values: what discovery found, which version it resolved to, what the run did."""
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import ClassVar
 
@@ -7,6 +8,7 @@ from pydantic import Field
 
 from app.core.models import FrozenModel
 from app.ingestion.enums import DocChange
+from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.models import StageRunResult
 
 
@@ -40,6 +42,14 @@ class StoredBytes(FrozenModel):
     sha256: str
     size_bytes: int
     fetched_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class FetchedDocument:
+    """A document's recorded row and the bytes the run has in hand, so parse re-reads nothing."""
+
+    document: RawDocument
+    content: bytes
 
 
 class FetchRunResult(StageRunResult):

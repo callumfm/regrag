@@ -1,14 +1,17 @@
-"""Dev-time fixture trimmer; regenerates the parse fixtures from data/raw.
+"""Dev-time fixture trimmer; regenerates the parse fixtures from the stored corpus.
 
 Run from backend/: PYTHONPATH=. uv run python tests/ingestion/parse/fixtures/trim.py
 """
 
+import asyncio
 from pathlib import Path
 
 from selectolax.parser import HTMLParser, Node
 
-from app.core.config import config
-from app.ingestion.storage import document_filename
+from app.core.db.session import get_session
+from app.core.storage import StorageError, get_object_store
+from app.ingestion.fetch.service import get_corpus_docs
+from app.ingestion.storage import read_document
 
 FIXTURES = Path(__file__).parent
 KEEP: dict[str, tuple[str, ...]] = {
@@ -32,9 +35,21 @@ def shrink(node: Node) -> None:
             child.decompose()
 
 
-def trim(celex: str, ids: tuple[str, ...]) -> str:
+async def stored_html() -> dict[str, str]:
+    """The documents KEEP names, read back out of object storage."""
+    async with get_session(auto_commit=False) as session:
+        documents = await get_corpus_docs(session)
+    store = get_object_store()
+    wanted = [doc for doc in documents if doc.celex in KEEP]
+    try:
+        return {doc.celex: read_document(store, doc).decode("utf-8") for doc in wanted}
+    except StorageError as exc:
+        raise SystemExit(f"{exc}; run `uv run ingest` first") from exc
+
+
+def trim(celex: str, html: str, ids: tuple[str, ...]) -> str:
     """Keep only the named subdivisions, with base64 image payloads stubbed out."""
-    tree = HTMLParser((config.RAW_DATA_DIR / document_filename(celex)).read_text(encoding="utf-8"))
+    tree = HTMLParser(html)
     for image in tree.css("img"):
         if (image.attributes.get("src") or "").startswith("data:"):
             image.attrs["src"] = STUB
@@ -50,8 +65,11 @@ def trim(celex: str, ids: tuple[str, ...]) -> str:
 
 
 def main() -> None:
+    stored = asyncio.run(stored_html())
     for celex, ids in KEEP.items():
-        html = trim(celex, ids)
+        if celex not in stored:
+            raise SystemExit(f"{celex} is not in the stored corpus; run `uv run ingest` first")
+        html = trim(celex, stored[celex], ids)
         (FIXTURES / f"{celex}.html").write_text(html, encoding="utf-8")
         print(f"{celex}: {len(html) // 1024} KB")
 

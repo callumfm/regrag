@@ -1,6 +1,7 @@
 """Shared test fixtures."""
 
 from collections.abc import AsyncGenerator, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -13,8 +14,9 @@ from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
 from app.core.clock import utc_now
-from app.core.config import config
+from app.core.config import R2Config, config
 from app.core.db.session import async_session_factory
+from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
@@ -25,9 +27,24 @@ from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
+from app.ingestion.storage import write_document
 from app.main import configure_app
 
 RETRIED = (discover_topic, download_fetchable_version, _embed_texts)
+
+R2_ENV = {
+    "R2_ACCOUNT_ID": "acc",
+    "R2_ACCESS_KEY_ID": "key",
+    "R2_SECRET_ACCESS_KEY": "secret",
+    "R2_BUCKET": "regrag-raw",
+}
+
+
+def r2_config(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> R2Config:
+    """R2 settings as they really arrive — from the environment; an empty one is left unset."""
+    for name, value in {**R2_ENV, **overrides}.items():
+        monkeypatch.setenv(name, value)
+    return R2Config()
 
 
 def recorded_run(run_id: int = 1, **overrides: Any) -> IngestRunResult:
@@ -99,6 +116,39 @@ def make_document() -> Callable[..., RawDocument]:
         return RawDocument(**{**defaults, **overrides})
 
     return _make
+
+
+@pytest.fixture
+def local_store(tmp_path: Path) -> LocalObjectStore:
+    """The real local store, rooted in tmp_path, so the suite needs no network."""
+    return LocalObjectStore(tmp_path / "raw")
+
+
+@pytest.fixture
+def store_document(
+    local_store: LocalObjectStore, make_document: Callable[..., RawDocument]
+) -> Callable[..., RawDocument]:
+    """Store bytes and return the row that keys them, so the row's sha is the stored one."""
+
+    def _store(
+        run: IngestRun,
+        content: bytes = b"<html>act</html>",
+        celex: str = "32023R1805",
+        resolved_celex: str | None = None,
+        **overrides: Any,
+    ) -> RawDocument:
+        resolved = resolved_celex or celex
+        sha256, size_bytes = write_document(local_store, celex, resolved, content)
+        return make_document(
+            run,
+            celex=celex,
+            resolved_celex=resolved,
+            sha256=sha256,
+            size_bytes=size_bytes,
+            **overrides,
+        )
+
+    return _store
 
 
 @pytest.fixture
