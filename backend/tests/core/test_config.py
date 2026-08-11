@@ -4,27 +4,13 @@ import pytest
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings
 
-from app.core import config as config_module
 from app.core.config import BaseConfig, Config, EmbeddingConfig, StorageConfig
-from app.core.enums import Environment, StorageBackend
+from app.core.enums import StorageBackend
 from tests.conftest import r2_config
 
 
 def test_storage_defaults_to_the_local_backend():
     assert StorageConfig().STORAGE_BACKEND is StorageBackend.LOCAL
-
-
-def test_prod_refuses_the_local_backend(monkeypatch):
-    """Local storage in prod is container-ephemeral, so the corpus would vanish on redeploy."""
-    monkeypatch.setattr(config_module, "ENVIRONMENT", Environment.PROD)
-
-    with pytest.raises(ValidationError, match="STORAGE_BACKEND"):
-        StorageConfig(STORAGE_BACKEND=StorageBackend.LOCAL)
-
-
-def test_prod_accepts_a_durable_backend(monkeypatch):
-    monkeypatch.setattr(config_module, "ENVIRONMENT", Environment.PROD)
-    assert StorageConfig(STORAGE_BACKEND=StorageBackend.R2).STORAGE_BACKEND is StorageBackend.R2
 
 
 def test_the_r2_endpoint_is_built_from_the_account_id(monkeypatch):

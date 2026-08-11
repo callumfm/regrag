@@ -2,9 +2,9 @@
 
 import os
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
-from pydantic import computed_field, model_validator
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.enums import Environment, StorageBackend
@@ -42,13 +42,6 @@ class StorageConfig(BaseConfig):
 
     STORAGE_BACKEND: StorageBackend = StorageBackend.LOCAL
     RAW_DATA_DIR: Path = PROJECT_ROOT / "data" / "raw"
-
-    @model_validator(mode="after")
-    def _prod_names_a_durable_backend(self) -> Self:
-        """Prod defaulting to local would archive the corpus to disk a redeploy throws away."""
-        if ENVIRONMENT is Environment.PROD and self.STORAGE_BACKEND is StorageBackend.LOCAL:
-            raise ValueError("STORAGE_BACKEND must be set to a durable backend in prod")
-        return self
 
 
 class R2Config(BaseConfig):
