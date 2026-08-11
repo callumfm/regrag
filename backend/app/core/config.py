@@ -5,7 +5,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -80,7 +79,6 @@ class R2Config(BaseConfig):
     R2_SECRET_ACCESS_KEY: str
     R2_BUCKET: str
 
-    @computed_field
     @property
     def R2_ENDPOINT_URL(self) -> str:
         """The S3-compatible endpoint R2 serves this account's buckets on."""
@@ -104,7 +102,6 @@ class PostgresConfig(BaseConfig):
     DB_CONNECT_TIMEOUT: int = 10
     DB_COMMAND_TIMEOUT: int = 30
 
-    @computed_field
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
         """Build SQLAlchemy database URI."""
@@ -113,7 +110,6 @@ class PostgresConfig(BaseConfig):
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
 
-    @computed_field
     @property
     def SQLALCHEMY_ENGINE_ARGS(self) -> dict[str, Any]:
         """Get SQLAlchemy engine arguments."""
@@ -146,9 +142,4 @@ class Config(AppConfig, PostgresConfig, EmbeddingConfig, StorageConfig):
     """Combined configuration class for core app functionality."""
 
 
-def load_config() -> Config:
-    """Load the configuration."""
-    return Config()
-
-
-config = load_config()
+config = Config()
