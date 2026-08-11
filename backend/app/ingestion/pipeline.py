@@ -28,7 +28,7 @@ from app.ingestion.service import complete_ingest_run, create_ingest_run
 logger = logging.getLogger(__name__)
 
 
-async def _mark_failed(session: AsyncSession, run: IngestRun, result: IngestRunResult) -> None:
+async def _mark_aborted(session: AsyncSession, run: IngestRun, result: IngestRunResult) -> None:
     """Discard the aborted transaction, then close the run out without masking why it aborted."""
     run_id = run.id
     await session.rollback()
@@ -61,14 +61,14 @@ async def celexes_to_keep(
 
 @asynccontextmanager
 async def ingest_run(session: AsyncSession) -> AsyncIterator[tuple[IngestRun, IngestRunResult]]:
-    """Open a run and close it out, marking it failed if the body raises or is interrupted."""
+    """Open a run and close it out, marking it aborted if the body raises or is interrupted."""
     run = await create_ingest_run(session)
     result = IngestRunResult(run_id=run.id)
     try:
         yield run, result
         await complete_ingest_run(session, run, status=result.status, result=result.report())
     except BaseException:
-        await _mark_failed(session, run, result)
+        await _mark_aborted(session, run, result)
         raise
     result.corpus_version = run.corpus_version
 
