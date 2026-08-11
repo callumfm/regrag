@@ -705,6 +705,8 @@ async def test_a_run_that_dies_in_embed_keeps_its_documents_and_chunks(
 ):
     """A late failure must not discard the fetch and chunk work the run already committed."""
 
+    real_embed_chunks = pipeline.embed_chunks
+
     async def provider_gone(session):
         raise RuntimeError("provider gone")
 
@@ -716,3 +718,13 @@ async def test_a_run_that_dies_in_embed_keeps_its_documents_and_chunks(
 
     assert await chunk_versions(db_session) != set()
     assert set(await get_previous_docs(db_session, ["mrv"])) == {"32015R0757", "32023R2449"}
+
+    monkeypatch.setattr(pipeline, "embed_chunks", real_embed_chunks)
+    stored = len(await chunk_rows(db_session))
+    client, calls = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    second = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    assert calls == []
+    assert second.embed.embedded == stored
+    assert second.chunk.added == 0
+    assert second.ok
