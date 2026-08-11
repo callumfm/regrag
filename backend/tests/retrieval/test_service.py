@@ -1,8 +1,11 @@
+from collections.abc import Callable
+
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.schemas import DocumentChunk
+from app.ingestion.schemas import IngestRun
 from app.retrieval.models import SearchFilters
 from app.retrieval.service import text_search, vector_search
 from tests.retrieval.conftest import toy_embed
@@ -61,15 +64,31 @@ async def test_the_keyword_leg_finds_an_article_by_its_citation(
 
 
 async def test_the_keyword_leg_does_not_confuse_article_11_with_article_11a(
-    db_session: AsyncSession, corpus: list[DocumentChunk]
+    db_session: AsyncSession,
+    corpus: list[DocumentChunk],
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
 ) -> None:
-    tsquery = func.websearch_to_tsquery("english", "Article 11")
-    citation_vector = func.to_tsvector("english", DocumentChunk.citation)
-    stmt = select(DocumentChunk.citation).where(
-        DocumentChunk.citation.startswith("Article 11a"), citation_vector.bool_op("@@")(tsquery)
+    article_11 = make_chunk_row(
+        ingest_run,
+        content_hash="c" * 64,
+        article="11",
+        paragraph="1",
+        citation="Article 11(1)",
+        text="Companies shall submit their monitoring plan to the verifier before the period.",
+    )
+    db_session.add(article_11)
+    await db_session.flush()
+
+    found_11a = await text_search(db_session, "Article 11a", NO_FILTERS, limit=4)
+    assert article_11.id not in found_11a
+    assert all(
+        citation.startswith("Article 11a")
+        for citation in await citations_for(db_session, found_11a)
     )
 
-    assert (await db_session.scalars(stmt)).all() == []
+    found_11 = await text_search(db_session, "Article 11", NO_FILTERS, limit=5)
+    assert found_11[0] == article_11.id
 
 
 async def test_a_query_of_only_stopwords_matches_nothing(
