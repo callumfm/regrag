@@ -30,7 +30,6 @@ from tests.conftest import (
     chunk_versions,
     discovered_document,
     payload,
-    recorded_run,
 )
 
 pytestmark = pytest.mark.anyio
@@ -54,7 +53,7 @@ async def test_celexes_to_keep_unions_this_run_with_the_topics_it_left_alone(
     celexes = await celexes_to_keep(
         db_session,
         discovered=[discovered_document("32023R1805", topic="fueleu")],
-        result=recorded_run(parse=ParseRunResult(parsed=["32023R1805"])),
+        result=IngestRunResult(run_id=1, parse=ParseRunResult(parsed=["32023R1805"])),
         topics=["fueleu"],
     )
 
@@ -62,7 +61,8 @@ async def test_celexes_to_keep_unions_this_run_with_the_topics_it_left_alone(
 
 
 async def test_a_partial_fetch_leaves_the_corpus_unknown(db_session):
-    result = recorded_run(
+    result = IngestRunResult(
+        run_id=1,
         fetch=FetchRunResult(failed={"32015R0757": "404"}),
         parse=ParseRunResult(parsed=["32023R1805"]),
     )
@@ -77,7 +77,7 @@ async def test_a_partial_fetch_leaves_the_corpus_unknown(db_session):
 
 
 async def test_a_document_that_would_not_parse_leaves_the_corpus_unknown(db_session):
-    result = recorded_run(parse=ParseRunResult(failed={"32023R1805": "ParseError"}))
+    result = IngestRunResult(run_id=1, parse=ParseRunResult(failed={"32023R1805": "ParseError"}))
 
     celexes = await celexes_to_keep(
         db_session,
@@ -183,20 +183,21 @@ async def test_a_stage_failure_is_answerable_from_the_run_row(
     assert run.result["fetch"]["new"] == 1
 
 
-async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_null(
+async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_zero(
     db_session, local_store, corpus_client
 ):
+    """Nothing ran, so every count is zero; the ABORTED status is what says the run stopped."""
     client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
     with pytest.raises(httpx.HTTPStatusError):
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.result == {
-        "discover": None,
-        "fetch": None,
-        "parse": None,
-        "chunk": None,
-        "embed": None,
+        "discover": {"dropped": 0, "failed": {}},
+        "fetch": {"new": 0, "changed": 0, "unchanged": 0, "failed": {}},
+        "parse": {"parsed": 0, "failed": {}},
+        "chunk": {"added": 0, "removed": 0, "unchanged": 0, "failed": {}},
+        "embed": {"embedded": 0, "unchanged": 0, "failed": {}},
     }
 
 
@@ -269,7 +270,7 @@ async def test_an_aborted_run_reports_exactly_the_documents_it_committed(
     stored = (await db_session.scalars(select(RawDocument))).all()
     assert run.result["fetch"]["new"] == len(stored) == 1
     assert run.result["parse"]["parsed"] == 1
-    assert run.result["embed"] is None
+    assert run.status is IngestRunStatus.ABORTED
 
 
 async def test_run_persists_chunks_for_every_document(db_session, local_store, corpus_client):
@@ -767,7 +768,7 @@ async def test_a_run_that_dies_in_embed_keeps_its_documents_and_chunks(
 async def test_a_run_where_every_document_fails_still_reports_the_later_stages(
     db_session, local_store, corpus_client, monkeypatch
 ):
-    """Parse and chunk ran and had nothing to do; the row must not read that as never run."""
+    """Parse and chunk had nothing to do; the row reports that as zeroes, not as a failure."""
 
     def full_disk(key, content):
         raise StorageError("put", key, OSError(28, "No space left on device"))
@@ -777,7 +778,6 @@ async def test_a_run_where_every_document_fails_still_reports_the_later_stages(
 
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.unrecorded == frozenset()
     assert report.report()["parse"] == {"parsed": 0, "failed": {}}
     assert report.report()["chunk"] == {"added": 0, "removed": 0, "unchanged": 0, "failed": {}}
     assert not report.ok

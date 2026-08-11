@@ -28,7 +28,6 @@ from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
-from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import write_document
 from app.main import configure_app
@@ -52,11 +51,6 @@ def r2_config(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> R2Config:
     for name, value in {**R2_ENV, **overrides}.items():
         monkeypatch.setenv(name, value)
     return R2Config()
-
-
-def recorded_run(run_id: int = 1, **overrides: Any) -> IngestRunResult:
-    """A result every stage reported into, so ok turns on stage failures alone."""
-    return IngestRunResult(run_id=run_id, started=set(IngestRunResult.STAGES), **overrides)
 
 
 @pytest.fixture

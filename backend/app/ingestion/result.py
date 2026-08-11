@@ -20,7 +20,6 @@ class IngestRunResult(BaseModel):
 
     run_id: int
     corpus_version: str | None = None
-    started: set[str] = Field(default_factory=set)
     discover: DiscoverRunResult = Field(default_factory=DiscoverRunResult)
     fetch: FetchRunResult = Field(default_factory=FetchRunResult)
     parse: ParseRunResult = Field(default_factory=ParseRunResult)
@@ -32,40 +31,23 @@ class IngestRunResult(BaseModel):
         return {name: getattr(self, name) for name in self.STAGES}
 
     @property
-    def unrecorded(self) -> frozenset[str]:
-        """Stages that never reported, so a run cut short cannot close as a success."""
-        return frozenset(self.STAGES) - self.started
-
-    def mark_reported(self, *stages: str) -> None:
-        """Record that these stages reported, so one that ran and found nothing is not 'not run'."""
-        self.started.update(stages)
-
-    @property
     def ok(self) -> bool:
-        return not self.unrecorded and all(result.ok for result in self.stages.values())
+        return all(result.ok for result in self.stages.values())
 
     @property
     def status(self) -> IngestRunStatus:
         return IngestRunStatus.SUCCESS if self.ok else IngestRunStatus.FAILED
 
     def report(self) -> dict[str, Any]:
-        """The run as its row stores it: a report per stage, and null for one that never ran."""
-        unrecorded = self.unrecorded
-        return {
-            name: None if name in unrecorded else result.report()
-            for name, result in self.stages.items()
-        }
+        """The run as its row stores it: a report per stage."""
+        return {name: result.report() for name, result in self.stages.items()}
 
     def summary(self) -> str:
         """The run as the CLI prints it: a line per stage, then the per-celex detail."""
-        unrecorded = self.unrecorded
         return "\n".join(
             [
                 f"run {self.run_id} ({self.corpus_version or 'not stamped'})",
-                *(
-                    f"  [{name}] {'not run' if name in unrecorded else result.summary()}"
-                    for name, result in self.stages.items()
-                ),
+                *(f"  [{name}] {result.summary()}" for name, result in self.stages.items()),
                 *(
                     f"  {name} {line}"
                     for name, result in self.stages.items()

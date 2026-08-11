@@ -84,10 +84,8 @@ async def ingest(
         discovered, result.discover = discover_corpus(
             client, topics=topics, previous_celexes=previous
         )
-        result.mark_reported("discover")
         logger.info("[discover] %s", result.discover.summary())
 
-        result.mark_reported("fetch", "parse", "chunk")
         for document in discovered:
             fetched, fetch_result = await fetch_document(
                 session,
@@ -121,7 +119,6 @@ async def ingest(
         logger.info("[chunk] %s", result.chunk.summary())
 
         result.embed = await embed_chunks(session)
-        result.mark_reported("embed")
         logger.info("[embed] %s", result.embed.summary())
 
     return result
