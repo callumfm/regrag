@@ -54,3 +54,19 @@ def test_does_not_retry_what_the_predicate_rejects(flaky):
     with pytest.raises(Permanent):
         call()
     assert len(calls) == 1
+
+
+@pytest.mark.anyio
+async def test_retries_a_coroutine_the_same_way_as_a_function(defuse_retry):
+    """Pins tenacity's coroutine detection: without it a wrapped async call never retries."""
+    calls: list[int] = []
+
+    @transient_retry(lambda exc: isinstance(exc, Transient))
+    async def _call() -> str:
+        calls.append(len(calls))
+        if calls[-1] < 1:
+            raise Transient
+        return "ok"
+
+    assert await defuse_retry(_call)() == "ok"
+    assert len(calls) == 2

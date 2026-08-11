@@ -2,7 +2,8 @@
 
 SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
 MAX_CHARS = 2000
-PACE_SECONDS = 1.0
+CRAWL_DELAYS = {"eur-lex.europa.eu": 10.0, "publications.europa.eu": 1.0}
+"""Seconds between requests per host; eur-lex publishes 10 in robots.txt, the rest is courtesy."""
 MAX_DROP_RATIO = 0.2
 MIN_SUSPICIOUS_DROPS = 3
 EMBED_PAGE_SIZE = 500

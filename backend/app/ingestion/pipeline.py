@@ -74,14 +74,14 @@ async def ingest_run(session: AsyncSession) -> AsyncIterator[tuple[IngestRun, In
 async def ingest(
     session: AsyncSession,
     *,
-    client: httpx.Client,
+    client: httpx.AsyncClient,
     topics: Sequence[str],
     store: ObjectStore,
 ) -> IngestRunResult:
-    """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
+    """Run the whole pipeline under one ingest run."""
     async with ingest_run(session) as (run, result):
         previous = await get_previous_docs(session, topics)
-        discovered, result.discover = discover_corpus(
+        discovered, result.discover = await discover_corpus(
             client, topics=topics, previous_celexes=previous
         )
         logger.info("[discover] %s", result.discover.summary())

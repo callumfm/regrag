@@ -7,17 +7,19 @@ from app.ingestion.discover.stage import discover_corpus, discover_topic, find_d
 from app.ingestion.exceptions import MalformedDiscoveryError
 from tests.conftest import MRV_SPARQL, binding, discovered_document, payload
 
+pytestmark = pytest.mark.anyio
 
-def test_discover_raises_when_seed_missing_from_results():
+
+async def test_discover_raises_when_seed_missing_from_results():
     def handler(request):
         return httpx.Response(200, json=payload(binding("32023R2449", force="1")))
 
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         with pytest.raises(MalformedDiscoveryError, match="32015R0757"):
-            discover_topic(client, "mrv", "32015R0757")
+            await discover_topic(client, "mrv", "32015R0757")
 
 
-def test_discover_returns_the_documents_the_query_selected():
+async def test_discover_returns_the_documents_the_query_selected():
     def handler(request):
         assert request.url.params["format"] == "application/sparql-results+json"
         return httpx.Response(
@@ -28,8 +30,8 @@ def test_discover_returns_the_documents_the_query_selected():
             ),
         )
 
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        discovered = discover_topic(client, "mrv", "32015R0757")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        discovered = await discover_topic(client, "mrv", "32015R0757")
     assert [d.celex for d in discovered] == ["32015R0757", "32023R2449"]
 
 
@@ -43,10 +45,10 @@ def test_find_dropped_celexes_is_empty_when_all_are_discovered():
     assert find_dropped_celexes([discovered_document("32015R0757")], ["32015R0757"]) == []
 
 
-def test_discover_corpus_reports_what_it_found_and_what_the_previous_run_lost(corpus_client):
+async def test_discover_corpus_reports_what_it_found_and_what_the_previous_run_lost(corpus_client):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, {})
 
-    documents, result = discover_corpus(
+    documents, result = await discover_corpus(
         client, topics=["mrv"], previous_celexes=["32015R0757", "31999R0001"]
     )
 

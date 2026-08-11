@@ -47,14 +47,14 @@ def expected_version(document: DiscoveredDocument) -> ResolvedVersion:
 
 
 @http_retry
-def download_fetchable_version(
-    client: httpx.Client, document: DiscoveredDocument
+async def download_fetchable_version(
+    client: httpx.AsyncClient, document: DiscoveredDocument
 ) -> tuple[ResolvedVersion, bytes]:
     """The newest version EUR-Lex will serve, and the HTML it served for it."""
     candidates = version_candidates(document)
     for candidate in candidates:
         url = html_url(candidate)
-        response = client.get(url)
+        response = await client.get(url)
         if is_still_rendering(response):
             raise DocumentStillRenderingError(
                 f"{document.topic}:{document.celex}: EUR-Lex is still rendering {candidate}"

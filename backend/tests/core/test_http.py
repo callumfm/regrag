@@ -16,7 +16,7 @@ class FakeClock:
     def monotonic(self) -> float:
         return self.now
 
-    def sleep(self, seconds: float) -> None:
+    async def sleep(self, seconds: float) -> None:
         self.slept.append(seconds)
         self.now += seconds
 
@@ -26,7 +26,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
     """Pacing's view of time, so tests assert on waits instead of serving them."""
     fake = FakeClock()
     monkeypatch.setattr("app.core.http.time.monotonic", fake.monotonic)
-    monkeypatch.setattr("app.core.http.time.sleep", fake.sleep)
+    monkeypatch.setattr("app.core.http.asyncio.sleep", fake.sleep)
     return fake
 
 
@@ -34,15 +34,17 @@ def test_default_headers_carry_browser_user_agent():
     assert "Mozilla" in DEFAULT_HEADERS["User-Agent"]
 
 
-def test_client_is_configured():
-    with http_client(timeout=5.0) as client:
+@pytest.mark.anyio
+async def test_client_is_configured():
+    async with http_client(timeout=5.0) as client:
         assert client.headers["user-agent"] == DEFAULT_HEADERS["User-Agent"]
         assert client.follow_redirects is True
         assert client.timeout.read == 5.0
 
 
-def test_client_does_not_pace_unless_asked():
-    with http_client() as client:
+@pytest.mark.anyio
+async def test_client_does_not_pace_unless_asked():
+    async with http_client() as client:
         assert client.event_hooks["request"] == []
 
 
@@ -99,46 +101,71 @@ def test_retries_transport_errors(get):
     assert len(calls) == 2
 
 
-def paced_client(seconds: float) -> httpx.Client:
-    """A client whose requests are paced and answered locally."""
-    return httpx.Client(
+def paced_client(delays: dict[str, float]) -> httpx.AsyncClient:
+    """A client whose requests are paced per host and answered locally."""
+    return httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _: httpx.Response(200)),
-        event_hooks={"request": [pace_requests(seconds)]},
+        event_hooks={"request": [pace_requests(delays)]},
     )
 
 
-def test_pacing_lets_the_first_request_straight_through(clock: FakeClock) -> None:
-    paced_client(1.0).get("https://example.test/doc")
+ONE_SECOND = {"example.test": 1.0}
+
+
+@pytest.mark.anyio
+async def test_pacing_lets_the_first_request_straight_through(clock: FakeClock) -> None:
+    await paced_client(ONE_SECOND).get("https://example.test/doc")
     assert clock.slept == []
 
 
-def test_pacing_waits_between_every_request_not_every_document(clock: FakeClock) -> None:
+@pytest.mark.anyio
+async def test_pacing_waits_between_every_request_not_every_document(clock: FakeClock) -> None:
     """Pacing is per request: falling back to the original act costs two, and both wait."""
-    client = paced_client(1.0)
+    client = paced_client(ONE_SECOND)
     for _ in range(3):
-        client.get("https://example.test/doc")
+        await client.get("https://example.test/doc")
     assert clock.slept == [1.0, 1.0]
 
 
-def test_pacing_waits_only_for_what_is_left_of_the_interval(clock: FakeClock) -> None:
-    client = paced_client(1.0)
-    client.get("https://example.test/doc")
+@pytest.mark.anyio
+async def test_pacing_waits_only_for_what_is_left_of_the_interval(clock: FakeClock) -> None:
+    client = paced_client(ONE_SECOND)
+    await client.get("https://example.test/doc")
     clock.now += 0.4
-    client.get("https://example.test/doc")
+    await client.get("https://example.test/doc")
     assert clock.slept == [pytest.approx(0.6)]
 
 
-def test_pacing_does_not_wait_when_the_interval_has_already_passed(clock: FakeClock) -> None:
-    client = paced_client(1.0)
-    client.get("https://example.test/doc")
+@pytest.mark.anyio
+async def test_pacing_does_not_wait_when_the_interval_has_already_passed(clock: FakeClock) -> None:
+    client = paced_client(ONE_SECOND)
+    await client.get("https://example.test/doc")
     clock.now += 5.0
-    client.get("https://example.test/doc")
+    await client.get("https://example.test/doc")
     assert clock.slept == []
 
 
-def test_each_client_paces_on_its_own_last_request(clock: FakeClock) -> None:
+@pytest.mark.anyio
+async def test_each_client_paces_on_its_own_last_request(clock: FakeClock) -> None:
     """State lives with the client, so one client's requests never delay another's."""
-    first, second = paced_client(1.0), paced_client(1.0)
-    first.get("https://example.test/doc")
-    second.get("https://example.test/doc")
+    first, second = paced_client(ONE_SECOND), paced_client(ONE_SECOND)
+    await first.get("https://example.test/doc")
+    await second.get("https://example.test/doc")
+    assert clock.slept == []
+
+
+@pytest.mark.anyio
+async def test_pacing_is_tracked_per_host(clock: FakeClock) -> None:
+    """A slow crawl delay on one host must not throttle the first request to another."""
+    client = paced_client({"slow.test": 10.0, "fast.test": 1.0})
+    await client.get("https://slow.test/doc")
+    await client.get("https://fast.test/doc")
+    assert clock.slept == []
+
+
+@pytest.mark.anyio
+async def test_a_host_with_no_published_delay_is_not_paced(clock: FakeClock) -> None:
+    client = paced_client({"slow.test": 10.0})
+    await client.get("https://other.test/doc")
+    await client.get("https://other.test/doc")
     assert clock.slept == []

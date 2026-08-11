@@ -82,7 +82,7 @@ async def fetch(db_session, client, topics, store) -> tuple[FetchRunResult, list
     """Drive the fetch stage alone, with the run and the discovery the orchestrator would supply."""
     run = await create_ingest_run(db_session)
     previous = await get_previous_docs(db_session, topics)
-    discovered, _ = discover_corpus(client, topics=topics, previous_celexes=previous)
+    discovered, _ = await discover_corpus(client, topics=topics, previous_celexes=previous)
     fetched: list[FetchedDocument] = []
     result = FetchRunResult()
     for document in discovered:
@@ -231,8 +231,8 @@ async def test_a_row_that_will_not_flush_fails_only_its_own_document(
     """A database error on one row must skip that document, not poison the run's transaction."""
     real = stage._reuse_or_download
 
-    def unstorable(client, discovered, **kwargs):
-        fetched, change = real(client, discovered, **kwargs)
+    async def unstorable(client, discovered, **kwargs):
+        fetched, change = await real(client, discovered, **kwargs)
         if discovered.celex == "32015R0757":
             fetched.document.topic = None  # ty: ignore[invalid-assignment]
         return fetched, change

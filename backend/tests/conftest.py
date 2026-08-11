@@ -244,12 +244,12 @@ def embeddings(monkeypatch: pytest.MonkeyPatch) -> FakeProvider:
 
 
 @pytest.fixture
-def corpus_client() -> Callable[..., tuple[httpx.Client, list[str]]]:
+def corpus_client() -> Callable[..., tuple[httpx.AsyncClient, list[str]]]:
     """Transport serving SPARQL payloads per topic and HTML responses per celex."""
 
     def _make(
         sparql: dict[str, httpx.Response], docs: dict[str, httpx.Response]
-    ) -> tuple[httpx.Client, list[str]]:
+    ) -> tuple[httpx.AsyncClient, list[str]]:
         calls: list[str] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -263,7 +263,7 @@ def corpus_client() -> Callable[..., tuple[httpx.Client, list[str]]]:
             calls.append(celex)
             return docs[celex]
 
-        return httpx.Client(transport=httpx.MockTransport(handler)), calls
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler)), calls
 
     return _make
 
