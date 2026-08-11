@@ -1,37 +1,31 @@
-"""Parse stage: each fetched document's stored HTML as a section tree."""
+"""Parse stage: each fetched document's HTML as a section tree."""
 
 from collections.abc import Sequence
-from pathlib import Path
 
 from app.ingestion.exceptions import ParseError
-from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.models import FetchedDocument
 from app.ingestion.parse.html.parser import parse_eurlex_html
-from app.ingestion.parse.models import ParsedDocument, Parser, ParseRunResult
-
-PARSERS: dict[str, Parser] = {".html": parse_eurlex_html}
+from app.ingestion.parse.models import ParsedDocument, ParseRunResult
 
 
-def _parse_document(path: Path, *, celex: str, topic: str) -> ParsedDocument:
-    """Parse one stored document, choosing the parser its file type calls for."""
-    parser = PARSERS.get(path.suffix)
-    if parser is None:
-        raise ParseError(f"{celex}: no parser for {path.suffix or 'a file with no extension'}")
-    return parser(path.read_text(encoding="utf-8"), celex, topic)
+def _parse_document(fetched: FetchedDocument) -> ParsedDocument:
+    """Parse one document's HTML, the one format storage keeps, into a section tree."""
+    document = fetched.document
+    content = fetched.content.decode("utf-8")
+    return parse_eurlex_html(content, document.celex, document.topic)
 
 
 def parse_documents(
-    documents: Sequence[RawDocument], *, data_dir: Path
+    fetched: Sequence[FetchedDocument],
 ) -> tuple[list[ParsedDocument], ParseRunResult]:
     """Parse every fetched document, recording the ones that would not parse."""
     parsed: list[ParsedDocument] = []
     result = ParseRunResult()
-    for document in documents:
+    for item in fetched:
         try:
-            parsed.append(
-                _parse_document(document.path(data_dir), celex=document.celex, topic=document.topic)
-            )
-        except (ParseError, OSError, UnicodeDecodeError) as exc:
-            result.fail(document.celex, exc)
+            parsed.append(_parse_document(item))
+        except (ParseError, UnicodeDecodeError) as exc:
+            result.fail(item.document.celex, exc)
             continue
-        result.parsed.append(document.celex)
+        result.parsed.append(item.document.celex)
     return parsed, result

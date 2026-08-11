@@ -5,6 +5,7 @@ description = "RegRag backend — API, agent, ingestion, evals"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.16",
+    "boto3>=1.43.67",
     "fastapi[standard]>=0.139",
     "httpx>=0.28",
     "litellm>=1.79",

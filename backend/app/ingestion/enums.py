@@ -18,6 +18,13 @@ class DocChange(StrEnum):
     CHANGED = "changed"
     UNCHANGED = "unchanged"
 
+    @classmethod
+    def between(cls, previous: str | None, current: str) -> "DocChange":
+        """How this run's resolved celex compares to the previous run's, if there was one."""
+        if previous is None:
+            return cls.NEW
+        return cls.CHANGED if previous != current else cls.UNCHANGED
+
 
 class SectionKind(StrEnum):
     """Node types in a parsed document tree."""

@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.enums import Environment
+from app.core.enums import Environment, StorageBackend
 
 ENVIRONMENT: Environment = Environment(os.environ.get("ENVIRONMENT", "dev"))
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -35,7 +35,28 @@ class AppConfig(BaseConfig):
     ENVIRONMENT: Environment = ENVIRONMENT
     PROJECT_NAME: str = "RegRag"
     CORS_ORIGINS: list[str] = ["http://localhost:5173"]
+
+
+class StorageConfig(BaseConfig):
+    """Which backend holds raw source documents, and where the local one keeps them."""
+
+    STORAGE_BACKEND: StorageBackend = StorageBackend.LOCAL
     RAW_DATA_DIR: Path = PROJECT_ROOT / "data" / "raw"
+
+
+class R2Config(BaseConfig):
+    """Cloudflare R2 credentials, every field required so a half-configured bucket fails early."""
+
+    R2_ACCOUNT_ID: str
+    R2_ACCESS_KEY_ID: str
+    R2_SECRET_ACCESS_KEY: str
+    R2_BUCKET: str
+
+    @computed_field
+    @property
+    def R2_ENDPOINT_URL(self) -> str:
+        """The S3-compatible endpoint R2 serves this account's buckets on."""
+        return f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
 
 class PostgresConfig(BaseConfig):
@@ -90,7 +111,7 @@ class EmbeddingConfig(BaseConfig):
     EMBED_TIMEOUT: int = 30
 
 
-class Config(AppConfig, PostgresConfig, EmbeddingConfig):
+class Config(AppConfig, PostgresConfig, EmbeddingConfig, StorageConfig):
     """Combined configuration class for core app functionality."""
 
 

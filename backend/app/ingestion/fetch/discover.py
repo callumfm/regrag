@@ -75,6 +75,11 @@ def latest_own_consolidation(act: CandidateAct) -> str | None:
     return max(own) if own else None
 
 
+def version_candidates(spec: DiscoveredDocument) -> list[str]:
+    """The versions to try in order: the consolidation discovery found, then the original act."""
+    return [spec.candidate_celex, spec.celex] if spec.candidate_celex else [spec.celex]
+
+
 def select_topic_documents(topic: str, acts: Iterable[CandidateAct]) -> list[DiscoveredDocument]:
     """The acts worth fetching, each pointed at the version to try first."""
     return [

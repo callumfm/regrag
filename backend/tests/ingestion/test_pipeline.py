@@ -8,18 +8,27 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import ProgrammingError
 
+from app.core.storage import StorageError
+from app.ingestion import pipeline
+from app.ingestion.celex import consolidated_stem
 from app.ingestion.chunk.chunker import chunk_document
-from app.ingestion.chunk.models import ChunkRunResult
-from app.ingestion.embed.models import EmbedRunResult
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
-from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import FetchRunResult
+from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.pipeline import IngestRunResult, _known_corpus_celexes, ingest
+from app.ingestion.pipeline import _known_corpus_celexes, ingest
+from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
-from tests.conftest import MRV_SPARQL, binding, chunk_rows, chunk_versions, payload
+from app.ingestion.storage import document_key
+from tests.conftest import (
+    MRV_SPARQL,
+    binding,
+    chunk_rows,
+    chunk_versions,
+    payload,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -32,79 +41,6 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
         "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
         "32023R2449": httpx.Response(200, content=FUELEU_HTML.encode()),
     } | (overrides or {})
-
-
-def test_stages_finds_every_result_and_nothing_else() -> None:
-    assert list(IngestRunResult(run_id=1).stages) == ["fetch", "parse", "chunk", "embed"]
-
-
-def test_a_run_is_ok_when_no_stage_failed() -> None:
-    assert IngestRunResult(run_id=1).ok
-    assert IngestRunResult(run_id=1).status is IngestRunStatus.COMPLETED
-
-
-def test_a_failure_in_any_stage_fails_the_run() -> None:
-    assert not IngestRunResult(run_id=1, fetch=FetchRunResult(failed={"a": "404"})).ok
-    assert not IngestRunResult(run_id=1, parse=ParseRunResult(failed={"a": "ParseError"})).ok
-    assert IngestRunResult(run_id=1, chunk=ChunkRunResult(failed={"a": "boom"})).status is (
-        IngestRunStatus.FAILED
-    )
-
-
-def test_summary_reports_every_stage_on_its_own_line() -> None:
-    result = IngestRunResult(
-        run_id=7,
-        corpus_version="2026-08-05-abc1234",
-        fetch=FetchRunResult(new=["a"], unchanged=["b"]),
-        parse=ParseRunResult(parsed=["a", "b"]),
-        chunk=ChunkRunResult(added=12, unchanged=30),
-        embed=EmbedRunResult(embedded=12, unchanged=30),
-    )
-    assert result.summary().splitlines() == [
-        "run 7 (2026-08-05-abc1234)",
-        "  [fetch] 1 new, 0 changed, 1 unchanged, 0 dropped, 0 failed",
-        "  [parse] 2 parsed, 0 failed",
-        "  [chunk] 12 added, 0 removed, 30 unchanged, 0 failed",
-        "  [embed] 12 embedded, 30 unchanged, 0 failed",
-        "  fetch new: a",
-    ]
-
-
-def test_summary_says_so_when_no_version_was_stamped() -> None:
-    assert IngestRunResult(run_id=7).summary().startswith("run 7 (not stamped)")
-
-
-def test_summary_lists_each_stage_s_failures() -> None:
-    result = IngestRunResult(
-        run_id=7,
-        fetch=FetchRunResult(failed={"a": "HTTPError: 404"}),
-        parse=ParseRunResult(failed={"b": "ParseError: no body"}),
-    )
-    assert "  fetch failed: a (HTTPError: 404)" in result.summary()
-    assert "  parse failed: b (ParseError: no body)" in result.summary()
-
-
-def test_report_covers_every_stage_with_its_counts_and_failures() -> None:
-    result = IngestRunResult(
-        run_id=7,
-        fetch=FetchRunResult(discovered=["a", "b"], new=["a"], unchanged=["b"]),
-        parse=ParseRunResult(parsed=["a"], failed={"b": "ParseError: no body"}),
-        chunk=ChunkRunResult(added=12, unchanged=30),
-        embed=EmbedRunResult(embedded=12),
-    )
-    assert result.report() == {
-        "fetch": {"new": 1, "changed": 0, "unchanged": 1, "dropped": 0, "failed": {}},
-        "parse": {"parsed": 1, "failed": {"b": "ParseError: no body"}},
-        "chunk": {"added": 12, "removed": 0, "unchanged": 30, "failed": {}},
-        "embed": {"embedded": 12, "unchanged": 0, "failed": {}},
-    }
-
-
-def test_report_leaves_out_the_run_s_own_columns() -> None:
-    """Both are columns already, and corpus_version is stamped after the row is written."""
-    report = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234").report()
-    assert "run_id" not in report
-    assert "corpus_version" not in report
 
 
 async def test_known_corpus_celexes_unions_this_run_with_the_topics_it_left_alone(
@@ -146,10 +82,10 @@ async def test_a_document_that_would_not_parse_leaves_the_corpus_unknown(db_sess
     assert celexes is None
 
 
-async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path, corpus_client):
+async def test_sparql_failure_aborts_and_marks_run_failed(db_session, local_store, corpus_client):
     client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
     with pytest.raises(httpx.HTTPStatusError):
-        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
@@ -157,10 +93,10 @@ async def test_sparql_failure_aborts_and_marks_run_failed(db_session, tmp_path, 
 
 
 async def test_completed_run_is_stamped_with_a_dated_corpus_version(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = await db_session.get(IngestRun, report.run_id)
     assert run.status is IngestRunStatus.COMPLETED
@@ -169,22 +105,24 @@ async def test_completed_run_is_stamped_with_a_dated_corpus_version(
 
 
 async def test_unchanged_corpus_keeps_the_previous_corpus_version(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
     docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    first = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    first = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    second = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    second = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     versions = [(await db_session.get(IngestRun, r.run_id)).corpus_version for r in (first, second)]
     assert versions[0] is not None
     assert versions[0] == versions[1]
 
 
-async def test_changed_document_produces_a_new_corpus_version(db_session, tmp_path, corpus_client):
+async def test_changed_document_produces_a_new_corpus_version(
+    db_session, local_store, corpus_client
+):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    first = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    first = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     consolidated = httpx.Response(
         200,
@@ -197,26 +135,28 @@ async def test_changed_document_produces_a_new_corpus_version(db_session, tmp_pa
         {"mrv": consolidated},
         mrv_docs({"02015R0757-20250101": httpx.Response(200, content=FUELEU_HTML.encode())}),
     )
-    second = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    second = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     versions = [(await db_session.get(IngestRun, r.run_id)).corpus_version for r in (first, second)]
     assert versions[0] != versions[1]
 
 
-async def test_failed_run_is_not_stamped_with_a_corpus_version(db_session, tmp_path, corpus_client):
+async def test_failed_run_is_not_stamped_with_a_corpus_version(
+    db_session, local_store, corpus_client
+):
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
     )
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = await db_session.get(IngestRun, report.run_id)
     assert run.status is IngestRunStatus.FAILED
     assert run.corpus_version is None
 
 
-async def test_a_completed_run_records_what_each_stage_did(db_session, tmp_path, corpus_client):
+async def test_a_completed_run_records_what_each_stage_did(db_session, local_store, corpus_client):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = await db_session.get(IngestRun, report.run_id)
     assert run.result == report.report()
@@ -224,34 +164,40 @@ async def test_a_completed_run_records_what_each_stage_did(db_session, tmp_path,
     assert run.result["embed"]["embedded"] > 0
 
 
-async def test_a_stage_failure_is_answerable_from_the_run_row(db_session, tmp_path, corpus_client):
+async def test_a_stage_failure_is_answerable_from_the_run_row(
+    db_session, local_store, corpus_client
+):
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
     )
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = await db_session.get(IngestRun, report.run_id)
     assert "32023R2449" in run.result["fetch"]["failed"]
     assert run.result["fetch"]["new"] == 1
 
 
-async def test_an_aborted_run_records_no_result(db_session, tmp_path, corpus_client):
+async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_null(
+    db_session, local_store, corpus_client
+):
     client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
     with pytest.raises(httpx.HTTPStatusError):
-        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.result is None
+    assert run.result == {"fetch": None, "parse": None, "chunk": None, "embed": None}
 
 
-async def test_malformed_sparql_payload_raises_discovery_error(db_session, tmp_path, corpus_client):
+async def test_malformed_sparql_payload_raises_discovery_error(
+    db_session, local_store, corpus_client
+):
     client, _ = corpus_client({"mrv": httpx.Response(200, json={"unexpected": True})}, {})
     with pytest.raises(MalformedDiscoveryError, match="malformed"):
-        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
 
 async def test_a_failure_after_fetch_still_marks_the_run_failed(
-    db_session, tmp_path, corpus_client, monkeypatch
+    db_session, local_store, corpus_client, monkeypatch
 ):
     async def explode(*args, **kwargs):
         raise RuntimeError("chunking blew up")
@@ -259,16 +205,59 @@ async def test_a_failure_after_fetch_still_marks_the_run_failed(
     monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", explode)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(RuntimeError):
-        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
     assert run.completed_at is not None
 
 
-async def test_run_persists_chunks_for_every_document(db_session, tmp_path, corpus_client):
+async def test_a_failure_closing_the_run_out_still_marks_it_failed(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """The closing commit is where an integrity error or a Ctrl-C lands, so it must be covered."""
+    real = pipeline.complete_ingest_run
+    calls = []
+
+    async def explode_once(session, run, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise RuntimeError("commit blew up")
+        return await real(session, run, **kwargs)
+
+    monkeypatch.setattr(pipeline, "complete_ingest_run", explode_once)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="commit blew up"):
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    run = (await db_session.scalars(select(IngestRun))).one()
+    assert run.status is IngestRunStatus.FAILED
+    assert run.completed_at is not None
+
+
+async def test_a_run_aborted_mid_pipeline_keeps_the_stages_that_did_report(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """Fetch and parse detail is the whole reason to look at an aborted run's row."""
+
+    async def explode(*args, **kwargs):
+        raise RuntimeError("chunking blew up")
+
+    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", explode)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    with pytest.raises(RuntimeError):
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    run = (await db_session.scalars(select(IngestRun))).one()
+    assert run.result["fetch"]["new"] == 2
+    assert run.result["parse"]["parsed"] == 2
+    assert run.result["chunk"] is None
+    assert run.result["embed"] is None
+
+
+async def test_run_persists_chunks_for_every_document(db_session, local_store, corpus_client):
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     rows = await chunk_rows(db_session)
     assert report.ok
@@ -278,14 +267,16 @@ async def test_run_persists_chunks_for_every_document(db_session, tmp_path, corp
     assert await chunk_versions(db_session) == {report.corpus_version}
 
 
-async def test_second_identical_run_adds_and_removes_nothing(db_session, tmp_path, corpus_client):
+async def test_second_identical_run_adds_and_removes_nothing(
+    db_session, local_store, corpus_client
+):
     docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
     before = {row.id for row in await chunk_rows(db_session)}
 
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    second = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    second = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert (second.chunk.added, second.chunk.removed) == (0, 0)
     assert second.chunk.unchanged == len(before)
@@ -295,14 +286,19 @@ async def test_second_identical_run_adds_and_removes_nothing(db_session, tmp_pat
 ONLY_SEED_SPARQL = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
 
 
-async def test_dropped_document_loses_its_chunks(db_session, tmp_path, corpus_client):
+def new_version(celex: str) -> str:
+    """A consolidated version the last run never saw, so the act has to be downloaded again."""
+    return f"{consolidated_stem(celex)}20250101"
+
+
+async def test_dropped_document_loses_its_chunks(db_session, local_store, corpus_client):
     docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
     assert await chunk_rows(db_session, "32023R2449")
 
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, docs)
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert report.fetch.dropped == ["32023R2449"]
     assert await chunk_rows(db_session, "32023R2449") == []
@@ -310,20 +306,32 @@ async def test_dropped_document_loses_its_chunks(db_session, tmp_path, corpus_cl
 
 
 async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fetch(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
-    """A failed fetch drops the doc from the next run's baseline; chunks must still go."""
+    """A failed fetch drops the doc from the next run's baseline; chunks must still go.
+
+    The failure has to land on a version the run actually downloads: an unchanged act is
+    never requested, so it has no way to fail.
+    """
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
     assert await chunk_rows(db_session, "32023R2449")
 
-    client, _ = corpus_client(
-        {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
+    consolidated = httpx.Response(
+        200,
+        json=payload(
+            binding("32015R0757", force="1"),
+            binding("32023R2449", force="1", cons=new_version("32023R2449")),
+        ),
     )
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    client, _ = corpus_client(
+        {"mrv": consolidated},
+        mrv_docs({new_version("32023R2449"): httpx.Response(400, text="bad")}),
+    )
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, mrv_docs())
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert report.fetch.dropped == []
     assert await chunk_rows(db_session, "32023R2449") == []
@@ -342,45 +350,48 @@ def wide_docs() -> dict[str, httpx.Response]:
 
 
 async def test_discovery_losing_most_of_the_corpus_aborts_and_deletes_nothing(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
     """A truncated result set reads exactly like a mass repeal, so refuse to act on it."""
     client, _ = corpus_client({"mrv": WIDE_SPARQL}, wide_docs())
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
     before = {row.id for row in await chunk_rows(db_session)}
     assert before
 
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, wide_docs())
     with pytest.raises(CorpusShrankError, match="lost 4 of 5"):
-        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert {row.id for row in await chunk_rows(db_session)} == before
 
 
-async def test_a_plausible_repeal_still_prunes(db_session, tmp_path, corpus_client):
+async def test_a_plausible_repeal_still_prunes(db_session, local_store, corpus_client):
     """One document out of five is an ordinary repeal, not a truncated response."""
     client, _ = corpus_client({"mrv": WIDE_SPARQL}, wide_docs())
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     kept = [binding(celex, force="1") for celex in WIDE_CELEXES if celex != "32026R0003"]
     client, _ = corpus_client({"mrv": httpx.Response(200, json=payload(*kept))}, wide_docs())
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert report.fetch.dropped == ["32026R0003"]
     assert await chunk_rows(db_session, "32026R0003") == []
 
 
-async def test_an_incomplete_run_prunes_nothing(db_session, tmp_path, corpus_client):
+async def test_an_incomplete_run_prunes_nothing(db_session, local_store, corpus_client):
     """A run that could not fetch its whole corpus has no business declaring anything obsolete."""
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
     assert await chunk_rows(db_session, "32023R2449")
 
-    client, _ = corpus_client(
-        {"mrv": ONLY_SEED_SPARQL},
-        mrv_docs({"32015R0757": httpx.Response(400, text="bad")}),
+    seed_consolidated = httpx.Response(
+        200, json=payload(binding("32015R0757", force="1", cons=new_version("32015R0757")))
     )
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    client, _ = corpus_client(
+        {"mrv": seed_consolidated},
+        mrv_docs({new_version("32015R0757"): httpx.Response(400, text="bad")}),
+    )
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert report.fetch.dropped == ["32023R2449"]
     assert not report.ok
@@ -394,7 +405,7 @@ FUELEU_PLUS_SHARED = httpx.Response(
 
 
 async def test_a_celex_another_topic_still_holds_survives_being_dropped(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
     """32015R0757 is tagged fueleu because fueleu saw it first; mrv still wanting it must win."""
     shared_docs = {
@@ -402,27 +413,27 @@ async def test_a_celex_another_topic_still_holds_survives_being_dropped(
         "32015R0757": httpx.Response(200, content=FUELEU_HTML.encode()),
     }
     client, _ = corpus_client({"fueleu": FUELEU_PLUS_SHARED}, shared_docs)
-    await ingest(db_session, client=client, topics=["fueleu"], data_dir=tmp_path)
+    await ingest(db_session, client=client, topics=["fueleu"], store=local_store)
     assert {row.topic for row in await chunk_rows(db_session, "32015R0757")} == {"fueleu"}
 
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     client, _ = corpus_client({"fueleu": FUELEU_SPARQL}, shared_docs)
-    report = await ingest(db_session, client=client, topics=["fueleu"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["fueleu"], store=local_store)
 
     assert report.fetch.dropped == ["32015R0757"]
     assert await chunk_rows(db_session, "32015R0757")
 
 
 async def test_unparseable_document_is_recorded_and_others_persist(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL},
         mrv_docs({"32023R2449": httpx.Response(200, content=b"<html>not eur-lex</html>")}),
     )
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert "32023R2449" in report.parse.failed
     assert not report.ok
@@ -432,51 +443,54 @@ async def test_unparseable_document_is_recorded_and_others_persist(
     assert run.status is IngestRunStatus.FAILED
 
 
-async def test_missing_source_file_is_recorded_not_raised(
-    db_session, tmp_path, corpus_client, monkeypatch
+async def test_a_freshly_downloaded_document_is_parsed_without_reading_it_back(
+    db_session, local_store, corpus_client, monkeypatch
 ):
+    """The download already holds the bytes, so parse must not pay a second storage round trip."""
+    reads: list[str] = []
+    monkeypatch.setattr(local_store, "get", lambda key: reads.append(key))
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    monkeypatch.setattr(stage, "_store", lambda data_dir, celex, content: ("a" * 64, len(content)))
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert sorted(report.parse.failed) == ["32015R0757", "32023R2449"]
-    assert all("FileNotFoundError" in reason for reason in report.parse.failed.values())
-    assert not report.ok
-
-
-async def test_a_source_file_lost_from_disk_is_downloaded_again(
-    db_session, tmp_path, corpus_client
-):
-    docs = mrv_docs()
-    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
-    for path in tmp_path.glob("*.html"):
-        path.unlink()
-
-    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
-
-    assert (tmp_path / "32015R0757.html").exists()
+    assert reads == []
     assert report.ok
 
 
-async def test_a_disk_error_is_recorded_not_raised(
-    db_session, tmp_path, corpus_client, monkeypatch
+async def test_a_source_document_lost_from_the_store_is_downloaded_again(
+    db_session, local_store, corpus_client
 ):
-    def full_disk(*args, **kwargs):
-        raise OSError(28, "No space left on device")
+    docs = mrv_docs()
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+    for path in local_store.root.rglob("*.html"):
+        path.unlink()
 
-    monkeypatch.setattr(stage, "_store", full_disk)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    rows = await get_baseline_docs(db_session, ["mrv"])
+    row = rows["32015R0757"]
+    assert local_store.exists(document_key(row.celex, row.resolved_celex, row.sha256))
+    assert report.ok
+
+
+async def test_a_store_write_failure_is_recorded_not_raised(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    def full_disk(key, content):
+        raise StorageError("put", key, OSError(28, "No space left on device"))
+
+    monkeypatch.setattr(local_store, "put", full_disk)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert sorted(report.fetch.failed) == ["32015R0757", "32023R2449"]
-    assert all("OSError" in reason for reason in report.fetch.failed.values())
+    assert all("StorageError" in reason for reason in report.fetch.failed.values())
     assert not report.ok
 
 
 async def test_an_interrupt_still_marks_the_run_failed(
-    db_session, tmp_path, corpus_client, monkeypatch
+    db_session, local_store, corpus_client, monkeypatch
 ):
     async def interrupt(*args, **kwargs):
         raise KeyboardInterrupt
@@ -484,7 +498,7 @@ async def test_an_interrupt_still_marks_the_run_failed(
     monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", interrupt)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(KeyboardInterrupt):
-        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
@@ -492,7 +506,7 @@ async def test_an_interrupt_still_marks_the_run_failed(
 
 
 async def test_a_database_failure_does_not_mask_itself(
-    db_session, tmp_path, corpus_client, monkeypatch
+    db_session, local_store, corpus_client, monkeypatch
 ):
     """The failure handler must roll back first, or its own commit raises over the real cause."""
 
@@ -502,24 +516,24 @@ async def test_a_database_failure_does_not_mask_itself(
     monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_documents", explode)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(ProgrammingError):
-        await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.status is IngestRunStatus.FAILED
 
 
-async def test_partial_fetch_leaves_its_chunks_unstamped(db_session, tmp_path, corpus_client):
+async def test_partial_fetch_leaves_its_chunks_unstamped(db_session, local_store, corpus_client):
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
     )
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert report.corpus_version is None
     assert await chunk_versions(db_session, "32015R0757") == {None}
 
 
 async def test_chunks_stay_attributed_to_the_run_that_first_stored_them(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
     """A later whole-corpus run leaves matched chunks pointing at the run they came from.
 
@@ -528,10 +542,10 @@ async def test_chunks_stay_attributed_to_the_run_that_first_stored_them(
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
     )
-    partial = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    partial = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert report.corpus_version is not None
     rows = await chunk_rows(db_session, "32015R0757")
@@ -539,11 +553,13 @@ async def test_chunks_stay_attributed_to_the_run_that_first_stored_them(
     assert await chunk_versions(db_session, "32015R0757") == {None}
 
 
-async def test_failed_fetch_still_chunks_what_was_downloaded(db_session, tmp_path, corpus_client):
+async def test_failed_fetch_still_chunks_what_was_downloaded(
+    db_session, local_store, corpus_client
+):
     client, _ = corpus_client(
         {"mrv": MRV_SPARQL}, mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
     )
-    report = await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert "32023R2449" in report.fetch.failed
     assert not report.ok
@@ -554,17 +570,19 @@ async def test_failed_fetch_still_chunks_what_was_downloaded(db_session, tmp_pat
 FUELEU_SPARQL = httpx.Response(200, json=payload(binding("32023R1805", force="1")))
 
 
-async def ingest_fueleu(db_session, tmp_path, corpus_client) -> IngestRunResult:
+async def ingest_fueleu(db_session, local_store, corpus_client) -> IngestRunResult:
     """Run the real pipeline over the saved FuelEU fixture, network stubbed."""
     client, _ = corpus_client(
         {"fueleu": FUELEU_SPARQL},
         {"32023R1805": httpx.Response(200, content=FUELEU_HTML.encode())},
     )
-    return await ingest(db_session, client=client, topics=["fueleu"], data_dir=tmp_path)
+    return await ingest(db_session, client=client, topics=["fueleu"], store=local_store)
 
 
-async def test_fueleu_chunks_have_correct_article_boundaries(db_session, tmp_path, corpus_client):
-    report = await ingest_fueleu(db_session, tmp_path, corpus_client)
+async def test_fueleu_chunks_have_correct_article_boundaries(
+    db_session, local_store, corpus_client
+):
+    report = await ingest_fueleu(db_session, local_store, corpus_client)
     assert report.ok
 
     rows = await chunk_rows(db_session, "32023R1805")
@@ -574,8 +592,8 @@ async def test_fueleu_chunks_have_correct_article_boundaries(db_session, tmp_pat
     ]
 
 
-async def test_fueleu_chunks_carry_their_citations(db_session, tmp_path, corpus_client):
-    await ingest_fueleu(db_session, tmp_path, corpus_client)
+async def test_fueleu_chunks_carry_their_citations(db_session, local_store, corpus_client):
+    await ingest_fueleu(db_session, local_store, corpus_client)
 
     rows = await chunk_rows(db_session, "32023R1805")
     citations = {row.citation for row in rows}
@@ -584,9 +602,9 @@ async def test_fueleu_chunks_carry_their_citations(db_session, tmp_path, corpus_
 
 
 async def test_fueleu_annex_table_is_persisted_as_its_own_chunk(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
-    await ingest_fueleu(db_session, tmp_path, corpus_client)
+    await ingest_fueleu(db_session, local_store, corpus_client)
 
     rows = await chunk_rows(db_session, "32023R1805")
     tables = [row for row in rows if row.kind is SectionKind.TABLE]
@@ -594,8 +612,8 @@ async def test_fueleu_annex_table_is_persisted_as_its_own_chunk(
     assert tables[0].citation == "Annex II"
 
 
-async def test_fueleu_chunks_are_stamped_and_topic_tagged(db_session, tmp_path, corpus_client):
-    report = await ingest_fueleu(db_session, tmp_path, corpus_client)
+async def test_fueleu_chunks_are_stamped_and_topic_tagged(db_session, local_store, corpus_client):
+    report = await ingest_fueleu(db_session, local_store, corpus_client)
 
     rows = await chunk_rows(db_session, "32023R1805")
     assert {row.topic for row in rows} == {"fueleu"}
@@ -605,22 +623,22 @@ async def test_fueleu_chunks_are_stamped_and_topic_tagged(db_session, tmp_path, 
 
 
 async def test_single_topic_run_leaves_another_topics_chunks_alone(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
-    await ingest_fueleu(db_session, tmp_path, corpus_client)
+    await ingest_fueleu(db_session, local_store, corpus_client)
     before = {row.id for row in await chunk_rows(db_session, "32023R1805")}
     assert before
 
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    await ingest(db_session, client=client, topics=["mrv"], data_dir=tmp_path)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert {row.id for row in await chunk_rows(db_session, "32023R1805")} == before
 
 
-async def test_fueleu_chunk_count_matches_the_chunker(db_session, tmp_path, corpus_client):
+async def test_fueleu_chunk_count_matches_the_chunker(db_session, local_store, corpus_client):
     """Persisted order matches the chunker for a fresh corpus only: ids are first-insert order,
     so after any partial change replacement rows sort above untouched ones."""
-    await ingest_fueleu(db_session, tmp_path, corpus_client)
+    await ingest_fueleu(db_session, local_store, corpus_client)
 
     expected = chunk_document(parse_eurlex_html(FUELEU_HTML, "32023R1805", "fueleu"))
     rows = await chunk_rows(db_session, "32023R1805")
@@ -628,8 +646,8 @@ async def test_fueleu_chunk_count_matches_the_chunker(db_session, tmp_path, corp
     assert [row.text for row in rows] == [c.text for c in expected]
 
 
-async def test_a_run_embeds_every_chunk_it_stored(db_session, tmp_path, corpus_client):
-    report = await ingest_fueleu(db_session, tmp_path, corpus_client)
+async def test_a_run_embeds_every_chunk_it_stored(db_session, local_store, corpus_client):
+    report = await ingest_fueleu(db_session, local_store, corpus_client)
 
     rows = await chunk_rows(db_session, "32023R1805")
     assert report.ok
@@ -638,12 +656,12 @@ async def test_a_run_embeds_every_chunk_it_stored(db_session, tmp_path, corpus_c
 
 
 async def test_a_second_run_embeds_nothing_and_reports_the_rest_unchanged(
-    db_session, tmp_path, corpus_client
+    db_session, local_store, corpus_client
 ):
-    await ingest_fueleu(db_session, tmp_path, corpus_client)
+    await ingest_fueleu(db_session, local_store, corpus_client)
     stored = len(await chunk_rows(db_session, "32023R1805"))
 
-    second = await ingest_fueleu(db_session, tmp_path, corpus_client)
+    second = await ingest_fueleu(db_session, local_store, corpus_client)
 
     assert second.ok
     assert second.embed.failed == {}

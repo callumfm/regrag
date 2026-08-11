@@ -1,7 +1,6 @@
 """The fetch stage's record of one downloaded document."""
 
 from datetime import datetime
-from pathlib import Path
 
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -28,11 +27,3 @@ class RawDocument(BaseSchema):
     fetched_at: Mapped[datetime]
 
     run: Mapped[IngestRun] = relationship()
-
-    @staticmethod
-    def filename(celex: str) -> str:
-        """The one definition of what a fetched document is called on disk."""
-        return f"{celex}.html"
-
-    def path(self, data_dir: Path) -> Path:
-        return data_dir / self.filename(self.celex)

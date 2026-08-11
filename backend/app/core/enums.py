@@ -9,3 +9,10 @@ class Environment(StrEnum):
     DEV = "dev"
     TEST = "test"
     PROD = "prod"
+
+
+class StorageBackend(StrEnum):
+    """Where raw source documents are kept."""
+
+    LOCAL = "local"
+    R2 = "r2"
