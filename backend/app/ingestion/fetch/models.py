@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import ClassVar
 
 from pydantic import Field
 
@@ -36,24 +35,16 @@ class FetchedDocument:
 
 
 class FetchRunResult(StageRunResult):
-    """The corpus diff one fetch produced against the previous run."""
+    """What one fetch downloaded, against the versions the previous run recorded."""
 
-    UNCOUNTED: ClassVar[frozenset[str]] = StageRunResult.UNCOUNTED | {"discovered"}
-
-    discovered: list[str] = Field(default_factory=list)
     new: list[str] = Field(default_factory=list)
     changed: list[str] = Field(default_factory=list)
     unchanged: list[str] = Field(default_factory=list)
-    dropped: list[str] = Field(default_factory=list)
 
     def details(self) -> list[str]:
         listed = [
             f"{label}: {', '.join(sorted(celexes))}"
-            for label, celexes in (
-                ("new", self.new),
-                ("changed", self.changed),
-                ("dropped", self.dropped),
-            )
+            for label, celexes in (("new", self.new), ("changed", self.changed))
             if celexes
         ]
         return listed + super().details()

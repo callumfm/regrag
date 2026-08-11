@@ -1,14 +1,11 @@
 """Fetch stage: version-diff against the previous run, download only what changed."""
 
-from collections.abc import Mapping, Sequence
-
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.storage import ObjectStore, StorageError
 from app.ingestion.discover.models import DiscoveredDocument
-from app.ingestion.discover.stage import discover_topics, find_dropped_celexes
 from app.ingestion.enums import DocChange
 from app.ingestion.exceptions import IngestionError
 from app.ingestion.fetch.download import download_fetchable_version, expected_version
@@ -19,7 +16,6 @@ from app.ingestion.fetch.models import (
     StoredBytes,
 )
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.fetch.service import get_baseline_docs
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import read_document, write_document
 
@@ -55,21 +51,23 @@ def _download_new_version(
     return resolution, stored, content
 
 
-def _fetch_document(
+def _reuse_or_download(
     client: httpx.Client,
-    spec: DiscoveredDocument,
+    discovered: DiscoveredDocument,
     *,
-    prev: RawDocument | None,
+    previous: RawDocument | None,
     run: IngestRun,
     store: ObjectStore,
 ) -> tuple[FetchedDocument, DocChange]:
     """Reuse the version the last run stored, or download the one discovery now points at."""
-    resolution, stored, content = _reuse_stored_version(store, spec, prev) or _download_new_version(
-        client, store, spec
+    resolution, stored, content = _reuse_stored_version(
+        store, discovered, previous
+    ) or _download_new_version(client, store, discovered)
+    change = DocChange.between(
+        previous.resolved_celex if previous else None, resolution.resolved_celex
     )
-    change = DocChange.between(prev.resolved_celex if prev else None, resolution.resolved_celex)
     document = RawDocument(
-        **spec.model_dump(exclude={"candidate_celex"}),
+        **discovered.model_dump(exclude={"candidate_celex"}),
         **resolution.model_dump(),
         **stored.model_dump(),
         run=run,
@@ -77,43 +75,25 @@ def _fetch_document(
     return FetchedDocument(document=document, content=content), change
 
 
-def _download_documents(
-    client: httpx.Client,
-    specs: Sequence[DiscoveredDocument],
-    *,
-    baseline: Mapping[str, RawDocument],
-    run: IngestRun,
-    store: ObjectStore,
-) -> tuple[list[FetchedDocument], FetchRunResult]:
-    """Fetch every discovered document, recording the ones that would not download."""
-    fetched: list[FetchedDocument] = []
-    result = FetchRunResult(discovered=[spec.celex for spec in specs])
-    for spec in specs:
-        try:
-            document, change = _fetch_document(
-                client, spec, prev=baseline.get(spec.celex), run=run, store=store
-            )
-        except (IngestionError, StorageError, httpx.HTTPError) as exc:
-            result.fail(spec.celex, exc)
-            continue
-        fetched.append(document)
-        result.record(change, spec.celex)
-    return fetched, result
-
-
-async def fetch_documents(
+async def fetch_document(
     session: AsyncSession,
     *,
     client: httpx.Client,
-    topics: Sequence[str],
-    store: ObjectStore,
+    discovered: DiscoveredDocument,
+    previous: RawDocument | None,
     run: IngestRun,
-) -> tuple[list[FetchedDocument], FetchRunResult]:
-    """Discover, resolve and download the corpus for topics, recording a row per document."""
-    specs = discover_topics(client, topics)
-    baseline = await get_baseline_docs(session, topics)
-    dropped = find_dropped_celexes(specs, baseline)
-    fetched, result = _download_documents(client, specs, baseline=baseline, run=run, store=store)
-    session.add_all([item.document for item in fetched])
+    store: ObjectStore,
+) -> tuple[FetchedDocument | None, FetchRunResult]:
+    """Download one discovered document and record its row, or record why it would not download."""
+    result = FetchRunResult()
+    try:
+        fetched, change = _reuse_or_download(
+            client, discovered, previous=previous, run=run, store=store
+        )
+    except (IngestionError, StorageError, httpx.HTTPError) as exc:
+        result.fail(discovered.celex, exc)
+        return None, result
+    session.add(fetched.document)
     await session.flush()
-    return fetched, result + FetchRunResult(dropped=dropped)
+    result.record(change, discovered.celex)
+    return fetched, result

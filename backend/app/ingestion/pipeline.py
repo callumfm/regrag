@@ -1,4 +1,4 @@
-"""The ingest pipeline: one run, fetch -> parse -> chunk -> embed."""
+"""The ingest pipeline: one run, discover -> fetch -> parse -> chunk -> embed."""
 
 import logging
 from collections.abc import AsyncIterator, Sequence
@@ -10,12 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
 from app.ingestion.chunk.stage import chunk_and_store_documents
+from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.models import FetchRunResult
-from app.ingestion.fetch.service import get_other_topic_celexes
-from app.ingestion.fetch.stage import fetch_documents
-from app.ingestion.parse.models import ParseRunResult
+from app.ingestion.fetch.models import FetchedDocument, FetchRunResult
+from app.ingestion.fetch.service import get_baseline_docs, get_other_topic_celexes
+from app.ingestion.fetch.stage import fetch_document
 from app.ingestion.parse.stage import parse_documents
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
@@ -37,19 +37,16 @@ async def _mark_failed(session: AsyncSession, run: IngestRun, result: IngestRunR
 
 
 async def _known_corpus_celexes(
-    session: AsyncSession,
-    *,
-    fetch_result: FetchRunResult,
-    parse_result: ParseRunResult,
-    topics: Sequence[str],
+    session: AsyncSession, *, result: IngestRunResult, topics: Sequence[str]
 ) -> set[str] | None:
     """The celexes the corpus consists of after this run: what it discovered, plus other topics'.
 
-    None when any stage failed: pruning is irreversible, so a run with errors does not earn it.
+    None when any stage before chunk failed: pruning is irreversible, so a run with errors does
+    not earn it.
     """
-    if not (fetch_result.ok and parse_result.ok):
+    if not (result.discover.ok and result.fetch.ok and result.parse.ok):
         return None
-    return set(fetch_result.discovered) | await get_other_topic_celexes(session, topics)
+    return set(result.discover.celexes) | await get_other_topic_celexes(session, topics)
 
 
 @asynccontextmanager
@@ -75,17 +72,32 @@ async def ingest(
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as (run, result):
-        fetched, result.fetch = await fetch_documents(
-            session, client=client, topics=topics, store=store, run=run
+        previous = await get_baseline_docs(session, topics)
+        discovered, result.discover = discover_corpus(
+            client, topics=topics, previous_celexes=previous
         )
+        logger.info("[discover] %s", result.discover.summary())
+
+        fetched: list[FetchedDocument] = []
+        result.fetch = FetchRunResult()
+        for document in discovered:
+            item, fetch_result = await fetch_document(
+                session,
+                client=client,
+                discovered=document,
+                previous=previous.get(document.celex),
+                run=run,
+                store=store,
+            )
+            result.fetch += fetch_result
+            if item is not None:
+                fetched.append(item)
         logger.info("[fetch] %s", result.fetch.summary())
 
         parsed, result.parse = parse_documents(fetched)
         logger.info("[parse] %s", result.parse.summary())
 
-        corpus_celexes = await _known_corpus_celexes(
-            session, fetch_result=result.fetch, parse_result=result.parse, topics=topics
-        )
+        corpus_celexes = await _known_corpus_celexes(session, result=result, topics=topics)
         result.chunk = await chunk_and_store_documents(
             session, parsed, ingest_run_id=run.id, corpus_celexes=corpus_celexes
         )

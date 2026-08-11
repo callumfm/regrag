@@ -11,6 +11,7 @@ from app.core.storage import StorageError
 from app.ingestion import pipeline
 from app.ingestion.celex import consolidated_stem
 from app.ingestion.chunk.chunker import chunk_document
+from app.ingestion.discover.models import DiscoverRunResult
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch.models import FetchRunResult
@@ -28,6 +29,7 @@ from tests.conftest import (
     chunk_rows,
     chunk_versions,
     payload,
+    recorded_run,
 )
 
 pytestmark = pytest.mark.anyio
@@ -48,36 +50,42 @@ async def test_known_corpus_celexes_unions_this_run_with_the_topics_it_left_alon
     db_session.add(make_document(other, "32015R0757", topic="mrv"))
     await db_session.flush()
 
-    celexes = await _known_corpus_celexes(
-        db_session,
-        fetch_result=FetchRunResult(discovered=["32023R1805"]),
-        parse_result=ParseRunResult(parsed=["32023R1805"]),
-        topics=["fueleu"],
+    result = recorded_run(
+        discover=DiscoverRunResult(celexes=["32023R1805"]),
+        parse=ParseRunResult(parsed=["32023R1805"]),
     )
+    celexes = await _known_corpus_celexes(db_session, result=result, topics=["fueleu"])
 
     assert celexes == {"32023R1805", "32015R0757"}
 
 
 async def test_a_partial_fetch_leaves_the_corpus_unknown(db_session):
-    celexes = await _known_corpus_celexes(
-        db_session,
-        fetch_result=FetchRunResult(discovered=["32023R1805"], failed={"32015R0757": "404"}),
-        parse_result=ParseRunResult(parsed=["32023R1805"]),
-        topics=["fueleu"],
+    result = recorded_run(
+        discover=DiscoverRunResult(celexes=["32023R1805"]),
+        fetch=FetchRunResult(failed={"32015R0757": "404"}),
+        parse=ParseRunResult(parsed=["32023R1805"]),
     )
 
-    assert celexes is None
+    assert await _known_corpus_celexes(db_session, result=result, topics=["fueleu"]) is None
 
 
 async def test_a_document_that_would_not_parse_leaves_the_corpus_unknown(db_session):
-    celexes = await _known_corpus_celexes(
-        db_session,
-        fetch_result=FetchRunResult(discovered=["32023R1805"]),
-        parse_result=ParseRunResult(failed={"32023R1805": "ParseError"}),
-        topics=["fueleu"],
+    result = recorded_run(
+        discover=DiscoverRunResult(celexes=["32023R1805"]),
+        parse=ParseRunResult(failed={"32023R1805": "ParseError"}),
     )
 
-    assert celexes is None
+    assert await _known_corpus_celexes(db_session, result=result, topics=["fueleu"]) is None
+
+
+async def test_a_failed_discovery_leaves_the_corpus_unknown(db_session):
+    """Pruning against a corpus discovery could not fully enumerate would delete live chunks."""
+    result = recorded_run(
+        discover=DiscoverRunResult(celexes=["32023R1805"], failed={"mrv": "HTTPError: 503"}),
+        parse=ParseRunResult(parsed=["32023R1805"]),
+    )
+
+    assert await _known_corpus_celexes(db_session, result=result, topics=["fueleu"]) is None
 
 
 async def test_sparql_failure_aborts_and_marks_run_failed(db_session, local_store, corpus_client):
@@ -183,7 +191,13 @@ async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_null(
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.result == {"fetch": None, "parse": None, "chunk": None, "embed": None}
+    assert run.result == {
+        "discover": None,
+        "fetch": None,
+        "parse": None,
+        "chunk": None,
+        "embed": None,
+    }
 
 
 async def test_malformed_sparql_payload_raises_discovery_error(
@@ -298,7 +312,7 @@ async def test_dropped_document_loses_its_chunks(db_session, local_store, corpus
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, docs)
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.fetch.dropped == ["32023R2449"]
+    assert report.discover.dropped == ["32023R2449"]
     assert await chunk_rows(db_session, "32023R2449") == []
     assert await chunk_rows(db_session, "32015R0757")
 
@@ -331,7 +345,7 @@ async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fet
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.fetch.dropped == []
+    assert report.discover.dropped == []
     assert await chunk_rows(db_session, "32023R2449") == []
     assert await chunk_rows(db_session, "32015R0757")
 
@@ -372,7 +386,7 @@ async def test_a_plausible_repeal_still_prunes(db_session, local_store, corpus_c
     client, _ = corpus_client({"mrv": httpx.Response(200, json=payload(*kept))}, wide_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.fetch.dropped == ["32026R0003"]
+    assert report.discover.dropped == ["32026R0003"]
     assert await chunk_rows(db_session, "32026R0003") == []
 
 
@@ -391,7 +405,7 @@ async def test_an_incomplete_run_prunes_nothing(db_session, local_store, corpus_
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.fetch.dropped == ["32023R2449"]
+    assert report.discover.dropped == ["32023R2449"]
     assert not report.ok
     assert report.chunk.removed == 0
     assert await chunk_rows(db_session, "32023R2449")
@@ -420,7 +434,7 @@ async def test_a_celex_another_topic_still_holds_survives_being_dropped(
     client, _ = corpus_client({"fueleu": FUELEU_SPARQL}, shared_docs)
     report = await ingest(db_session, client=client, topics=["fueleu"], store=local_store)
 
-    assert report.fetch.dropped == ["32015R0757"]
+    assert report.discover.dropped == ["32015R0757"]
     assert await chunk_rows(db_session, "32015R0757")
 
 

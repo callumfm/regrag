@@ -7,10 +7,10 @@ import pytest
 
 from app.ingestion.constants import SEEDS
 from app.ingestion.discover.models import DiscoveredDocument
-from app.ingestion.discover.stage import discover_topic, find_dropped_celexes
+from app.ingestion.discover.stage import discover_corpus, discover_topic, find_dropped_celexes
 from app.ingestion.exceptions import MalformedDiscoveryError
 from app.ingestion.fetch.download import download_fetchable_version
-from tests.conftest import binding, payload
+from tests.conftest import MRV_SPARQL, binding, payload
 
 FIXTURES = Path(__file__).parent.parent / "fetch" / "fixtures"
 
@@ -97,3 +97,15 @@ def test_find_dropped_celexes_returns_baseline_celexes_absent_from_discovery():
 
 def test_find_dropped_celexes_is_empty_when_all_are_discovered():
     assert find_dropped_celexes([spec("32015R0757")], ["32015R0757"]) == []
+
+
+def test_discover_corpus_reports_what_it_found_and_what_the_previous_run_lost(corpus_client):
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, {})
+
+    documents, result = discover_corpus(
+        client, topics=["mrv"], previous_celexes=["32015R0757", "31999R0001"]
+    )
+
+    assert result.celexes == [document.celex for document in documents]
+    assert result.dropped == ["31999R0001"]
+    assert result.ok

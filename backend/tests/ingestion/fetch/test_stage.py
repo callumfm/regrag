@@ -6,12 +6,13 @@ import httpx
 import pytest
 
 from app.ingestion.discover.models import DiscoveredDocument
+from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
 from app.ingestion.fetch.models import FetchedDocument, FetchRunResult
 from app.ingestion.fetch.service import get_baseline_docs
-from app.ingestion.fetch.stage import _reuse_stored_version, fetch_documents
+from app.ingestion.fetch.stage import _reuse_stored_version, fetch_document
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import create_ingest_run
 from app.ingestion.storage import document_key, read_document
@@ -83,11 +84,24 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 
 
 async def fetch(db_session, client, topics, store) -> tuple[FetchRunResult, list[FetchedDocument]]:
-    """Drive the fetch stage alone, with the run the orchestrator would supply."""
+    """Drive the fetch stage alone, with the run and the discovery the orchestrator would supply."""
     run = await create_ingest_run(db_session)
-    fetched, result = await fetch_documents(
-        db_session, client=client, topics=topics, store=store, run=run
-    )
+    previous = await get_baseline_docs(db_session, topics)
+    discovered, _ = discover_corpus(client, topics=topics, previous_celexes=previous)
+    fetched: list[FetchedDocument] = []
+    result = FetchRunResult()
+    for document in discovered:
+        item, one = await fetch_document(
+            db_session,
+            client=client,
+            discovered=document,
+            previous=previous.get(document.celex),
+            run=run,
+            store=store,
+        )
+        result += one
+        if item is not None:
+            fetched.append(item)
     return result, fetched
 
 
@@ -173,7 +187,8 @@ async def test_still_rendering_doc_fails_leaving_the_parsed_bytes_readable(
     assert report.unchanged == ["32023R2449"]
 
 
-async def test_vanished_doc_reported_dropped(db_session, local_store, corpus_client):
+async def test_a_vanished_doc_gets_no_row_from_this_run(db_session, local_store, corpus_client):
+    """Discovery is what reports the drop; fetch's part is simply never recording it again."""
     docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch(db_session, client, ["mrv"], local_store)
@@ -182,7 +197,7 @@ async def test_vanished_doc_reported_dropped(db_session, local_store, corpus_cli
     client, _ = corpus_client({"mrv": only_seed}, docs)
     report, _ = await fetch(db_session, client, ["mrv"], local_store)
 
-    assert report.dropped == ["32023R2449"]
+    assert report.unchanged == ["32015R0757"]
     assert "32023R2449" not in await get_baseline_docs(db_session, ["mrv"])
 
 
@@ -206,7 +221,7 @@ async def test_any_ingestion_error_is_recorded_per_document(
     def unparseable(*args, **kwargs):
         raise ParseError("unrecognised EUR-Lex dialect")
 
-    monkeypatch.setattr(stage, "_fetch_document", unparseable)
+    monkeypatch.setattr(stage, "_reuse_or_download", unparseable)
     report, _ = await fetch(db_session, client, ["mrv"], local_store)
 
     assert sorted(report.failed) == ["32015R0757", "32023R2449"]

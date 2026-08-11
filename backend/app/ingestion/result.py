@@ -5,6 +5,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, Field
 
 from app.ingestion.chunk.models import ChunkRunResult
+from app.ingestion.discover.models import DiscoverRunResult
 from app.ingestion.embed.models import EmbedRunResult
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.fetch.models import FetchRunResult
@@ -15,10 +16,11 @@ from app.ingestion.parse.models import ParseRunResult
 class IngestRunResult(BaseModel):
     """Outcome of one ingest run: one result per stage."""
 
-    STAGES: ClassVar[tuple[str, ...]] = ("fetch", "parse", "chunk", "embed")
+    STAGES: ClassVar[tuple[str, ...]] = ("discover", "fetch", "parse", "chunk", "embed")
 
     run_id: int
     corpus_version: str | None = None
+    discover: DiscoverRunResult = Field(default_factory=DiscoverRunResult)
     fetch: FetchRunResult = Field(default_factory=FetchRunResult)
     parse: ParseRunResult = Field(default_factory=ParseRunResult)
     chunk: ChunkRunResult = Field(default_factory=ChunkRunResult)
