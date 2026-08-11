@@ -1,6 +1,7 @@
 """Fetch stage: version-diff against the previous run, download only what changed."""
 
 import httpx
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
@@ -89,13 +90,14 @@ async def fetch_document(
     """Download one discovered document and record its row, or record why it would not download."""
     result = FetchRunResult()
     try:
-        fetched, change = _reuse_or_download(
-            client, discovered, previous=previous, run=run, store=store
-        )
-    except (IngestionError, StorageError, httpx.HTTPError) as exc:
+        async with session.begin_nested():
+            fetched, change = _reuse_or_download(
+                client, discovered, previous=previous, run=run, store=store
+            )
+            session.add(fetched.document)
+            await session.flush()
+    except (IngestionError, StorageError, httpx.HTTPError, SQLAlchemyError) as exc:
         result.fail(discovered.celex, exc)
         return None, result
-    session.add(fetched.document)
-    await session.flush()
     result.record(change, discovered.celex)
     return fetched, result

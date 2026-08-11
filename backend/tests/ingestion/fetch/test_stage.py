@@ -225,6 +225,26 @@ async def test_any_ingestion_error_is_recorded_per_document(
     assert not report.ok
 
 
+async def test_a_row_that_will_not_flush_fails_only_its_own_document(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """A database error on one row must skip that document, not poison the run's transaction."""
+    real = stage._reuse_or_download
+
+    def unstorable(client, discovered, **kwargs):
+        fetched, change = real(client, discovered, **kwargs)
+        if discovered.celex == "32015R0757":
+            fetched.document.topic = None  # ty: ignore[invalid-assignment]
+        return fetched, change
+
+    monkeypatch.setattr(stage, "_reuse_or_download", unstorable)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    report, _ = await fetch(db_session, client, ["mrv"], local_store)
+
+    assert list(report.failed) == ["32015R0757"]
+    assert report.new == ["32023R2449"]
+
+
 async def test_duplicate_celex_across_topics_ingested_once(db_session, local_store, corpus_client):
     shared = binding("32015R0757", force="1")
     sparql = {
