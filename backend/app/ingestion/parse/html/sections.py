@@ -21,6 +21,7 @@ ARTICLE_TITLE = "div.eli-title p"
 
 
 def number_from_heading(node: Node, selector: str, pattern: re.Pattern[str]) -> str | None:
+    """The number as written in the heading text, or None where the heading is absent."""
     heading = node.css_first(selector)
     if heading is None:
         return None
@@ -38,6 +39,7 @@ def build_paragraphs(node: Node, dialect: Dialect) -> tuple[Section, ...]:
 
 
 def build_article(node: Node, dialect: Dialect) -> Section:
+    """An article as a Section, its paragraphs nested beneath it; the title is optional."""
     title = node.css_first(ARTICLE_TITLE)
     return Section(
         kind=SectionKind.ARTICLE,

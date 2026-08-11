@@ -29,6 +29,7 @@ def paragraph_nodes(node: Node) -> list[Node]:
 
 
 def paragraph_section(node: Node) -> Section:
+    """OJ paragraphs carry their number as a leading 'N.' in the text, which is split off."""
     number, text = None, block_text(node)
     match = LEADING_NUMBER_RE.match(text)
     if match:

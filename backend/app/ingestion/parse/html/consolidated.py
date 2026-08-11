@@ -22,10 +22,12 @@ SUBHEADING_LEVEL_RE = re.compile(r"title-gr-seq-level-(\d+)")
 
 
 def paragraph_nodes(node: Node) -> list[Node]:
+    """Only the norm blocks carrying a number marker are paragraphs; the rest are prose."""
     return [child for child in node.css(PARAGRAPH_CONTAINER) if child.css_first(PARAGRAPH_NUMBER)]
 
 
 def paragraph_section(node: Node) -> Section:
+    """Consolidated paragraphs number themselves in their own marker span, not in the text."""
     marker = node.css_first(PARAGRAPH_NUMBER)
     body = node.css_first(PARAGRAPH_TEXT)
     number = LEADING_NUMBER_RE.match(clean_text(marker.text()) if marker else "")
@@ -37,6 +39,7 @@ def paragraph_section(node: Node) -> Section:
 
 
 def annex_title(node: Node) -> str | None:
+    """Consolidated annexes hold their title in the first sub-heading level."""
     title = node.css_first(ANNEX_TITLE)
     return clean_text(title.text()) if title is not None else None
 
