@@ -18,7 +18,7 @@ from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.fetch.service import get_previous_docs
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.pipeline import _known_corpus_celexes, ingest
+from app.ingestion.pipeline import celexes_to_keep, ingest
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import document_key
@@ -43,7 +43,7 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
     } | (overrides or {})
 
 
-async def test_known_corpus_celexes_unions_this_run_with_the_topics_it_left_alone(
+async def test_celexes_to_keep_unions_this_run_with_the_topics_it_left_alone(
     db_session, make_document
 ):
     other = IngestRun(status=IngestRunStatus.COMPLETED)
@@ -54,7 +54,7 @@ async def test_known_corpus_celexes_unions_this_run_with_the_topics_it_left_alon
         discover=DiscoverRunResult(celexes=["32023R1805"]),
         parse=ParseRunResult(parsed=["32023R1805"]),
     )
-    celexes = await _known_corpus_celexes(db_session, result=result, topics=["fueleu"])
+    celexes = await celexes_to_keep(db_session, result=result, topics=["fueleu"])
 
     assert celexes == {"32023R1805", "32015R0757"}
 
@@ -66,7 +66,7 @@ async def test_a_partial_fetch_leaves_the_corpus_unknown(db_session):
         parse=ParseRunResult(parsed=["32023R1805"]),
     )
 
-    assert await _known_corpus_celexes(db_session, result=result, topics=["fueleu"]) is None
+    assert await celexes_to_keep(db_session, result=result, topics=["fueleu"]) is None
 
 
 async def test_a_document_that_would_not_parse_leaves_the_corpus_unknown(db_session):
@@ -75,7 +75,7 @@ async def test_a_document_that_would_not_parse_leaves_the_corpus_unknown(db_sess
         parse=ParseRunResult(failed={"32023R1805": "ParseError"}),
     )
 
-    assert await _known_corpus_celexes(db_session, result=result, topics=["fueleu"]) is None
+    assert await celexes_to_keep(db_session, result=result, topics=["fueleu"]) is None
 
 
 async def test_a_failed_discovery_leaves_the_corpus_unknown(db_session):
@@ -85,7 +85,7 @@ async def test_a_failed_discovery_leaves_the_corpus_unknown(db_session):
         parse=ParseRunResult(parsed=["32023R1805"]),
     )
 
-    assert await _known_corpus_celexes(db_session, result=result, topics=["fueleu"]) is None
+    assert await celexes_to_keep(db_session, result=result, topics=["fueleu"]) is None
 
 
 async def test_sparql_failure_aborts_and_marks_run_failed(db_session, local_store, corpus_client):
@@ -728,3 +728,22 @@ async def test_a_run_that_dies_in_embed_keeps_its_documents_and_chunks(
     assert second.embed.embedded == stored
     assert second.chunk.added == 0
     assert second.ok
+
+
+async def test_a_run_where_every_document_fails_still_reports_the_later_stages(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """Parse and chunk ran and had nothing to do; the row must not read that as never run."""
+
+    def full_disk(key, content):
+        raise StorageError("put", key, OSError(28, "No space left on device"))
+
+    monkeypatch.setattr(local_store, "put", full_disk)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    assert report.unrecorded == frozenset()
+    assert report.report()["parse"] == {"parsed": 0, "failed": {}}
+    assert report.report()["chunk"] == {"added": 0, "removed": 0, "unchanged": 0, "failed": {}}
+    assert not report.ok

@@ -20,6 +20,7 @@ from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
+from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.stage import discover_topic
 from app.ingestion.embed.stage import _embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
@@ -293,6 +294,13 @@ def payload(*bindings: dict) -> dict:
 MRV_SPARQL = httpx.Response(
     200, json=payload(binding("32015R0757", force="1"), binding("32023R2449", force="1"))
 )
+
+
+def discovered_document(
+    celex: str = "32015R0757", topic: str = "mrv", candidate: str | None = None
+) -> DiscoveredDocument:
+    """What discovery would hand fetch for one act, overridable per field."""
+    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=candidate)
 
 
 async def chunk_versions(session: AsyncSession, celex: str | None = None) -> set[str | None]:

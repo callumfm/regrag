@@ -35,6 +35,16 @@ class IngestRunResult(BaseModel):
         """Stages that never reported, so a run cut short cannot close as a success."""
         return frozenset(self.STAGES) - self.model_fields_set
 
+    def begin_document_stages(self) -> None:
+        """Record the per-document stages as reporting before the loop that accumulates into them.
+
+        unrecorded reads assignment, not value, and a loop where every document fails early
+        accumulates into none of the later stages; without this they would read as never run.
+        """
+        self.fetch = FetchRunResult()
+        self.parse = ParseRunResult()
+        self.chunk = ChunkRunResult()
+
     @property
     def ok(self) -> bool:
         return not self.unrecorded and all(result.ok for result in self.stages.values())

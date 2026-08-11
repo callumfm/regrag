@@ -1,7 +1,7 @@
 """Persisted chunks: one row per retrievable unit of a regulation."""
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ARRAY, Computed, ForeignKey, String, UniqueConstraint
+from sqlalchemy import ARRAY, Computed, ForeignKey, Index, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,7 +20,15 @@ class DocumentChunk(BaseSchema):
     """One retrievable unit of a regulation, content-addressed so it survives re-runs."""
 
     __tablename__ = "document_chunks"
-    __table_args__ = (UniqueConstraint("celex", "content_hash", "occurrence"),)
+    __table_args__ = (
+        UniqueConstraint("celex", "content_hash", "occurrence"),
+        Index(
+            "ix_document_chunks_unembedded_cursor",
+            "celex",
+            "id",
+            postgresql_where=text("embedding IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     ingest_run_id: Mapped[int] = mapped_column(ForeignKey("ingest_runs.id", ondelete="CASCADE"))

@@ -9,15 +9,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
-from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.chunk.stage import chunk_and_store_document, prune_chunks
 from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.fetch.service import get_other_topic_celexes, get_previous_docs
 from app.ingestion.fetch.stage import fetch_document
-from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.parse.stage import parse_document
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
@@ -38,7 +35,7 @@ async def _mark_failed(session: AsyncSession, run: IngestRun, result: IngestRunR
         logger.exception("run %s could not be marked failed", run_id)
 
 
-async def _known_corpus_celexes(
+async def celexes_to_keep(
     session: AsyncSession, *, result: IngestRunResult, topics: Sequence[str]
 ) -> set[str] | None:
     """The celexes the corpus consists of after this run: what it discovered, plus other topics'.
@@ -80,11 +77,7 @@ async def ingest(
         )
         logger.info("[discover] %s", result.discover.summary())
 
-        result.fetch, result.parse, result.chunk = (
-            FetchRunResult(),
-            ParseRunResult(),
-            ChunkRunResult(),
-        )
+        result.begin_document_stages()
         for document in discovered:
             fetched, fetch_result = await fetch_document(
                 session,
@@ -97,16 +90,19 @@ async def ingest(
             result.fetch += fetch_result
             if fetched is None:
                 continue
+
             parsed, parse_result = parse_document(fetched)
             result.parse += parse_result
             if parsed is None:
                 continue
+
             result.chunk += await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
             await session.commit()
+
         logger.info("[fetch] %s", result.fetch.summary())
         logger.info("[parse] %s", result.parse.summary())
 
-        corpus_celexes = await _known_corpus_celexes(session, result=result, topics=topics)
+        corpus_celexes = await celexes_to_keep(session, result=result, topics=topics)
         if corpus_celexes is not None:
             result.chunk += await prune_chunks(session, corpus_celexes=corpus_celexes)
         logger.info("[chunk] %s", result.chunk.summary())

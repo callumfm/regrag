@@ -5,7 +5,6 @@ import hashlib
 import httpx
 import pytest
 
-from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import ParseError
@@ -16,13 +15,9 @@ from app.ingestion.fetch.stage import _reuse_stored_version, fetch_document
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import create_ingest_run
 from app.ingestion.storage import document_key, read_document
-from tests.conftest import MRV_SPARQL, binding, payload
+from tests.conftest import MRV_SPARQL, binding, discovered_document, payload
 
 pytestmark = pytest.mark.anyio
-
-
-def spec(celex, topic="mrv", candidate=None):
-    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=candidate)
 
 
 def stored(store_document, celex="32023R1805"):
@@ -37,7 +32,7 @@ def html_of(fetched, celex, local_store) -> bytes:
 
 def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store, store_document):
     prev = stored(store_document)
-    reused = _reuse_stored_version(local_store, spec("32023R1805"), prev)
+    reused = _reuse_stored_version(local_store, discovered_document("32023R1805"), prev)
     assert reused is not None
     resolution, bytes_, content = reused
     assert resolution.resolved_celex == prev.resolved_celex
@@ -52,18 +47,18 @@ def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store,
 def test_a_newly_discovered_consolidation_is_not_reused(local_store, store_document):
     """Discovery pointing somewhere new is exactly the case that has to hit the network."""
     prev = stored(store_document)
-    newer = spec("32023R1805", candidate="02023R1805-20250101")
+    newer = discovered_document("32023R1805", candidate="02023R1805-20250101")
     assert _reuse_stored_version(local_store, newer, prev) is None
 
 
 def test_stored_version_no_longer_in_the_store_is_not_reused(local_store, store_document):
     prev = stored(store_document)
     (local_store.root / document_key(prev.celex, prev.resolved_celex, prev.sha256)).unlink()
-    assert _reuse_stored_version(local_store, spec("32023R1805"), prev) is None
+    assert _reuse_stored_version(local_store, discovered_document("32023R1805"), prev) is None
 
 
 def test_a_document_with_no_previous_run_has_nothing_to_reuse(local_store):
-    assert _reuse_stored_version(local_store, spec("32023R1805"), None) is None
+    assert _reuse_stored_version(local_store, discovered_document("32023R1805"), None) is None
 
 
 def test_stored_bytes_that_do_not_match_the_row_are_not_reused(local_store, store_document):
@@ -72,7 +67,7 @@ def test_stored_bytes_that_do_not_match_the_row_are_not_reused(local_store, stor
     key = document_key(prev.celex, prev.resolved_celex, prev.sha256)
     local_store.put(key, b"<html>a different version</html>")
 
-    assert _reuse_stored_version(local_store, spec("32023R1805"), prev) is None
+    assert _reuse_stored_version(local_store, discovered_document("32023R1805"), prev) is None
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
