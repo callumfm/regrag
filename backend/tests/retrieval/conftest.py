@@ -2,6 +2,7 @@
 
 import re
 import zlib
+from functools import cache
 from math import sqrt
 from typing import Any
 
@@ -17,13 +18,25 @@ from app.ingestion.schemas import IngestRun
 from tests.conftest import chunk_rows
 
 TOKEN = re.compile(r"\w+")
+PROBES = 64
+"""Dimensions each token contributes to: a one-hot token would leave most texts exactly
+orthogonal, which gives an HNSW graph walk no gradient to descend."""
+
+
+@cache
+def token_probes(token: str) -> tuple[int, ...]:
+    """The dimensions a token lands on, spread wide so any two texts overlap somewhere."""
+    return tuple(
+        zlib.crc32(f"{token}:{probe}".encode()) % config.EMBED_DIMENSIONS for probe in range(PROBES)
+    )
 
 
 def toy_embed(text: str) -> list[float]:
     """Token hashes into the real width, L2-normalised, so overlapping texts land near."""
     vector = [0.0] * config.EMBED_DIMENSIONS
     for token in TOKEN.findall(text.lower()):
-        vector[zlib.crc32(token.encode()) % config.EMBED_DIMENSIONS] += 1.0
+        for index in token_probes(token):
+            vector[index] += 1.0
     norm = sqrt(sum(value * value for value in vector))
     return [value / norm for value in vector] if norm else vector
 

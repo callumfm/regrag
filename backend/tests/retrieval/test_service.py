@@ -1,9 +1,11 @@
+import random
 from collections.abc import Callable
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import config
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import SearchFilters
@@ -13,6 +15,17 @@ from tests.retrieval.conftest import toy_embed
 pytestmark = pytest.mark.anyio
 
 NO_FILTERS = SearchFilters()
+SUPERSEDED = 300
+"""Dead vectors hugging the query: enough to exhaust hnsw.ef_search, whose default is 40."""
+SURVIVORS = 50
+"""Live rows a ring farther out, far more than the limit so the assertion is not about recall."""
+WANTED = 5
+HUGGING, BEHIND = 0.01, 0.1
+
+
+def nudge(query: list[float], scale: float) -> list[float]:
+    """The query pushed a set distance in a fresh random direction."""
+    return [value + scale * (random.random() - 0.5) for value in query]
 
 
 async def citations_for(session: AsyncSession, chunk_ids: list[int]) -> list[str]:
@@ -38,6 +51,31 @@ async def test_the_vector_leg_respects_its_limit(
     found = await vector_search(db_session, toy_embed("energy"), NO_FILTERS, limit=3)
 
     assert len(found) == 3
+
+
+async def test_the_vector_leg_meets_its_limit_past_dead_tuples(
+    db_session: AsyncSession,
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    """Re-ingesting a document leaves old vectors dead in the graph, nearer than its new ones."""
+    query = [random.random() for _ in range(config.EMBED_DIMENSIONS)]
+    vectors = [nudge(query, HUGGING) for _ in range(SUPERSEDED)]
+    vectors += [nudge(query, BEHIND) for _ in range(SURVIVORS)]
+    rows = [
+        make_chunk_row(ingest_run, content_hash=f"{index:064d}", embedding=vector)
+        for index, vector in enumerate(vectors)
+    ]
+    db_session.add_all(rows)
+    await db_session.flush()
+    for row in rows[:SUPERSEDED]:
+        await db_session.delete(row)
+    await db_session.flush()
+    await db_session.execute(text("SET LOCAL enable_seqscan = off"))
+
+    found = await vector_search(db_session, query, NO_FILTERS, limit=WANTED)
+
+    assert len(found) == WANTED
 
 
 async def test_the_vector_leg_skips_chunks_with_no_vector(

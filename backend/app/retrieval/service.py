@@ -3,11 +3,18 @@
 import re
 from collections.abc import Sequence
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.schemas import DocumentChunk
+from app.retrieval.constants import CANDIDATES
 from app.retrieval.models import RetrievedChunk, SearchFilters
+
+ITERATIVE_SCAN = text(
+    "SELECT set_config('hnsw.iterative_scan', 'strict_order', true),"
+    f" set_config('hnsw.ef_search', '{CANDIDATES * 4}', true)"
+)
+"""Resume the HNSW walk past dead tuples so a limit is met, in the exact order fusion ranks on."""
 
 
 def _filtered(stmt: Select, filters: SearchFilters) -> Select:
@@ -23,6 +30,7 @@ async def vector_search(
     session: AsyncSession, embedding: Sequence[float], filters: SearchFilters, *, limit: int
 ) -> list[int]:
     """Chunk ids nearest the query vector by cosine distance, closest first."""
+    await session.execute(ITERATIVE_SCAN)
     stmt = (
         select(DocumentChunk.id)
         .where(DocumentChunk.embedding.is_not(None))
