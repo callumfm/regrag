@@ -8,8 +8,7 @@ from botocore.config import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import status
 
-from app.core.config import R2Config, config
-from app.core.enums import StorageBackend
+from app.core.config import R2Config, StorageBackend, config
 from app.core.exceptions import DomainError
 from app.core.retry import MAX_ATTEMPTS
 

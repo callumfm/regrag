@@ -25,12 +25,18 @@ from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch.discover import discover_topic
 from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.parse.html.parser import parse_eurlex_html
+from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import write_document
 from app.main import configure_app
 
 RETRIED = (discover_topic, download_fetchable_version, _embed_texts)
+
+PARSE_FIXTURES = Path(__file__).parent / "ingestion" / "parse" / "fixtures"
+FUELEU_HTML = (PARSE_FIXTURES / "32023R1805.html").read_text()
+MRV_HTML = (PARSE_FIXTURES / "32015R0757.html").read_text()
 
 R2_ENV = {
     "R2_ACCOUNT_ID": "acc",
@@ -149,6 +155,18 @@ def store_document(
         )
 
     return _store
+
+
+@pytest.fixture(scope="session")
+def fueleu() -> ParsedDocument:
+    """The OJ dialect fixture, parsed once: a ParsedDocument is frozen, so tests share one."""
+    return parse_eurlex_html(FUELEU_HTML, "32023R1805", "fueleu")
+
+
+@pytest.fixture(scope="session")
+def mrv() -> ParsedDocument:
+    """The consolidated dialect fixture, parsed once and shared like fueleu."""
+    return parse_eurlex_html(MRV_HTML, "32015R0757", "mrv")
 
 
 @pytest.fixture

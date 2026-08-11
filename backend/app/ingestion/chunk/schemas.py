@@ -25,13 +25,11 @@ class DocumentChunk(BaseSchema):
     id: Mapped[int] = mapped_column(primary_key=True)
     ingest_run_id: Mapped[int] = mapped_column(ForeignKey("ingest_runs.id", ondelete="CASCADE"))
 
-    # Identity: hash and occurrence match a chunk to its stored row across re-runs.
     celex: Mapped[str]
     topic: Mapped[str]
     content_hash: Mapped[str]
     occurrence: Mapped[int]
 
-    # Locator: where the chunk sits in the document, and how it cites itself.
     kind: Mapped[SectionKind]
     article: Mapped[str | None]
     annex: Mapped[str | None]
@@ -40,11 +38,9 @@ class DocumentChunk(BaseSchema):
     heading_path: Mapped[list[str]] = mapped_column(ARRAY(String))
     citation: Mapped[str]
 
-    # Sizing: which piece of an over-long section this is.
     part: Mapped[int]
     parts: Mapped[int]
 
-    # Search: the text, the acts it cites, and the two indexes queried over it.
     text: Mapped[str]
     references: Mapped[list[dict]] = mapped_column(JSONB)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(config.EMBED_DIMENSIONS))

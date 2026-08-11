@@ -9,7 +9,7 @@ from httpx import Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import ConflictError, NotFoundError, require
+from app.core.exceptions import NotFoundError
 
 
 class _Payload(BaseModel):
@@ -30,11 +30,6 @@ router = APIRouter()
 @router.get("/boom-domain")
 def boom_domain() -> None:
     raise NotFoundError("Regulation", "fueleu")
-
-
-@router.get("/boom-conflict")
-def boom_conflict() -> None:
-    raise ConflictError("Chunk already embedded")
 
 
 @router.get("/boom-http")
@@ -89,11 +84,6 @@ def test_domain_error(client: TestClient) -> None:
     assert body["message"] == "Regulation 'fueleu' not found"
 
 
-def test_conflict_error(client: TestClient) -> None:
-    body = assert_error_shape(client.get("/boom-conflict"), 409, "ConflictError")
-    assert body["message"] == "Chunk already embedded"
-
-
 def test_http_exception_preserves_headers(client: TestClient) -> None:
     response = client.get("/boom-http")
     assert_error_shape(response, 418, "HTTPException")
@@ -144,12 +134,3 @@ def test_validation_error_strips_ctx(client: TestClient) -> None:
 
 def test_unknown_route_uses_shared_schema(client: TestClient) -> None:
     assert_error_shape(client.get("/nope"), 404, "HTTPException")
-
-
-def test_require_returns_value() -> None:
-    assert require("x", resource="Thing", identifier=1) == "x"
-
-
-def test_require_raises_not_found() -> None:
-    with pytest.raises(NotFoundError):
-        require(None, resource="Thing", identifier=1)

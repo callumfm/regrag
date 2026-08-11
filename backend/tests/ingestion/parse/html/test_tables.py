@@ -8,13 +8,8 @@ from app.ingestion.parse.html.consolidated import CONSOLIDATED
 from app.ingestion.parse.html.oj import OJ
 from app.ingestion.parse.html.tables import detach_data_tables
 from app.ingestion.parse.models import ParsedDocument
-from tests.ingestion.parse.html.helpers import (
-    FUELEU_HTML,
-    MRV_HTML,
-    all_sections,
-    annexes,
-    subdivision,
-)
+from tests.conftest import FUELEU_HTML, MRV_HTML
+from tests.ingestion.parse.html.helpers import all_sections, annexes, subdivision
 
 
 @pytest.fixture

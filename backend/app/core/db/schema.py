@@ -8,11 +8,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class BaseSchema(DeclarativeBase):
-    """Base for database schema with automatic created_at and updated_at timestamps.
+    """Base for database schemas, with timezone-aware created_at and updated_at timestamps.
 
-    Alembic autogenerate targets its metadata. Timestamps are timezone-aware and
-    enums are stored as their string values, without native Postgres enum types.
-    Server-side defaults come back via RETURNING, so writes need no follow-up SELECT.
+    Alembic targets its metadata; enums store as strings, server defaults return via RETURNING.
     """
 
     __mapper_args__ = {"eager_defaults": True}

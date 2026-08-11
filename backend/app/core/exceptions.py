@@ -39,19 +39,6 @@ class NotFoundError(DomainError):
         self.identifier = identifier
 
 
-class ConflictError(DomainError):
-    """Raised when a request conflicts with the current state of a resource."""
-
-    status_code = status.HTTP_409_CONFLICT
-
-
-def require[T](obj: T | None, *, resource: str, identifier: str | int) -> T:
-    """Return obj, raising NotFoundError if it is None."""
-    if obj is None:
-        raise NotFoundError(resource, identifier)
-    return obj
-
-
 def error_response(
     status_code: int,
     *,

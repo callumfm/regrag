@@ -1,7 +1,6 @@
 """The ingest orchestrator end to end: the run report, run lifecycle, corpus versioning."""
 
 import re
-from pathlib import Path
 
 import httpx
 import pytest
@@ -23,6 +22,7 @@ from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import document_key
 from tests.conftest import (
+    FUELEU_HTML,
     MRV_SPARQL,
     binding,
     chunk_rows,
@@ -31,8 +31,6 @@ from tests.conftest import (
 )
 
 pytestmark = pytest.mark.anyio
-
-FUELEU_HTML = (Path(__file__).parent / "parse" / "fixtures" / "32023R1805.html").read_text()
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:

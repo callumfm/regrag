@@ -22,13 +22,6 @@ async def create_ingest_run(session: AsyncSession) -> IngestRun:
     return await create_record(session, IngestRun(status=IngestRunStatus.RUNNING))
 
 
-async def update_ingest_run(
-    session: AsyncSession, run: IngestRun, update_in: IngestRunUpdate
-) -> IngestRun:
-    """Partially update an ingest run."""
-    return await update_record(session, run, update_in)
-
-
 async def get_latest_corpus_version(session: AsyncSession) -> str | None:
     """The corpus version of the most recent run that was stamped with one."""
     stmt = (
@@ -68,7 +61,7 @@ async def complete_ingest_run(
 ) -> IngestRun:
     """Close out a run, minting a corpus version for it only if every stage succeeded."""
     version = await next_corpus_version(session) if status is IngestRunStatus.COMPLETED else None
-    return await update_ingest_run(
+    return await update_record(
         session,
         run,
         IngestRunUpdate(

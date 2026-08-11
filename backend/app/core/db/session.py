@@ -2,7 +2,9 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import config
@@ -23,6 +25,9 @@ async_session_factory = async_sessionmaker(
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_factory() as session:
         yield session
+
+
+SessionDep = Annotated[AsyncSession, Depends(get_db)]
 
 
 @asynccontextmanager
