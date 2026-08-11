@@ -4,7 +4,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.service import get_corpus_docs, get_previous_docs
+from app.ingestion.fetch.service import (
+    get_corpus_docs,
+    get_other_topic_celexes,
+    get_previous_docs,
+)
 from app.ingestion.schemas import IngestRun
 
 pytestmark = pytest.mark.anyio
@@ -18,7 +22,7 @@ async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
     db_session: AsyncSession, make_document
 ):
     old = IngestRun(status=IngestRunStatus.SUCCESS)
-    latest = IngestRun(status=IngestRunStatus.FAILED)
+    latest = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add_all(
         [
             make_document(old, "32014R0666", topic="mrv"),
@@ -55,6 +59,34 @@ async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, m
     await db_session.flush()
 
     assert set(await get_previous_docs(db_session, ["mrv"])) == {"32015R0757"}
+
+
+async def test_a_failed_run_does_not_retire_what_it_could_not_download(
+    db_session: AsyncSession, make_document
+):
+    """A run that downloaded 1 of 3 holds a prefix too, so it must not stand for the topic."""
+    complete = IngestRun(status=IngestRunStatus.SUCCESS)
+    failed = IngestRun(status=IngestRunStatus.FAILED)
+    db_session.add_all(
+        [
+            make_document(complete, "32015R0757", topic="mrv"),
+            make_document(complete, "32023R2449", topic="mrv"),
+            make_document(complete, "32014R0666", topic="mrv"),
+            make_document(failed, "32015R0757", topic="mrv"),
+        ]
+    )
+    await db_session.flush()
+
+    assert set(await get_previous_docs(db_session, ["mrv"])) == {
+        "32015R0757",
+        "32023R2449",
+        "32014R0666",
+    }
+    assert set(await get_other_topic_celexes(db_session, ["fueleu"])) == {
+        "32015R0757",
+        "32023R2449",
+        "32014R0666",
+    }
 
 
 async def test_an_aborted_runs_rows_are_still_held(db_session: AsyncSession, make_document):

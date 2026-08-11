@@ -12,8 +12,8 @@ class IngestRunStatus(StrEnum):
     ABORTED = "aborted"
 
 
-COMPLETED = (IngestRunStatus.SUCCESS, IngestRunStatus.FAILED)
-"""Runs that finished enumerating their corpus; an aborted one holds only the prefix it reached."""
+COMPLETE_CORPUS = (IngestRunStatus.SUCCESS,)
+"""Runs whose rows stand for their whole topic; any other run holds a prefix of it."""
 
 
 class DocChange(StrEnum):

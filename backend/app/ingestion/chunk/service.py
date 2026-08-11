@@ -10,6 +10,7 @@ from sqlalchemy.orm import defer
 
 from app.ingestion.chunk.models import Chunk, ChunkRunResult
 from app.ingestion.chunk.schemas import DocumentChunk
+from app.ingestion.exceptions import EmptyChunkSetError
 
 ContentKey = tuple[str, int]
 """What identifies a chunk within its document: content hash, then occurrence."""
@@ -64,6 +65,8 @@ async def upsert_document_chunks(
     """Reconcile a document's chunks by content hash, leaving matched rows otherwise untouched."""
     incoming = {(digest, n): chunk for chunk, digest, n in with_content_keys(chunks)}
     existing = await get_chunk_ids(session, celex)
+    if not incoming and existing:
+        raise EmptyChunkSetError(f"{celex}: chunked to nothing over {len(existing)} stored chunks")
     gone = existing.keys() - incoming.keys()
     added = [key for key in incoming if key not in existing]
     await delete_chunks(session, [existing[key] for key in gone])

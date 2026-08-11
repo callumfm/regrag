@@ -63,6 +63,24 @@ async def test_a_document_that_will_not_chunk_is_recorded_not_raised(
     assert not result.ok
 
 
+async def test_a_document_that_chunks_to_nothing_fails_instead_of_deleting_itself(
+    db_session: AsyncSession, ingest_run: IngestRun
+) -> None:
+    """The run must not close SUCCESS having quietly emptied a document out of the corpus."""
+    await chunk_and_store_document(db_session, parsed("32023R1805"), ingest_run_id=ingest_run.id)
+
+    empty = ParsedDocument(
+        celex="32023R1805",
+        topic="fueleu",
+        sections=(Section(kind=SectionKind.ARTICLE, number="1"),),
+    )
+    result = await chunk_and_store_document(db_session, empty, ingest_run_id=ingest_run.id)
+
+    assert not result.ok
+    assert result.removed == 0
+    assert await chunk_versions(db_session, "32023R1805") != set()
+
+
 async def test_a_database_failure_is_contained_by_the_documents_own_savepoint(
     db_session: AsyncSession, ingest_run: IngestRun, monkeypatch: pytest.MonkeyPatch
 ) -> None:
