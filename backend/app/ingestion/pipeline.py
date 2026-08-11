@@ -9,12 +9,17 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
+from app.ingestion.chunk.models import ChunkRunResult
 from app.ingestion.chunk.stage import chunk_and_store_document, prune_chunks
+from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
+from app.ingestion.fetch.models import FetchRunResult
+from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_other_topic_celexes, get_previous_docs
 from app.ingestion.fetch.stage import fetch_document
+from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.parse.stage import parse_document
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
@@ -62,6 +67,28 @@ async def ingest_run(session: AsyncSession) -> AsyncIterator[tuple[IngestRun, In
     result.corpus_version = run.corpus_version
 
 
+async def _ingest_document(
+    session: AsyncSession,
+    *,
+    client: httpx.Client,
+    discovered: DiscoveredDocument,
+    previous: RawDocument | None,
+    run: IngestRun,
+    store: ObjectStore,
+) -> tuple[FetchRunResult, ParseRunResult, ChunkRunResult]:
+    """Fetch, parse and chunk one document, stopping at the first stage that could not."""
+    fetched, fetch_result = await fetch_document(
+        session, client=client, discovered=discovered, previous=previous, run=run, store=store
+    )
+    if fetched is None:
+        return fetch_result, ParseRunResult(), ChunkRunResult()
+    parsed, parse_result = parse_document(fetched)
+    if parsed is None:
+        return fetch_result, parse_result, ChunkRunResult()
+    chunk_result = await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
+    return fetch_result, parse_result, chunk_result
+
+
 async def ingest(
     session: AsyncSession,
     *,
@@ -79,7 +106,7 @@ async def ingest(
 
         result.begin_document_stages()
         for document in discovered:
-            fetched, fetch_result = await fetch_document(
+            fetch_result, parse_result, chunk_result = await _ingest_document(
                 session,
                 client=client,
                 discovered=document,
@@ -87,17 +114,10 @@ async def ingest(
                 run=run,
                 store=store,
             )
-            result.fetch += fetch_result
-            if fetched is None:
-                continue
-
-            parsed, parse_result = parse_document(fetched)
-            result.parse += parse_result
-            if parsed is None:
-                continue
-
-            result.chunk += await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
             await session.commit()
+            result.fetch.merge(fetch_result)
+            result.parse.merge(parse_result)
+            result.chunk.merge(chunk_result)
 
         logger.info("[fetch] %s", result.fetch.summary())
         logger.info("[parse] %s", result.parse.summary())

@@ -15,6 +15,7 @@ from app.ingestion.discover.models import DiscoverRunResult
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch.models import FetchRunResult
+from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_previous_docs
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParseRunResult
@@ -247,27 +248,28 @@ async def test_a_failure_closing_the_run_out_still_marks_it_aborted(
     assert run.completed_at is not None
 
 
-async def test_a_run_aborted_mid_pipeline_keeps_the_stages_that_did_report(
+async def test_an_aborted_run_reports_exactly_the_documents_it_committed(
     db_session, local_store, corpus_client, monkeypatch
 ):
-    """Fetch and parse detail is the whole reason to look at an aborted run's row.
+    """The row must not claim a document the abort rolled back: counts land after the commit."""
+    real = pipeline.chunk_and_store_document
+    calls: list[int] = []
 
-    Streaming means the row shows how far the loop got, not a whole stage: chunking dies on the
-    first document, so fetch and parse report one each, and only embed never ran at all.
-    """
+    async def die_on_the_second(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("chunking blew up")
+        return await real(*args, **kwargs)
 
-    async def explode(*args, **kwargs):
-        raise RuntimeError("chunking blew up")
-
-    monkeypatch.setattr("app.ingestion.pipeline.chunk_and_store_document", explode)
+    monkeypatch.setattr(pipeline, "chunk_and_store_document", die_on_the_second)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     with pytest.raises(RuntimeError):
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.result["fetch"]["new"] == 1
+    stored = (await db_session.scalars(select(RawDocument))).all()
+    assert run.result["fetch"]["new"] == len(stored) == 1
     assert run.result["parse"]["parsed"] == 1
-    assert run.result["chunk"] == {"added": 0, "removed": 0, "unchanged": 0, "failed": {}}
     assert run.result["embed"] is None
 
 
