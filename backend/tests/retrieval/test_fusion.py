@@ -34,10 +34,10 @@ def test_disjoint_legs_interleave_by_rank() -> None:
 
 
 def test_ties_break_on_chunk_id_so_the_order_is_total() -> None:
-    fused = reciprocal_rank_fusion([9, 4], [])
+    fused = reciprocal_rank_fusion([9], [4])
 
-    assert [rank.chunk_id for rank in fused] == [9, 4]
-    assert [rank.chunk_id for rank in reciprocal_rank_fusion([], [4, 9])] == [4, 9]
+    assert fused[0].score == fused[1].score
+    assert [rank.chunk_id for rank in fused] == [4, 9]
 
 
 def test_two_empty_legs_fuse_to_nothing() -> None:
