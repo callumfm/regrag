@@ -5,7 +5,7 @@ import logging
 from typing import Any, cast
 
 from app.core import logger as logger_module
-from app.core.enums import Environment
+from app.core.config import Environment
 from app.core.logger import _AppFormatter, _build_formatter, _ContextFilter, request_id_var
 
 

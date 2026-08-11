@@ -6,8 +6,7 @@ from contextvars import ContextVar
 
 from pythonjsonlogger.json import JsonFormatter
 
-from app.core.config import config
-from app.core.enums import Environment
+from app.core.config import Environment, config
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 

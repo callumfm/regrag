@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 from pydantic import ValidationError
 
 from app.core import storage
-from app.core.enums import StorageBackend
+from app.core.config import StorageBackend
 from app.core.exceptions import DomainError
 from app.core.storage import (
     LocalObjectStore,

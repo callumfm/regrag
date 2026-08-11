@@ -7,7 +7,7 @@ from pydantic import BaseModel, computed_field
 from sqlalchemy import text
 
 from app import __version__
-from app.core.dependencies import SessionDep
+from app.core.db.session import SessionDep
 
 
 class ServiceStatus(StrEnum):

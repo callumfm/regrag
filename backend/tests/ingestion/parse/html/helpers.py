@@ -1,17 +1,12 @@
-"""The two dialect fixtures, and tree helpers shared by the EUR-Lex HTML parser tests."""
+"""Tree helpers shared by the EUR-Lex HTML parser tests."""
 
 from collections.abc import Iterable, Iterator
-from pathlib import Path
 
 from selectolax.parser import Node
 
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.html.parser import prepare
 from app.ingestion.parse.models import ParsedDocument, Section
-
-FIXTURES = Path(__file__).parent.parent / "fixtures"
-FUELEU_HTML = (FIXTURES / "32023R1805.html").read_text()
-MRV_HTML = (FIXTURES / "32015R0757.html").read_text()
 
 
 def of_kind(sections: Iterable[Section], kind: SectionKind) -> list[Section]:

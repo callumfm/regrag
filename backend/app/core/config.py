@@ -1,13 +1,21 @@
 """Application configuration loaded from environment variables."""
 
 import os
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.enums import Environment, StorageBackend
+
+class Environment(StrEnum):
+    """Application environment."""
+
+    DEV = "dev"
+    TEST = "test"
+    PROD = "prod"
+
 
 ENVIRONMENT: Environment = Environment(os.environ.get("ENVIRONMENT", "dev"))
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -35,6 +43,13 @@ class AppConfig(BaseConfig):
     ENVIRONMENT: Environment = ENVIRONMENT
     PROJECT_NAME: str = "RegRag"
     CORS_ORIGINS: list[str] = ["http://localhost:5173"]
+
+
+class StorageBackend(StrEnum):
+    """Where raw source documents are kept."""
+
+    LOCAL = "local"
+    R2 = "r2"
 
 
 class StorageConfig(BaseConfig):
