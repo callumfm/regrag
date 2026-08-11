@@ -56,9 +56,7 @@ def r2_config(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> R2Config:
 
 def recorded_run(run_id: int = 1, **overrides: Any) -> IngestRunResult:
     """A result every stage reported into, so ok turns on stage failures alone."""
-    empty = IngestRunResult(run_id=run_id)
-    stages = {name: getattr(empty, name) for name in IngestRunResult.STAGES}
-    return IngestRunResult(run_id=run_id, **{**stages, **overrides})
+    return IngestRunResult(run_id=run_id, started=set(IngestRunResult.STAGES), **overrides)
 
 
 @pytest.fixture

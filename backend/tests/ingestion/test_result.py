@@ -51,22 +51,22 @@ def test_a_failure_in_any_stage_fails_the_run() -> None:
 
 def test_a_stage_that_never_reported_fails_the_run() -> None:
     """An empty stage result is ok, so a run cut short must not close as COMPLETED."""
-    cut_short = IngestRunResult(run_id=1, fetch=FetchRunResult(new=["a"]))
+    cut_short = IngestRunResult(run_id=1, started={"fetch"}, fetch=FetchRunResult(new=["a"]))
     assert cut_short.unrecorded == frozenset({"discover", "parse", "chunk", "embed"})
     assert not cut_short.ok
     assert cut_short.status is IngestRunStatus.FAILED
 
 
 def test_a_stage_that_never_reported_is_null_in_the_report_and_not_run_in_the_summary() -> None:
-    cut_short = IngestRunResult(run_id=1, fetch=FetchRunResult(new=["a"]))
+    cut_short = IngestRunResult(run_id=1, started={"fetch"}, fetch=FetchRunResult(new=["a"]))
     assert cut_short.report()["parse"] is None
     assert cut_short.report()["fetch"]["new"] == 1
     assert "[parse] not run" in cut_short.summary()
 
 
 def test_summary_reports_every_stage_on_its_own_line() -> None:
-    result = IngestRunResult(
-        run_id=7,
+    result = recorded_run(
+        7,
         corpus_version="2026-08-05-abc1234",
         discover=DiscoverRunResult(celexes=["a", "b"]),
         fetch=FetchRunResult(new=["a"], unchanged=["b"]),
@@ -100,8 +100,8 @@ def test_summary_lists_each_stage_s_failures() -> None:
 
 
 def test_report_covers_every_stage_with_its_counts_and_failures() -> None:
-    result = IngestRunResult(
-        run_id=7,
+    result = recorded_run(
+        7,
         discover=DiscoverRunResult(celexes=["a", "b"]),
         fetch=FetchRunResult(new=["a"], unchanged=["b"]),
         parse=ParseRunResult(parsed=["a"], failed={"b": "ParseError: no body"}),
@@ -122,3 +122,15 @@ def test_report_leaves_out_the_run_s_own_columns() -> None:
     report = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234").report()
     assert "run_id" not in report
     assert "corpus_version" not in report
+    assert "started" not in report
+
+
+def test_a_stage_assigned_without_being_marked_still_reads_as_never_run() -> None:
+    """Assignment is not evidence a stage ran; only the stage saying so is."""
+    built = IngestRunResult(run_id=1, fetch=FetchRunResult(new=["a"]))
+    assert "fetch" in built.unrecorded
+    assert built.report()["fetch"] is None
+
+    built.mark_reported("fetch")
+    assert "fetch" not in built.unrecorded
+    assert built.report()["fetch"]["new"] == 1

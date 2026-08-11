@@ -20,6 +20,7 @@ class IngestRunResult(BaseModel):
 
     run_id: int
     corpus_version: str | None = None
+    started: set[str] = Field(default_factory=set)
     discover: DiscoverRunResult = Field(default_factory=DiscoverRunResult)
     fetch: FetchRunResult = Field(default_factory=FetchRunResult)
     parse: ParseRunResult = Field(default_factory=ParseRunResult)
@@ -33,17 +34,11 @@ class IngestRunResult(BaseModel):
     @property
     def unrecorded(self) -> frozenset[str]:
         """Stages that never reported, so a run cut short cannot close as a success."""
-        return frozenset(self.STAGES) - self.model_fields_set
+        return frozenset(self.STAGES) - self.started
 
-    def begin_document_stages(self) -> None:
-        """Record the per-document stages as reporting before the loop that accumulates into them.
-
-        unrecorded reads assignment, not value, and a loop where every document fails early
-        accumulates into none of the later stages; without this they would read as never run.
-        """
-        self.fetch = FetchRunResult()
-        self.parse = ParseRunResult()
-        self.chunk = ChunkRunResult()
+    def mark_reported(self, *stages: str) -> None:
+        """Record that these stages reported, so one that ran and found nothing is not 'not run'."""
+        self.started.update(stages)
 
     @property
     def ok(self) -> bool:
