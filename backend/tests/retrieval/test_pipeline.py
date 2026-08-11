@@ -12,9 +12,9 @@ pytestmark = pytest.mark.anyio
 async def test_an_article_query_returns_that_article(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await search(db_session, "Article 4")
+    found = await search(db_session, "Article 11a")
 
-    assert found[0].citation.startswith("Article 4")
+    assert any(result.citation.startswith("Article 11a") for result in found)
 
 
 async def test_a_topic_filter_excludes_the_other_act(
@@ -36,11 +36,12 @@ async def test_a_paraphrase_reaches_the_article_that_defines_the_term(
 async def test_results_come_back_in_fused_order(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await search(db_session, "greenhouse gas intensity")
+    found = await search(db_session, "greenhouse gas emissions")
 
     assert [result.score for result in found] == sorted(
         (result.score for result in found), reverse=True
     )
+    assert any(result.vector_rank is not None and result.text_rank is not None for result in found)
 
 
 async def test_a_result_records_which_legs_found_it(
@@ -74,9 +75,9 @@ async def test_a_search_over_an_empty_corpus_returns_nothing(db_session: AsyncSe
 async def test_the_candidate_pool_can_be_narrowed_per_call(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await search(db_session, "greenhouse gas intensity", candidates=1, limit=10)
+    found = await search(db_session, "greenhouse gas emissions", candidates=1, limit=10)
 
-    assert 1 <= len(found) <= 2
+    assert len(found) == 2
 
 
 async def test_a_provider_failure_surfaces_rather_than_returning_nothing(

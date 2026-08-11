@@ -40,4 +40,5 @@ async def search(
             text_rank=rank.text_rank,
         )
         for rank in fused
+        if rank.chunk_id in chunks
     )
