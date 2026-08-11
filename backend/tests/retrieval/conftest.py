@@ -3,7 +3,6 @@
 import re
 import zlib
 from math import sqrt
-from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,22 +25,6 @@ def toy_embed(text: str) -> list[float]:
         vector[zlib.crc32(token.encode()) % config.EMBED_DIMENSIONS] += 1.0
     norm = sqrt(sum(value * value for value in vector))
     return [value / norm for value in vector] if norm else vector
-
-
-@pytest.fixture(autouse=True)
-def query_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Query vectors share the corpus's space, so a search is a real nearest-neighbour test.
-
-    A no-op until `app.retrieval.pipeline` exists; later retrieval tasks land that module.
-    """
-
-    async def _embed(texts: list[str], **kwargs: Any) -> list[list[float]]:
-        return [toy_embed(text) for text in texts]
-
-    try:
-        monkeypatch.setattr("app.retrieval.pipeline.embed", _embed)
-    except ImportError:
-        pass
 
 
 @pytest.fixture
