@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import SearchFilters
-from app.retrieval.service import text_search, vector_search
+from app.retrieval.service import get_article, hydrate, natural_key, text_search, vector_search
 from tests.retrieval.conftest import toy_embed
 
 pytestmark = pytest.mark.anyio
@@ -115,3 +115,69 @@ async def test_a_celex_filter_narrows_the_keyword_leg_to_one_act(
 
     stmt = select(DocumentChunk.celex).where(DocumentChunk.id.in_(found))
     assert set(await db_session.scalars(stmt)) == {"32023R1805"}
+
+
+async def test_hydrate_returns_the_chunks_asked_for_keyed_by_id(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    wanted = [corpus[0].id, corpus[3].id]
+
+    chunks = await hydrate(db_session, wanted)
+
+    assert sorted(chunks) == sorted(wanted)
+    assert chunks[corpus[0].id].text == corpus[0].text
+
+
+async def test_hydrate_of_nothing_makes_no_query(db_session: AsyncSession) -> None:
+    assert await hydrate(db_session, []) == {}
+
+
+def test_a_paragraph_number_sorts_by_its_numeric_half() -> None:
+    assert sorted(["10", "2", "1"], key=natural_key) == ["1", "2", "10"]
+
+
+def test_a_lettered_paragraph_sorts_after_its_bare_number() -> None:
+    assert sorted(["11a", "11"], key=natural_key) == ["11", "11a"]
+
+
+def test_an_article_chapeau_sorts_before_its_numbered_paragraphs() -> None:
+    assert sorted(["1", None], key=natural_key) == [None, "1"]
+
+
+async def test_get_article_returns_paragraphs_in_reading_order_not_text_order(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    found = await get_article(db_session, celex="32023R1805", article="5")
+
+    assert [chunk.citation for chunk in found] == [f"Article 5({n})" for n in range(1, 11)]
+
+
+async def test_get_article_puts_a_split_chapeau_in_part_order(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    found = await get_article(db_session, celex="32015R0757", article="3")
+
+    assert [chunk.citation for chunk in found] == ["Article 3", "Article 3"]
+    assert len(found) == 2
+
+
+async def test_get_article_matches_the_article_number_case_insensitively(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    assert await get_article(db_session, celex="32015R0757", article="11A") == await get_article(
+        db_session, celex="32015R0757", article="11a"
+    )
+
+
+async def test_get_article_does_not_reach_into_another_act(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    found = await get_article(db_session, celex="32015R0757", article="4")
+
+    assert {chunk.celex for chunk in found} == {"32015R0757"}
+
+
+async def test_an_unknown_article_returns_nothing_rather_than_raising(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    assert await get_article(db_session, celex="32015R0757", article="999") == ()
