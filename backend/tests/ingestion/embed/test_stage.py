@@ -42,7 +42,7 @@ async def test_every_vectorless_chunk_gets_a_vector(db_session, ingest_run, make
     result = await embed_chunks(db_session)
 
     assert (result.embedded, result.unchanged, result.failed) == (3, 0, {})
-    assert await get_unembedded_chunks(db_session) == []
+    assert await get_unembedded_chunks(db_session, limit=100) == []
 
 
 async def test_vectors_land_on_the_rows_in_input_order(db_session, ingest_run, make_chunk_row):
@@ -142,7 +142,7 @@ async def test_a_later_batch_failing_keeps_the_earlier_batches_vectors(
     assert [len(batch) for batch in embeddings.calls] == [128, 72]
     assert result.embedded == 128
     assert list(result.failed) == ["32023R1805"]
-    assert len(await get_unembedded_chunks(db_session)) == 72
+    assert len(await get_unembedded_chunks(db_session, limit=100)) == 72
 
 
 async def test_an_empty_table_makes_no_provider_call(db_session, embeddings):
@@ -150,3 +150,39 @@ async def test_an_empty_table_makes_no_provider_call(db_session, embeddings):
 
     assert embeddings.calls == []
     assert (result.embedded, result.unchanged) == (0, 0)
+
+
+async def test_a_corpus_larger_than_one_page_ends_with_every_chunk_embedded(
+    db_session, ingest_run, make_chunk_row, monkeypatch
+):
+    """The sweep writes vectors as it reads, so the cursor must not skip rows beneath it."""
+    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_PAGE_SIZE", 2)
+    db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 7))
+    await db_session.flush()
+
+    result = await embed_chunks(db_session)
+
+    assert result.embedded == 7
+    assert await get_unembedded_chunks(db_session, limit=100) == []
+
+
+async def test_a_batch_that_keeps_failing_does_not_loop_the_sweep(
+    db_session, ingest_run, make_chunk_row, monkeypatch
+):
+    """A failed chunk stays vectorless, so a cursor that did not advance would never finish."""
+    sizes: list[int] = []
+
+    async def always_fails(texts, input_type):
+        sizes.append(len(texts))
+        raise LLMError("provider down")
+
+    monkeypatch.setattr("app.ingestion.embed.stage.embed", always_fails)
+    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_PAGE_SIZE", 2)
+    db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 5))
+    await db_session.flush()
+
+    result = await embed_chunks(db_session)
+
+    assert sizes == [2, 2, 1]
+    assert result.embedded == 0
+    assert list(result.failed) == ["32023R1805"]

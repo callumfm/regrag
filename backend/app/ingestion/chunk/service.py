@@ -4,7 +4,7 @@ from collections import Counter
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from typing import cast
 
-from sqlalchemy import CursorResult, delete, func, select
+from sqlalchemy import CursorResult, delete, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -73,14 +73,23 @@ async def upsert_document_chunks(
     )
 
 
-async def get_unembedded_chunks(session: AsyncSession) -> Sequence[DocumentChunk]:
-    """Every vectorless chunk, ordered so the embed stage can group a batch inside one document."""
+async def get_unembedded_chunks(
+    session: AsyncSession, *, after: tuple[str, int] | None = None, limit: int
+) -> Sequence[DocumentChunk]:
+    """One page of vectorless chunks, ordered so a batch can stay inside one document.
+
+    Keyset, not OFFSET: the sweep writes vectors as it reads, so rows leave this query's
+    predicate mid-run and an offset would skip past the ones that shifted under it.
+    """
     stmt = (
         select(DocumentChunk)
         .options(defer(DocumentChunk.search_vector))
         .where(DocumentChunk.embedding.is_(None))
         .order_by(DocumentChunk.celex, DocumentChunk.id)
+        .limit(limit)
     )
+    if after is not None:
+        stmt = stmt.where(tuple_(DocumentChunk.celex, DocumentChunk.id) > after)
     return (await session.scalars(stmt)).all()
 
 
