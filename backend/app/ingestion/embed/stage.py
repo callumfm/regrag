@@ -35,11 +35,11 @@ async def _embed_batch(session: AsyncSession, chunks: Sequence[DocumentChunk]) -
 
 
 async def _pages(session: AsyncSession) -> AsyncIterator[Sequence[DocumentChunk]]:
-    """Vectorless chunks a page at a time, the cursor moving past whatever the last page held."""
+    """Vectorless chunks a page at a time, the cursor read before the page can be rolled back."""
     after: tuple[str, int] | None = None
     while page := await get_unembedded_chunks(session, after=after, limit=EMBED_PAGE_SIZE):
-        yield page
         after = (page[-1].celex, page[-1].id)
+        yield page
 
 
 async def embed_chunks(session: AsyncSession) -> EmbedRunResult:

@@ -1,6 +1,7 @@
 """The embed stage: how it batches, what it retries, and what a failure costs."""
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import EMBED_DIMENSIONS
 from app.core.llm import LLMError
@@ -186,3 +187,28 @@ async def test_a_batch_that_keeps_failing_does_not_loop_the_sweep(
     assert sizes == [2, 2, 1]
     assert result.embedded == 0
     assert list(result.failed) == ["32023R1805"]
+
+
+async def test_a_database_failure_in_the_last_batch_does_not_kill_the_sweep(
+    db_session, ingest_run, make_chunk_row, monkeypatch
+):
+    """A savepoint rollback expires the page's rows, so the cursor must be read before the yield."""
+    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_PAGE_SIZE", 2)
+    db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 4))
+    await db_session.flush()
+
+    calls: list[int] = []
+    real_flush = db_session.flush
+
+    async def fail_once(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise SQLAlchemyError("connection lost")
+        return await real_flush(*args, **kwargs)
+
+    monkeypatch.setattr(db_session, "flush", fail_once)
+
+    result = await embed_chunks(db_session)
+
+    assert list(result.failed) == ["32023R1805"]
+    assert result.embedded == 2
