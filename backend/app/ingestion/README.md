@@ -58,9 +58,7 @@ HTML is preferred over PDF because it carries the document's structure as markup
 
 Each act is downloaded at the latest consolidated version discovery carried forward. That version is not always available: an act that has never been amended has a consolidated id but no consolidated text to serve. Where the consolidated version cannot be downloaded, download falls back to the original act.
 
-Refusal has to be recognised rather than trusted to the status code. EUR-Lex denies a version either with a 404 or with a 200 carrying its "does not exist" page, and answers 202 with an empty body while it is still generating one on demand. Only the first two are refusals and fall back to the next candidate. A 202 is not: falling back there would quietly ingest an older version of an act whose newest one was merely a moment away, so the document is recorded as failed and left for the next run.
-
-Documents are stored as objects — files on disk in dev, a Cloudflare R2 bucket in prod — keyed by act, version and a hash of the bytes:
+Documents are stored as objects, files on disk in dev, a Cloudflare R2 bucket in prod, keyed by act, version and a hash of the bytes:
 
 ```
 {act}/{version downloaded}/{sha256 of the bytes}.html
