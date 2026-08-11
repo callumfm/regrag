@@ -4,7 +4,17 @@ import pytest
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings
 
-from app.core.config import BaseConfig, Config, EmbeddingConfig, StorageBackend, StorageConfig
+from app.core.config import (
+    BACKEND_ROOT,
+    BaseConfig,
+    Config,
+    EmbeddingConfig,
+    Environment,
+    StorageBackend,
+    StorageConfig,
+    get_env_file,
+    load_environment,
+)
 from tests.conftest import r2_config
 
 
@@ -50,8 +60,14 @@ def test_embedding_defaults_match_voyage_4_lite(monkeypatch):
     embedding = EmbeddingConfig()
 
     assert embedding.EMBED_MODEL == "voyage/voyage-4-lite"
-    assert embedding.EMBED_DIMENSIONS == 1024
     assert embedding.EMBED_TIMEOUT == 30
+
+
+def test_the_embedding_width_is_not_settable_from_the_environment(monkeypatch):
+    """It has to match the deployed vector column, so no env var may move it."""
+    monkeypatch.setenv("EMBED_DIMENSIONS", "1536")
+
+    assert not hasattr(EmbeddingConfig(), "EMBED_DIMENSIONS")
 
 
 def test_combined_config_carries_every_concern():
@@ -59,4 +75,33 @@ def test_combined_config_carries_every_concern():
 
     assert combined.PROJECT_NAME == "RegRag"
     assert combined.DB_PORT == 5432
-    assert combined.EMBED_DIMENSIONS == 1024
+    assert combined.EMBED_MODEL == "voyage/voyage-4-lite"
+
+
+def test_an_unrecognised_environment_names_the_accepted_values(monkeypatch):
+    """A host exporting its own ENVIRONMENT must not crash-loop on a bare enum traceback."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    with pytest.raises(ValueError, match="ENVIRONMENT='production'.*dev, test, prod"):
+        load_environment()
+
+
+def test_environment_defaults_to_dev_when_unset(monkeypatch):
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+
+    assert load_environment() is Environment.DEV
+
+
+@pytest.mark.parametrize(
+    ("env", "filename"),
+    [
+        (Environment.DEV, ".env.dev"),
+        (Environment.TEST, ".env.example"),
+        (Environment.PROD, ".env.prod"),
+    ],
+)
+def test_the_env_file_is_absolute_so_the_working_directory_cannot_change_it(env, filename):
+    env_file = get_env_file(env)
+
+    assert env_file == BACKEND_ROOT / filename
+    assert env_file.is_absolute()

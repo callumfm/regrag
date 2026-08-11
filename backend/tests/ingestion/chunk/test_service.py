@@ -3,7 +3,7 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import config
+from app.core.config import EMBED_DIMENSIONS
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.service import (
     count_embedded_chunks,
@@ -16,12 +16,13 @@ from app.ingestion.chunk.service import (
     with_content_keys,
 )
 from app.ingestion.enums import SectionKind
+from app.ingestion.exceptions import EmptyChunkSetError
 from app.ingestion.schemas import IngestRun
 from tests.conftest import chunk, chunk_rows
 
 pytestmark = pytest.mark.anyio
 
-VECTOR = [0.1] * config.EMBED_DIMENSIONS
+VECTOR = [0.1] * EMBED_DIMENSIONS
 
 
 async def test_first_upsert_inserts_every_chunk(db_session: AsyncSession, ingest_run: IngestRun):
@@ -97,11 +98,44 @@ async def test_upsert_touches_only_its_own_document(
     )
 
     await upsert_document_chunks(
-        db_session, celex="32023R1805", chunks=[], ingest_run_id=ingest_run.id
+        db_session,
+        celex="32023R1805",
+        chunks=[chunk(text="Reworded entirely.")],
+        ingest_run_id=ingest_run.id,
     )
 
-    assert len(await chunk_rows(db_session, "32015R0757")) == 1
-    assert await chunk_rows(db_session, "32023R1805") == []
+    assert [row.text for row in await chunk_rows(db_session, "32015R0757")] == [
+        "The greenhouse gas intensity limit."
+    ]
+    assert [row.text for row in await chunk_rows(db_session, "32023R1805")] == [
+        "Reworded entirely."
+    ]
+
+
+async def test_upserting_nothing_over_a_stored_document_raises_and_keeps_the_rows(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    """A document that parsed to no chunks is a parse that went wrong, not a repeal."""
+    await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+
+    with pytest.raises(EmptyChunkSetError, match="32023R1805"):
+        await upsert_document_chunks(
+            db_session, celex="32023R1805", chunks=[], ingest_run_id=ingest_run.id
+        )
+
+    assert len(await chunk_rows(db_session, "32023R1805")) == 1
+
+
+async def test_upserting_nothing_over_a_document_with_no_rows_is_not_an_error(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    """Nothing to lose, so nothing to refuse; the document simply contributed no chunks."""
+    result = await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[], ingest_run_id=ingest_run.id
+    )
+    assert (result.added, result.removed, result.unchanged) == (0, 0, 0)
 
 
 async def test_duplicate_chunks_persist_as_separate_occurrences(
@@ -219,7 +253,7 @@ async def test_returns_only_the_chunks_without_a_vector(db_session, ingest_run, 
     db_session.add(make_chunk_row(ingest_run, content_hash="b" * 64, embedding=VECTOR))
     await db_session.flush()
 
-    pending = await get_unembedded_chunks(db_session)
+    pending = await get_unembedded_chunks(db_session, limit=100)
 
     assert [row.content_hash for row in pending] == ["a" * 64]
 
@@ -230,7 +264,7 @@ async def test_orders_by_document_then_insertion(db_session, ingest_run, make_ch
         db_session.add(make_chunk_row(ingest_run, celex=celex, content_hash=digest * 64))
     await db_session.flush()
 
-    pending = await get_unembedded_chunks(db_session)
+    pending = await get_unembedded_chunks(db_session, limit=100)
 
     assert [row.celex for row in pending] == ["32015R0757", "32023R1805", "32023R1805"]
     assert [row.content_hash[0] for row in pending] == ["b", "a", "c"]

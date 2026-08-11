@@ -1,6 +1,6 @@
 """Embed stage: fill in the vector of every chunk that has none."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 from itertools import batched, groupby
 from operator import attrgetter
 
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.llm import EMBED_BATCH_SIZE, EmbedInput, LLMError, embed, llm_retry
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import count_embedded_chunks, get_unembedded_chunks
+from app.ingestion.constants import EMBED_PAGE_SIZE
 from app.ingestion.embed.models import EmbedRunResult
 
 
@@ -33,14 +34,24 @@ async def _embed_batch(session: AsyncSession, chunks: Sequence[DocumentChunk]) -
     await session.flush()
 
 
+async def _pages(session: AsyncSession) -> AsyncIterator[Sequence[DocumentChunk]]:
+    """Vectorless chunks a page at a time, the cursor read before the page can be rolled back."""
+    after: tuple[str, int] | None = None
+    while page := await get_unembedded_chunks(session, after=after, limit=EMBED_PAGE_SIZE):
+        after = (page[-1].celex, page[-1].id)
+        yield page
+
+
 async def embed_chunks(session: AsyncSession) -> EmbedRunResult:
     """Fill in every missing chunk vector; a batch that fails is recorded against its document."""
     result = EmbedRunResult(unchanged=await count_embedded_chunks(session))
-    for celex, batch in _batches(await get_unembedded_chunks(session)):
-        try:
-            async with session.begin_nested():
-                await _embed_batch(session, batch)
-            result.embedded += len(batch)
-        except (LLMError, SQLAlchemyError) as exc:
-            result.fail(celex, exc)
+    async for page in _pages(session):
+        for celex, batch in _batches(page):
+            try:
+                async with session.begin_nested():
+                    await _embed_batch(session, batch)
+                result.embedded += len(batch)
+            except (LLMError, SQLAlchemyError) as exc:
+                result.fail(celex, exc)
+        await session.commit()
     return result

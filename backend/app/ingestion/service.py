@@ -60,7 +60,7 @@ async def complete_ingest_run(
     result: dict[str, Any] | None = None,
 ) -> IngestRun:
     """Close out a run, minting a corpus version for it only if every stage succeeded."""
-    version = await next_corpus_version(session) if status is IngestRunStatus.COMPLETED else None
+    version = await next_corpus_version(session) if status is IngestRunStatus.SUCCESS else None
     return await update_record(
         session,
         run,

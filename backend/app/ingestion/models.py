@@ -51,22 +51,28 @@ class StageRunResult(BaseModel):
             },
         }
 
-    def __add__(self, other: Self) -> Self:
-        """Combine same-type operands field by field; fields must be int, list or dict."""
-        if type(other) is not type(self):
-            return NotImplemented
-        merged: dict[str, Any] = {}
+    def merge(self, other: Self) -> None:
+        """Fold another result of this type in, in place; fields must be int, list or dict."""
         for name in type(self).model_fields:
             mine, theirs = getattr(self, name), getattr(other, name)
             if isinstance(mine, dict):
-                merged[name] = {**mine, **theirs}
-            elif isinstance(mine, list | int) and not isinstance(mine, bool):
-                merged[name] = mine + theirs
+                mine.update(theirs)
+            elif isinstance(mine, list):
+                mine.extend(theirs)
+            elif isinstance(mine, int) and not isinstance(mine, bool):
+                setattr(self, name, mine + theirs)
             else:
                 raise TypeError(
                     f"{type(self).__name__}.{name}: result fields must be int, list or dict"
                 )
-        return type(self)(**merged)
+
+    def __add__(self, other: Self) -> Self:
+        """Combine same-type operands into a new result, leaving both operands untouched."""
+        if type(other) is not type(self):
+            return NotImplemented
+        combined = self.model_copy(deep=True)
+        combined.merge(other)
+        return combined
 
 
 class IngestRunUpdate(BaseModel):

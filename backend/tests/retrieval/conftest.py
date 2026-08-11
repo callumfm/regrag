@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.core.config import config
+from app.core.config import EMBED_DIMENSIONS
 from app.core.db.session import async_session_factory
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.schemas import DocumentChunk
@@ -32,13 +32,13 @@ orthogonal, which gives an HNSW graph walk no gradient to descend."""
 def token_probes(token: str) -> tuple[int, ...]:
     """The dimensions a token lands on, spread wide so any two texts overlap somewhere."""
     return tuple(
-        zlib.crc32(f"{token}:{probe}".encode()) % config.EMBED_DIMENSIONS for probe in range(PROBES)
+        zlib.crc32(f"{token}:{probe}".encode()) % EMBED_DIMENSIONS for probe in range(PROBES)
     )
 
 
 def toy_embed(text: str) -> list[float]:
     """Token hashes into the real width, L2-normalised, so overlapping texts land near."""
-    vector = [0.0] * config.EMBED_DIMENSIONS
+    vector = [0.0] * EMBED_DIMENSIONS
     for token in TOKEN.findall(text.lower()):
         for index in token_probes(token):
             vector[index] += 1.0

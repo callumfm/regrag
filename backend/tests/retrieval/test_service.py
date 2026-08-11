@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import config
+from app.core.config import EMBED_DIMENSIONS
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import SearchFilters
@@ -27,7 +27,7 @@ SEED = 8
 
 def random_query(rng: random.Random) -> list[float]:
     """A signed query vector, which the corpus's non-negative vectors all sit far from."""
-    return [rng.uniform(-1.0, 1.0) for _ in range(config.EMBED_DIMENSIONS)]
+    return [rng.uniform(-1.0, 1.0) for _ in range(EMBED_DIMENSIONS)]
 
 
 def nudge(rng: random.Random, query: list[float], scale: float) -> list[float]:

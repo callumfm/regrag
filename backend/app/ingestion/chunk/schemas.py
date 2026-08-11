@@ -1,11 +1,11 @@
 """Persisted chunks: one row per retrievable unit of a regulation."""
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ARRAY, Computed, ForeignKey, String, UniqueConstraint
+from sqlalchemy import ARRAY, Computed, ForeignKey, Index, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.config import config
+from app.core.config import EMBED_DIMENSIONS
 from app.core.db.schema import BaseSchema
 from app.ingestion.enums import SectionKind
 from app.ingestion.schemas import IngestRun
@@ -20,7 +20,22 @@ class DocumentChunk(BaseSchema):
     """One retrievable unit of a regulation, content-addressed so it survives re-runs."""
 
     __tablename__ = "document_chunks"
-    __table_args__ = (UniqueConstraint("celex", "content_hash", "occurrence"),)
+    __table_args__ = (
+        UniqueConstraint("celex", "content_hash", "occurrence"),
+        Index("ix_document_chunks_search_vector", "search_vector", postgresql_using="gin"),
+        Index(
+            "ix_document_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+        Index(
+            "ix_document_chunks_unembedded_cursor",
+            "celex",
+            "id",
+            postgresql_where=text("embedding IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     ingest_run_id: Mapped[int] = mapped_column(ForeignKey("ingest_runs.id", ondelete="CASCADE"))
@@ -47,7 +62,7 @@ class DocumentChunk(BaseSchema):
     # Search: the text, the acts it cites, and the two indexes queried over it.
     text: Mapped[str]
     references: Mapped[list[dict]] = mapped_column(JSONB)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(config.EMBED_DIMENSIONS))
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBED_DIMENSIONS))
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR, Computed(SEARCH_VECTOR_SQL, persisted=True)
     )

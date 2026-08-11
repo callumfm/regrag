@@ -7,8 +7,13 @@ class IngestRunStatus(StrEnum):
     """Lifecycle of a corpus ingest run."""
 
     RUNNING = "running"
-    COMPLETED = "completed"
+    SUCCESS = "success"
     FAILED = "failed"
+    ABORTED = "aborted"
+
+
+COMPLETE_CORPUS = (IngestRunStatus.SUCCESS,)
+"""Runs whose rows stand for their whole topic; any other run holds a prefix of it."""
 
 
 class DocChange(StrEnum):

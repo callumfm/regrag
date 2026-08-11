@@ -20,7 +20,7 @@ from openai import (
     OpenAIError as ProviderError,
 )
 
-from app.core.config import config
+from app.core.config import EMBED_DIMENSIONS, config
 from app.core.exceptions import DomainError
 from app.core.retry import transient_retry
 
@@ -76,7 +76,7 @@ async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]
             model=config.EMBED_MODEL,
             input=texts,
             input_type=input_type.value,
-            dimensions=config.EMBED_DIMENSIONS,
+            dimensions=EMBED_DIMENSIONS,
             api_key=config.VOYAGE_API_KEY,
             timeout=config.EMBED_TIMEOUT,
         )

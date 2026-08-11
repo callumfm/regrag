@@ -14,7 +14,7 @@ class MalformedDiscoveryError(DiscoveryError):
 
 
 class CorpusShrankError(DiscoveryError):
-    """Discovery lost an implausible share of the baseline, so it is not trusted as a repeal."""
+    """Discovery lost an implausible share of the previous run, so it is not trusted as a repeal."""
 
 
 class NoFetchableVersionError(IngestionError):
@@ -31,3 +31,7 @@ class EmptyDownloadError(IngestionError):
 
 class ParseError(IngestionError):
     """A document could not be parsed into a section tree."""
+
+
+class EmptyChunkSetError(IngestionError):
+    """A stored document chunked to nothing, which is a bad parse rather than a repeal."""

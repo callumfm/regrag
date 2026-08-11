@@ -15,20 +15,20 @@ from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
 from app.core.clock import utc_now
-from app.core.config import R2Config, config
+from app.core.config import EMBED_DIMENSIONS, R2Config, config
 from app.core.db.session import async_session_factory
 from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.constants import SEEDS
+from app.ingestion.discover.models import DiscoveredDocument
+from app.ingestion.discover.stage import discover_topic
 from app.ingestion.embed.stage import _embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
-from app.ingestion.fetch.discover import discover_topic
 from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
-from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import write_document
 from app.main import configure_app
@@ -52,13 +52,6 @@ def r2_config(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> R2Config:
     for name, value in {**R2_ENV, **overrides}.items():
         monkeypatch.setenv(name, value)
     return R2Config()
-
-
-def recorded_run(run_id: int = 1, **overrides: Any) -> IngestRunResult:
-    """A result every stage reported into, so ok turns on stage failures alone."""
-    empty = IngestRunResult(run_id=run_id)
-    stages = {name: getattr(empty, name) for name in IngestRunResult.STAGES}
-    return IngestRunResult(run_id=run_id, **{**stages, **overrides})
 
 
 @pytest.fixture
@@ -250,7 +243,7 @@ class FakeProvider:
         self.calls.append(list(texts))
         if error := self.errors.get(len(self.calls)):
             raise error
-        return [[float(index)] * config.EMBED_DIMENSIONS for index in range(len(texts))]
+        return [[float(index)] * EMBED_DIMENSIONS for index in range(len(texts))]
 
 
 @pytest.fixture(autouse=True)
@@ -304,6 +297,13 @@ def payload(*bindings: dict) -> dict:
 MRV_SPARQL = httpx.Response(
     200, json=payload(binding("32015R0757", force="1"), binding("32023R2449", force="1"))
 )
+
+
+def discovered_document(
+    celex: str = "32015R0757", topic: str = "mrv", candidate: str | None = None
+) -> DiscoveredDocument:
+    """What discovery would hand fetch for one act, overridable per field."""
+    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=candidate)
 
 
 async def chunk_versions(session: AsyncSession, celex: str | None = None) -> set[str | None]:

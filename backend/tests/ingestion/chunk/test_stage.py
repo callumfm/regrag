@@ -1,4 +1,4 @@
-"""The chunk stage over a parsed corpus: reconciliation in both directions."""
+"""The chunk stage on one parsed document, and the corpus-wide prune that follows the loop."""
 
 from collections.abc import Callable
 
@@ -9,44 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ingestion.chunk import stage
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.chunk.stage import chunk_and_store_documents
+from app.ingestion.chunk.stage import chunk_and_store_document, prune_chunks
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import ParseError
 from app.ingestion.parse.models import ParsedDocument, Section
 from app.ingestion.schemas import IngestRun
+from tests.conftest import chunk_versions
 
 pytestmark = pytest.mark.anyio
-
-
-async def test_reconciles_each_document_and_sums_one_result(
-    db_session: AsyncSession, ingest_run: IngestRun
-) -> None:
-    document = ParsedDocument(
-        celex="32023R1805",
-        topic="fueleu",
-        sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
-    )
-    result = await chunk_and_store_documents(
-        db_session, [document], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
-    )
-    assert (result.added, result.removed, result.unchanged) == (1, 0, 0)
-
-
-async def test_a_second_identical_run_changes_nothing(
-    db_session: AsyncSession, ingest_run: IngestRun
-) -> None:
-    document = ParsedDocument(
-        celex="32023R1805",
-        topic="fueleu",
-        sections=(Section(kind=SectionKind.PARAGRAPH, number="1", text="Text."),),
-    )
-    await chunk_and_store_documents(
-        db_session, [document], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
-    )
-    result = await chunk_and_store_documents(
-        db_session, [document], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
-    )
-    assert (result.added, result.removed, result.unchanged) == (0, 0, 1)
 
 
 def parsed(celex: str) -> ParsedDocument:
@@ -58,7 +28,25 @@ def parsed(celex: str) -> ParsedDocument:
     )
 
 
-async def test_a_document_that_will_not_chunk_is_recorded_and_the_rest_persist(
+async def test_reconciles_the_document_and_reports_what_changed(
+    db_session: AsyncSession, ingest_run: IngestRun
+) -> None:
+    result = await chunk_and_store_document(
+        db_session, parsed("32023R1805"), ingest_run_id=ingest_run.id
+    )
+    assert (result.added, result.removed, result.unchanged) == (1, 0, 0)
+
+
+async def test_a_second_identical_run_changes_nothing(
+    db_session: AsyncSession, ingest_run: IngestRun
+) -> None:
+    document = parsed("32023R1805")
+    await chunk_and_store_document(db_session, document, ingest_run_id=ingest_run.id)
+    result = await chunk_and_store_document(db_session, document, ingest_run_id=ingest_run.id)
+    assert (result.added, result.removed, result.unchanged) == (0, 0, 1)
+
+
+async def test_a_document_that_will_not_chunk_is_recorded_not_raised(
     db_session: AsyncSession, ingest_run: IngestRun, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def chunk_one(document: ParsedDocument):
@@ -67,47 +55,79 @@ async def test_a_document_that_will_not_chunk_is_recorded_and_the_rest_persist(
         return chunk_document(document)
 
     monkeypatch.setattr("app.ingestion.chunk.stage.chunk_document", chunk_one)
-    result = await chunk_and_store_documents(
-        db_session,
-        [parsed("broken"), parsed("32023R1805")],
-        ingest_run_id=ingest_run.id,
-        corpus_celexes=["broken", "32023R1805"],
+    result = await chunk_and_store_document(
+        db_session, parsed("broken"), ingest_run_id=ingest_run.id
     )
+
     assert "broken" in result.failed
-    assert result.added == 1
     assert not result.ok
 
 
-async def test_a_database_failure_on_one_document_does_not_abort_the_rest(
+async def test_a_document_that_chunks_to_nothing_fails_instead_of_deleting_itself(
+    db_session: AsyncSession, ingest_run: IngestRun
+) -> None:
+    """The run must not close SUCCESS having quietly emptied a document out of the corpus."""
+    await chunk_and_store_document(db_session, parsed("32023R1805"), ingest_run_id=ingest_run.id)
+
+    empty = ParsedDocument(
+        celex="32023R1805",
+        topic="fueleu",
+        sections=(Section(kind=SectionKind.ARTICLE, number="1"),),
+    )
+    result = await chunk_and_store_document(db_session, empty, ingest_run_id=ingest_run.id)
+
+    assert not result.ok
+    assert result.removed == 0
+    assert await chunk_versions(db_session, "32023R1805") != set()
+
+
+async def test_a_database_failure_is_contained_by_the_documents_own_savepoint(
     db_session: AsyncSession, ingest_run: IngestRun, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A failed flush poisons the transaction, so each document reconciles in its own savepoint."""
-    real = stage.upsert_document_chunks
 
-    async def fail_one(session, *, celex, chunks, ingest_run_id):
-        if celex == "broken":
-            raise IntegrityError("INSERT", {}, Exception("duplicate key"))
-        return await real(session, celex=celex, chunks=chunks, ingest_run_id=ingest_run_id)
+    async def fail(session, *, celex, chunks, ingest_run_id):
+        raise IntegrityError("INSERT", {}, Exception("duplicate key"))
 
-    monkeypatch.setattr(stage, "upsert_document_chunks", fail_one)
-    result = await chunk_and_store_documents(
-        db_session,
-        [parsed("broken"), parsed("32023R1805")],
-        ingest_run_id=ingest_run.id,
-        corpus_celexes=["broken", "32023R1805"],
+    monkeypatch.setattr(stage, "upsert_document_chunks", fail)
+    result = await chunk_and_store_document(
+        db_session, parsed("broken"), ingest_run_id=ingest_run.id
     )
     assert "IntegrityError" in result.failed["broken"]
-    assert result.added == 1
+
+    monkeypatch.undo()
+    survives = await chunk_and_store_document(
+        db_session, parsed("32023R1805"), ingest_run_id=ingest_run.id
+    )
+    assert survives.added == 1
 
 
-async def test_chunks_of_a_celex_no_longer_discovered_are_dropped(
+async def test_prune_chunks_removes_every_celex_outside_the_corpus(
     db_session: AsyncSession,
     ingest_run: IngestRun,
     make_chunk_row: Callable[..., DocumentChunk],
 ) -> None:
     db_session.add(make_chunk_row(ingest_run, celex="repealed", topic="fueleu"))
     await db_session.flush()
-    result = await chunk_and_store_documents(
-        db_session, [], ingest_run_id=ingest_run.id, corpus_celexes=["32023R1805"]
-    )
+
+    result = await prune_chunks(db_session, corpus_celexes=["32023R1805"])
+
     assert result.removed == 1
+    assert await chunk_versions(db_session, "repealed") == set()
+
+
+async def test_chunking_no_longer_prunes(
+    db_session: AsyncSession,
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    """Pruning needs the whole corpus, so a per-document chunk call must leave outsiders alone."""
+    db_session.add(make_chunk_row(ingest_run, celex="repealed", topic="fueleu"))
+    await db_session.flush()
+
+    result = await chunk_and_store_document(
+        db_session, parsed("32023R1805"), ingest_run_id=ingest_run.id
+    )
+
+    assert result.removed == 0
+    assert await chunk_versions(db_session, "repealed") != set()

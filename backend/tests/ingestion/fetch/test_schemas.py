@@ -11,7 +11,7 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_document_belongs_to_run(db_session: AsyncSession, make_document):
-    run = IngestRun(status=IngestRunStatus.COMPLETED, corpus_version="2026-08-03-abc1234")
+    run = IngestRun(status=IngestRunStatus.SUCCESS, corpus_version="2026-08-03-abc1234")
     doc = make_document(run)
     db_session.add(doc)
     await db_session.flush()

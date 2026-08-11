@@ -16,7 +16,7 @@ HTML = b"<html>act</html>"
 
 
 def run() -> IngestRun:
-    return IngestRun(status=IngestRunStatus.COMPLETED)
+    return IngestRun(status=IngestRunStatus.SUCCESS)
 
 
 def test_the_key_names_the_document_its_version_and_its_content():
