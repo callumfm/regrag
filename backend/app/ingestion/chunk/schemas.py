@@ -5,7 +5,7 @@ from sqlalchemy import ARRAY, Computed, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.config import config
+from app.core.config import EMBED_DIMENSIONS
 from app.core.db.schema import BaseSchema
 from app.ingestion.enums import SectionKind
 from app.ingestion.schemas import IngestRun
@@ -47,7 +47,7 @@ class DocumentChunk(BaseSchema):
     # Search: the text, the acts it cites, and the two indexes queried over it.
     text: Mapped[str]
     references: Mapped[list[dict]] = mapped_column(JSONB)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(config.EMBED_DIMENSIONS))
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBED_DIMENSIONS))
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR, Computed(SEARCH_VECTOR_SQL, persisted=True)
     )

@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.core.config import config
+from app.core.config import EMBED_DIMENSIONS
 from app.core.llm import LLMError
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import get_unembedded_chunks
@@ -65,7 +65,7 @@ async def test_already_embedded_chunks_are_reported_not_re_embedded(
             ingest_run,
             celex="32015R0757",
             content_hash="z" * 64,
-            embedding=[0.5] * config.EMBED_DIMENSIONS,
+            embedding=[0.5] * EMBED_DIMENSIONS,
         )
     )
     await db_session.flush()

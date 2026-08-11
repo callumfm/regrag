@@ -1,10 +1,11 @@
 """Roundtrip tests for the document chunks table."""
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import EMBED_DIMENSIONS
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.enums import SectionKind
 
@@ -80,6 +81,20 @@ async def test_search_vector_follows_the_text_it_derives_from(
 
     assert "penalti" in row.search_vector
     assert "verif" not in row.search_vector
+
+
+async def test_the_migrated_column_is_as_wide_as_the_embeddings_we_ask_for(
+    db_session: AsyncSession,
+):
+    """A constant wider than the column embeds a whole run the database then refuses to store."""
+    column_type = await db_session.scalar(
+        text(
+            "SELECT format_type(atttypid, atttypmod) FROM pg_attribute"
+            " WHERE attrelid = 'document_chunks'::regclass AND attname = 'embedding'"
+        )
+    )
+
+    assert column_type == f"vector({EMBED_DIMENSIONS})"
 
 
 async def test_a_vector_of_the_wrong_width_is_rejected(db_session, ingest_run, make_chunk_row):

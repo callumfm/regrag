@@ -14,7 +14,7 @@ from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
 from app.core.clock import utc_now
-from app.core.config import R2Config, config
+from app.core.config import EMBED_DIMENSIONS, R2Config, config
 from app.core.db.session import async_session_factory
 from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
@@ -239,7 +239,7 @@ class FakeProvider:
         self.calls.append(list(texts))
         if error := self.errors.get(len(self.calls)):
             raise error
-        return [[float(index)] * config.EMBED_DIMENSIONS for index in range(len(texts))]
+        return [[float(index)] * EMBED_DIMENSIONS for index in range(len(texts))]
 
 
 @pytest.fixture(autouse=True)
