@@ -7,8 +7,13 @@ class IngestRunStatus(StrEnum):
     """Lifecycle of a corpus ingest run."""
 
     RUNNING = "running"
-    COMPLETED = "completed"
+    SUCCESS = "success"
     FAILED = "failed"
+    ABORTED = "aborted"
+
+
+COMPLETED = (IngestRunStatus.SUCCESS, IngestRunStatus.FAILED)
+"""Runs that finished enumerating their corpus; an aborted one holds only the prefix it reached."""
 
 
 class DocChange(StrEnum):

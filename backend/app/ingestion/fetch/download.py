@@ -3,12 +3,19 @@
 import httpx
 
 from app.core.http import http_retry
+from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
-from app.ingestion.fetch.discover import version_candidates
-from app.ingestion.fetch.models import DiscoveredDocument, ResolvedVersion
+from app.ingestion.fetch.models import ResolvedVersion
 
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}"
 MISSING_MARKER = "The requested document does not exist."
+
+
+def version_candidates(document: DiscoveredDocument) -> list[str]:
+    """The versions to try in order: the consolidation discovery found, then the original act."""
+    if document.candidate_celex:
+        return [document.candidate_celex, document.celex]
+    return [document.celex]
 
 
 def html_url(celex: str) -> str:
@@ -33,29 +40,29 @@ def is_still_rendering(response: httpx.Response) -> bool:
     return response.status_code == httpx.codes.ACCEPTED
 
 
-def expected_version(spec: DiscoveredDocument) -> ResolvedVersion:
+def expected_version(document: DiscoveredDocument) -> ResolvedVersion:
     """Where the download will land if EUR-Lex still serves the version discovery wants first."""
-    celex = version_candidates(spec)[0]
+    celex = version_candidates(document)[0]
     return ResolvedVersion(resolved_celex=celex, url=html_url(celex))
 
 
 @http_retry
 def download_fetchable_version(
-    client: httpx.Client, spec: DiscoveredDocument
+    client: httpx.Client, document: DiscoveredDocument
 ) -> tuple[ResolvedVersion, bytes]:
     """The newest version EUR-Lex will serve, and the HTML it served for it."""
-    candidates = version_candidates(spec)
+    candidates = version_candidates(document)
     for candidate in candidates:
         url = html_url(candidate)
         response = client.get(url)
         if is_still_rendering(response):
             raise DocumentStillRenderingError(
-                f"{spec.topic}:{spec.celex}: EUR-Lex is still rendering {candidate}"
+                f"{document.topic}:{document.celex}: EUR-Lex is still rendering {candidate}"
             )
         if is_missing(response):
             continue
         response.raise_for_status()
         return ResolvedVersion(resolved_celex=candidate, url=url), response.content
     raise NoFetchableVersionError(
-        f"{spec.topic}:{spec.celex}: no fetchable HTML, tried {candidates}"
+        f"{document.topic}:{document.celex}: no fetchable HTML, tried {candidates}"
     )

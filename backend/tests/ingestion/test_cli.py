@@ -10,7 +10,7 @@ from app.ingestion.cli import main
 from app.ingestion.constants import PACE_SECONDS, SEEDS
 from app.ingestion.enums import DocChange
 from app.ingestion.exceptions import MalformedDiscoveryError
-from tests.conftest import recorded_run
+from app.ingestion.result import IngestRunResult
 
 pytestmark = pytest.mark.anyio
 
@@ -19,7 +19,7 @@ pytestmark = pytest.mark.anyio
 def fake_ingest(monkeypatch):
     """Replace the DB+network coroutine with a stub recording requested topics."""
     calls = []
-    report = recorded_run()
+    report = IngestRunResult(run_id=1)
 
     async def _fake(topics):
         calls.append(list(topics))
@@ -100,7 +100,7 @@ async def test_ingest_builds_a_client_that_paces_eurlex(monkeypatch):
         yield None
 
     async def fake_ingest_call(*_, **__):
-        return recorded_run()
+        return IngestRunResult(run_id=1)
 
     monkeypatch.setattr(cli, "http_client", fake_client)
     monkeypatch.setattr(cli, "get_session", fake_session)

@@ -219,7 +219,7 @@ async def test_returns_only_the_chunks_without_a_vector(db_session, ingest_run, 
     db_session.add(make_chunk_row(ingest_run, content_hash="b" * 64, embedding=VECTOR))
     await db_session.flush()
 
-    pending = await get_unembedded_chunks(db_session)
+    pending = await get_unembedded_chunks(db_session, limit=100)
 
     assert [row.content_hash for row in pending] == ["a" * 64]
 
@@ -230,7 +230,7 @@ async def test_orders_by_document_then_insertion(db_session, ingest_run, make_ch
         db_session.add(make_chunk_row(ingest_run, celex=celex, content_hash=digest * 64))
     await db_session.flush()
 
-    pending = await get_unembedded_chunks(db_session)
+    pending = await get_unembedded_chunks(db_session, limit=100)
 
     assert [row.celex for row in pending] == ["32015R0757", "32023R1805", "32023R1805"]
     assert [row.content_hash[0] for row in pending] == ["b", "a", "c"]

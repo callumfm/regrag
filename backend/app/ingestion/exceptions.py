@@ -14,7 +14,7 @@ class MalformedDiscoveryError(DiscoveryError):
 
 
 class CorpusShrankError(DiscoveryError):
-    """Discovery lost an implausible share of the baseline, so it is not trusted as a repeal."""
+    """Discovery lost an implausible share of the previous run, so it is not trusted as a repeal."""
 
 
 class NoFetchableVersionError(IngestionError):

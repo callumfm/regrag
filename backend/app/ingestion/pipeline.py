@@ -1,4 +1,4 @@
-"""The ingest pipeline: one run, fetch -> parse -> chunk -> embed."""
+"""The ingest pipeline: one run, discover -> fetch -> parse -> chunk -> embed."""
 
 import logging
 from collections.abc import AsyncIterator, Sequence
@@ -9,14 +9,16 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
-from app.ingestion.chunk.stage import chunk_and_store_documents
+from app.ingestion.chunk.models import ChunkRunResult
+from app.ingestion.chunk.stage import chunk_and_store_document, prune_chunks
+from app.ingestion.discover.models import DiscoveredDocument
+from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.models import FetchRunResult
-from app.ingestion.fetch.service import get_other_topic_celexes
-from app.ingestion.fetch.stage import fetch_documents
+from app.ingestion.fetch.service import get_other_topic_celexes, get_previous_docs
+from app.ingestion.fetch.stage import fetch_document
 from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.parse.stage import parse_documents
+from app.ingestion.parse.stage import parse_document
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run
@@ -24,44 +26,47 @@ from app.ingestion.service import complete_ingest_run, create_ingest_run
 logger = logging.getLogger(__name__)
 
 
-async def _mark_failed(session: AsyncSession, run: IngestRun, result: IngestRunResult) -> None:
+async def _mark_aborted(session: AsyncSession, run: IngestRun, result: IngestRunResult) -> None:
     """Discard the aborted transaction, then close the run out without masking why it aborted."""
     run_id = run.id
     await session.rollback()
     try:
         await complete_ingest_run(
-            session, run, status=IngestRunStatus.FAILED, result=result.report()
+            session, run, status=IngestRunStatus.ABORTED, result=result.report()
         )
     except SQLAlchemyError:
-        logger.exception("run %s could not be marked failed", run_id)
+        logger.exception("run %s could not be marked aborted", run_id)
 
 
-async def _known_corpus_celexes(
+async def celexes_to_keep(
     session: AsyncSession,
     *,
-    fetch_result: FetchRunResult,
-    parse_result: ParseRunResult,
+    discovered: Sequence[DiscoveredDocument],
+    result: IngestRunResult,
     topics: Sequence[str],
 ) -> set[str] | None:
     """The celexes the corpus consists of after this run: what it discovered, plus other topics'.
 
-    None when any stage failed: pruning is irreversible, so a run with errors does not earn it.
+    None when fetch or parse failed: pruning is irreversible, and discovery either enumerates
+    the corpus or raises, so there is no partial discovery to guard against.
     """
-    if not (fetch_result.ok and parse_result.ok):
+    if not (result.fetch.ok and result.parse.ok):
         return None
-    return set(fetch_result.discovered) | await get_other_topic_celexes(session, topics)
+    return {document.celex for document in discovered} | await get_other_topic_celexes(
+        session, topics
+    )
 
 
 @asynccontextmanager
 async def ingest_run(session: AsyncSession) -> AsyncIterator[tuple[IngestRun, IngestRunResult]]:
-    """Open a run and close it out, marking it failed if the body raises or is interrupted."""
+    """Open a run and close it out, marking it aborted if the body raises or is interrupted."""
     run = await create_ingest_run(session)
     result = IngestRunResult(run_id=run.id)
     try:
         yield run, result
         await complete_ingest_run(session, run, status=result.status, result=result.report())
     except BaseException:
-        await _mark_failed(session, run, result)
+        await _mark_aborted(session, run, result)
         raise
     result.corpus_version = run.corpus_version
 
@@ -75,20 +80,42 @@ async def ingest(
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run; blocking HTTP is fine here (CLI-only)."""
     async with ingest_run(session) as (run, result):
-        fetched, result.fetch = await fetch_documents(
-            session, client=client, topics=topics, store=store, run=run
+        previous = await get_previous_docs(session, topics)
+        discovered, result.discover = discover_corpus(
+            client, topics=topics, previous_celexes=previous
         )
-        logger.info("[fetch] %s", result.fetch.summary())
+        logger.info("[discover] %s", result.discover.summary())
 
-        parsed, result.parse = parse_documents(fetched)
+        for document in discovered:
+            fetched, fetch_result = await fetch_document(
+                session,
+                client=client,
+                discovered=document,
+                previous=previous.get(document.celex),
+                run=run,
+                store=store,
+            )
+            parsed, parse_result = (
+                parse_document(fetched) if fetched is not None else (None, ParseRunResult())
+            )
+            chunk_result = (
+                await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
+                if parsed is not None
+                else ChunkRunResult()
+            )
+            await session.commit()
+            result.fetch.merge(fetch_result)
+            result.parse.merge(parse_result)
+            result.chunk.merge(chunk_result)
+
+        logger.info("[fetch] %s", result.fetch.summary())
         logger.info("[parse] %s", result.parse.summary())
 
-        corpus_celexes = await _known_corpus_celexes(
-            session, fetch_result=result.fetch, parse_result=result.parse, topics=topics
+        corpus_celexes = await celexes_to_keep(
+            session, discovered=discovered, result=result, topics=topics
         )
-        result.chunk = await chunk_and_store_documents(
-            session, parsed, ingest_run_id=run.id, corpus_celexes=corpus_celexes
-        )
+        if corpus_celexes is not None:
+            result.chunk += await prune_chunks(session, corpus_celexes=corpus_celexes)
         logger.info("[chunk] %s", result.chunk.summary())
 
         result.embed = await embed_chunks(session)

@@ -5,27 +5,24 @@ import hashlib
 import httpx
 import pytest
 
+from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import ParseError
 from app.ingestion.fetch import stage
-from app.ingestion.fetch.models import DiscoveredDocument, FetchedDocument, FetchRunResult
-from app.ingestion.fetch.service import get_baseline_docs
-from app.ingestion.fetch.stage import _reuse_stored_version, fetch_documents
+from app.ingestion.fetch.models import FetchedDocument, FetchRunResult
+from app.ingestion.fetch.service import get_previous_docs
+from app.ingestion.fetch.stage import _reuse_stored_version, fetch_document
 from app.ingestion.schemas import IngestRun
-from app.ingestion.service import create_ingest_run
+from app.ingestion.service import complete_ingest_run, create_ingest_run
 from app.ingestion.storage import document_key, read_document
-from tests.conftest import MRV_SPARQL, binding, payload
+from tests.conftest import MRV_SPARQL, binding, discovered_document, payload
 
 pytestmark = pytest.mark.anyio
 
 
-def spec(celex, topic="mrv", candidate=None):
-    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=candidate)
-
-
 def stored(store_document, celex="32023R1805"):
     """A previous run's row whose bytes are still in the store."""
-    return store_document(IngestRun(status=IngestRunStatus.COMPLETED), celex=celex)
+    return store_document(IngestRun(status=IngestRunStatus.SUCCESS), celex=celex)
 
 
 def html_of(fetched, celex, local_store) -> bytes:
@@ -35,7 +32,7 @@ def html_of(fetched, celex, local_store) -> bytes:
 
 def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store, store_document):
     prev = stored(store_document)
-    reused = _reuse_stored_version(local_store, spec("32023R1805"), prev)
+    reused = _reuse_stored_version(local_store, discovered_document("32023R1805"), prev)
     assert reused is not None
     resolution, bytes_, content = reused
     assert resolution.resolved_celex == prev.resolved_celex
@@ -50,18 +47,18 @@ def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store,
 def test_a_newly_discovered_consolidation_is_not_reused(local_store, store_document):
     """Discovery pointing somewhere new is exactly the case that has to hit the network."""
     prev = stored(store_document)
-    newer = spec("32023R1805", candidate="02023R1805-20250101")
+    newer = discovered_document("32023R1805", candidate="02023R1805-20250101")
     assert _reuse_stored_version(local_store, newer, prev) is None
 
 
 def test_stored_version_no_longer_in_the_store_is_not_reused(local_store, store_document):
     prev = stored(store_document)
     (local_store.root / document_key(prev.celex, prev.resolved_celex, prev.sha256)).unlink()
-    assert _reuse_stored_version(local_store, spec("32023R1805"), prev) is None
+    assert _reuse_stored_version(local_store, discovered_document("32023R1805"), prev) is None
 
 
 def test_a_document_with_no_previous_run_has_nothing_to_reuse(local_store):
-    assert _reuse_stored_version(local_store, spec("32023R1805"), None) is None
+    assert _reuse_stored_version(local_store, discovered_document("32023R1805"), None) is None
 
 
 def test_stored_bytes_that_do_not_match_the_row_are_not_reused(local_store, store_document):
@@ -70,7 +67,7 @@ def test_stored_bytes_that_do_not_match_the_row_are_not_reused(local_store, stor
     key = document_key(prev.celex, prev.resolved_celex, prev.sha256)
     local_store.put(key, b"<html>a different version</html>")
 
-    assert _reuse_stored_version(local_store, spec("32023R1805"), prev) is None
+    assert _reuse_stored_version(local_store, discovered_document("32023R1805"), prev) is None
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
@@ -82,11 +79,25 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 
 
 async def fetch(db_session, client, topics, store) -> tuple[FetchRunResult, list[FetchedDocument]]:
-    """Drive the fetch stage alone, with the run the orchestrator would supply."""
+    """Drive the fetch stage alone, with the run and the discovery the orchestrator would supply."""
     run = await create_ingest_run(db_session)
-    fetched, result = await fetch_documents(
-        db_session, client=client, topics=topics, store=store, run=run
-    )
+    previous = await get_previous_docs(db_session, topics)
+    discovered, _ = discover_corpus(client, topics=topics, previous_celexes=previous)
+    fetched: list[FetchedDocument] = []
+    result = FetchRunResult()
+    for document in discovered:
+        item, one = await fetch_document(
+            db_session,
+            client=client,
+            discovered=document,
+            previous=previous.get(document.celex),
+            run=run,
+            store=store,
+        )
+        result += one
+        if item is not None:
+            fetched.append(item)
+    await complete_ingest_run(db_session, run, status=IngestRunStatus.SUCCESS)
     return result, fetched
 
 
@@ -97,7 +108,7 @@ async def test_first_run_ingests_all_as_new(db_session, local_store, corpus_clie
     assert sorted(report.new) == ["32015R0757", "32023R2449"]
     assert report.ok
     assert html_of(documents, "32015R0757", local_store) == b"<html>mrv</html>"
-    rows = await get_baseline_docs(db_session, ["mrv"])
+    rows = await get_previous_docs(db_session, ["mrv"])
     assert rows["32023R2449"].celex == "32023R2449"
     assert rows["32023R2449"].resolved_celex == "32023R2449"
 
@@ -115,7 +126,7 @@ async def test_unchanged_run_makes_no_html_requests_and_carries_sha(
 
     assert sorted(second.unchanged) == ["32015R0757", "32023R2449"]
     assert calls == []
-    firsts = {r.celex: r.sha256 for r in (await get_baseline_docs(db_session, ["mrv"])).values()}
+    firsts = {r.celex: r.sha256 for r in (await get_previous_docs(db_session, ["mrv"])).values()}
     assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
 
 
@@ -141,7 +152,7 @@ async def test_new_consolidation_is_changed_and_redownloaded(
     assert report.changed == ["32015R0757"]
     assert calls == ["02015R0757-20250101"]
     assert html_of(documents, "32015R0757", local_store) == b"<html>v2</html>"
-    rows = await get_baseline_docs(db_session, ["mrv"])
+    rows = await get_previous_docs(db_session, ["mrv"])
     assert rows["32015R0757"].resolved_celex == "02015R0757-20250101"
 
 
@@ -172,7 +183,8 @@ async def test_still_rendering_doc_fails_leaving_the_parsed_bytes_readable(
     assert report.unchanged == ["32023R2449"]
 
 
-async def test_vanished_doc_reported_dropped(db_session, local_store, corpus_client):
+async def test_a_vanished_doc_gets_no_row_from_this_run(db_session, local_store, corpus_client):
+    """Discovery is what reports the drop; fetch's part is simply never recording it again."""
     docs = mrv_docs()
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch(db_session, client, ["mrv"], local_store)
@@ -181,8 +193,8 @@ async def test_vanished_doc_reported_dropped(db_session, local_store, corpus_cli
     client, _ = corpus_client({"mrv": only_seed}, docs)
     report, _ = await fetch(db_session, client, ["mrv"], local_store)
 
-    assert report.dropped == ["32023R2449"]
-    assert "32023R2449" not in await get_baseline_docs(db_session, ["mrv"])
+    assert report.unchanged == ["32015R0757"]
+    assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
 
 
 async def test_per_doc_failure_continues_and_is_recorded(db_session, local_store, corpus_client):
@@ -193,7 +205,7 @@ async def test_per_doc_failure_continues_and_is_recorded(db_session, local_store
     assert report.new == ["32015R0757"]
     assert "32023R2449" in report.failed
     assert not report.ok
-    assert "32023R2449" not in await get_baseline_docs(db_session, ["mrv"])
+    assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
 
 
 async def test_any_ingestion_error_is_recorded_per_document(
@@ -205,12 +217,32 @@ async def test_any_ingestion_error_is_recorded_per_document(
     def unparseable(*args, **kwargs):
         raise ParseError("unrecognised EUR-Lex dialect")
 
-    monkeypatch.setattr(stage, "_fetch_document", unparseable)
+    monkeypatch.setattr(stage, "_reuse_or_download", unparseable)
     report, _ = await fetch(db_session, client, ["mrv"], local_store)
 
     assert sorted(report.failed) == ["32015R0757", "32023R2449"]
     assert set(report.failed.values()) == {"ParseError: unrecognised EUR-Lex dialect"}
     assert not report.ok
+
+
+async def test_a_row_that_will_not_flush_fails_only_its_own_document(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """A database error on one row must skip that document, not poison the run's transaction."""
+    real = stage._reuse_or_download
+
+    def unstorable(client, discovered, **kwargs):
+        fetched, change = real(client, discovered, **kwargs)
+        if discovered.celex == "32015R0757":
+            fetched.document.topic = None  # ty: ignore[invalid-assignment]
+        return fetched, change
+
+    monkeypatch.setattr(stage, "_reuse_or_download", unstorable)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    report, _ = await fetch(db_session, client, ["mrv"], local_store)
+
+    assert list(report.failed) == ["32015R0757"]
+    assert report.new == ["32023R2449"]
 
 
 async def test_duplicate_celex_across_topics_ingested_once(db_session, local_store, corpus_client):
@@ -227,5 +259,5 @@ async def test_duplicate_celex_across_topics_ingested_once(db_session, local_sto
     report, _ = await fetch(db_session, client, ["fueleu", "mrv"], local_store)
 
     assert report.ok
-    rows = await get_baseline_docs(db_session, ["fueleu", "mrv"])
+    rows = await get_previous_docs(db_session, ["fueleu", "mrv"])
     assert rows["32015R0757"].topic == "fueleu"

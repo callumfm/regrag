@@ -8,12 +8,8 @@ from pathlib import Path
 
 from app.core.http import http_client
 from app.ingestion.constants import PACE_SECONDS, SEEDS
-from app.ingestion.fetch.discover import (
-    SPARQL_ENDPOINT,
-    collect_candidate_acts,
-    select_topic_documents,
-    topic_query,
-)
+from app.ingestion.discover.select import select_topic_documents
+from app.ingestion.discover.sparql import SPARQL_ENDPOINT, collect_candidate_acts, topic_query
 from app.ingestion.fetch.download import download_fetchable_version
 
 FIXTURES = Path(__file__).parent
