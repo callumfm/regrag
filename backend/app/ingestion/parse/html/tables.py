@@ -10,6 +10,7 @@ from app.ingestion.parse.text import clean_text
 
 
 def table_rows(node: Node) -> tuple[tuple[str, ...], ...]:
+    """A table as a raw grid of cleaned cells, with no row treated as a header."""
     rows = []
     for row in node.css("tr"):
         cells = tuple(clean_text(cell.text()) for cell in row.css(CELL))
@@ -19,6 +20,7 @@ def table_rows(node: Node) -> tuple[tuple[str, ...], ...]:
 
 
 def detach_data_tables(node: Node, dialect: Dialect) -> tuple[Section, ...]:
+    """Data tables as TABLE sections, removed from the tree so their cells are not re-read."""
     tables = node.css(dialect.data_table)
     sections = tuple(
         Section(kind=SectionKind.TABLE, rows=rows)

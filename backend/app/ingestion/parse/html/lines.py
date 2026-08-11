@@ -62,6 +62,7 @@ def collect_lines(node: Node, level_pattern: re.Pattern[str] | None = None) -> l
 
 
 def _collect(node: Node, lines: list[Line], level_pattern: re.Pattern[str] | None) -> None:
+    """Recurse into containers, emitting one line per text block and skipping repeats."""
     for child in node.iter(include_text=False):
         subheading = read_subheading(child, level_pattern)
         if subheading is not None:
@@ -109,6 +110,7 @@ class OpenSubheading:
             self.lines.clear()
 
     def close(self) -> Section:
+        """Bank any prose still open and return the finished heading section."""
         self.flush_prose()
         return Section(kind=SectionKind.HEADING, title=self.title, children=tuple(self.children))
 
