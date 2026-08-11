@@ -15,8 +15,6 @@ from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.models import FetchRunResult
-from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_other_topic_celexes, get_previous_docs
 from app.ingestion.fetch.stage import fetch_document
 from app.ingestion.parse.models import ParseRunResult
@@ -73,28 +71,6 @@ async def ingest_run(session: AsyncSession) -> AsyncIterator[tuple[IngestRun, In
     result.corpus_version = run.corpus_version
 
 
-async def _ingest_document(
-    session: AsyncSession,
-    *,
-    client: httpx.Client,
-    discovered: DiscoveredDocument,
-    previous: RawDocument | None,
-    run: IngestRun,
-    store: ObjectStore,
-) -> tuple[FetchRunResult, ParseRunResult, ChunkRunResult]:
-    """Fetch, parse and chunk one document, stopping at the first stage that could not."""
-    fetched, fetch_result = await fetch_document(
-        session, client=client, discovered=discovered, previous=previous, run=run, store=store
-    )
-    if fetched is None:
-        return fetch_result, ParseRunResult(), ChunkRunResult()
-    parsed, parse_result = parse_document(fetched)
-    if parsed is None:
-        return fetch_result, parse_result, ChunkRunResult()
-    chunk_result = await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
-    return fetch_result, parse_result, chunk_result
-
-
 async def ingest(
     session: AsyncSession,
     *,
@@ -113,13 +89,21 @@ async def ingest(
 
         result.mark_reported("fetch", "parse", "chunk")
         for document in discovered:
-            fetch_result, parse_result, chunk_result = await _ingest_document(
+            fetched, fetch_result = await fetch_document(
                 session,
                 client=client,
                 discovered=document,
                 previous=previous.get(document.celex),
                 run=run,
                 store=store,
+            )
+            parsed, parse_result = (
+                parse_document(fetched) if fetched is not None else (None, ParseRunResult())
+            )
+            chunk_result = (
+                await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
+                if parsed is not None
+                else ChunkRunResult()
             )
             await session.commit()
             result.fetch.merge(fetch_result)
