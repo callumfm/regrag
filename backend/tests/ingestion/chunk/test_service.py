@@ -16,6 +16,7 @@ from app.ingestion.chunk.service import (
     with_content_keys,
 )
 from app.ingestion.enums import SectionKind
+from app.ingestion.exceptions import EmptyChunkSetError
 from app.ingestion.schemas import IngestRun
 from tests.conftest import chunk, chunk_rows
 
@@ -97,11 +98,44 @@ async def test_upsert_touches_only_its_own_document(
     )
 
     await upsert_document_chunks(
-        db_session, celex="32023R1805", chunks=[], ingest_run_id=ingest_run.id
+        db_session,
+        celex="32023R1805",
+        chunks=[chunk(text="Reworded entirely.")],
+        ingest_run_id=ingest_run.id,
     )
 
-    assert len(await chunk_rows(db_session, "32015R0757")) == 1
-    assert await chunk_rows(db_session, "32023R1805") == []
+    assert [row.text for row in await chunk_rows(db_session, "32015R0757")] == [
+        "The greenhouse gas intensity limit."
+    ]
+    assert [row.text for row in await chunk_rows(db_session, "32023R1805")] == [
+        "Reworded entirely."
+    ]
+
+
+async def test_upserting_nothing_over_a_stored_document_raises_and_keeps_the_rows(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    """A document that parsed to no chunks is a parse that went wrong, not a repeal."""
+    await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+
+    with pytest.raises(EmptyChunkSetError, match="32023R1805"):
+        await upsert_document_chunks(
+            db_session, celex="32023R1805", chunks=[], ingest_run_id=ingest_run.id
+        )
+
+    assert len(await chunk_rows(db_session, "32023R1805")) == 1
+
+
+async def test_upserting_nothing_over_a_document_with_no_rows_is_not_an_error(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    """Nothing to lose, so nothing to refuse; the document simply contributed no chunks."""
+    result = await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[], ingest_run_id=ingest_run.id
+    )
+    assert (result.added, result.removed, result.unchanged) == (0, 0, 0)
 
 
 async def test_duplicate_chunks_persist_as_separate_occurrences(

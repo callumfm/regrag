@@ -3,7 +3,7 @@ This module contains the code for the discovery, fetching, parsing, chunking and
 
 The following sections describe each stage of the ingest pipeline and the design decisions that were taken. Ingest is not a one-off — acts are amended and the pipeline itself is improved — so each stage has to re-run without redoing work that has not changed, embedding especially, since an external model charges per call.
 
-Discovery runs once against the whole corpus. Fetch, parse and chunk then run one document at a time, each committed before the next begins, so peak memory stays flat however far the corpus grows and a run that dies keeps the work it already did. A run that dies is recorded as aborted rather than failed, because what it committed is a prefix of its topic rather than that topic's corpus: those rows are reused by the next run, but they never stand for the topic. Pruning and embedding run once at the end, because both need to see the corpus whole.
+Discovery runs once against the whole corpus. Fetch, parse and chunk then run one document at a time, each committed before the next begins, so peak memory stays flat however far the corpus grows and a run that dies keeps the work it already did. Only a run that got through its whole topic stands for that topic: a run that died holds a prefix, and a run that failed a download holds a corpus with a hole in it. Either way its rows are reused by the next run but never taken for the topic's corpus. Pruning and embedding run once at the end, because both need to see the corpus whole.
 
 ## 1 Discover
 Discovery answers two questions: which documents belong in the corpus, and which version of each to download.
@@ -179,7 +179,9 @@ References to the same document always land. References to other instruments mos
 ### 4.4 Chunk identity
 A chunk is addressed by a hash of its text and locator rather than its position in the document. Reconciling is then a set difference: new hashes inserted, missing ones deleted, the rest left alone with the vectors they already have, so a re-run over an unchanged corpus costs nothing to embed.
 
-Deletion is the irreversible half, so pruning waits until the per-document loop has finished, and runs only when fetch and parse both succeeded — a failed run cannot tell absence from failure. What the other topics hold is read from their latest closed-out run onward, so a document an aborted run committed is kept rather than pruned by the next run of a different topic.
+Deletion is the irreversible half, so pruning waits until the per-document loop has finished, and runs only when fetch and parse both succeeded — a failed run cannot tell absence from failure. What the other topics hold is read from their latest complete run onward, so a document committed by a run that then died or failed a download is kept rather than pruned by the next run of a different topic.
+
+A document that chunks to nothing is refused rather than reconciled. Parsing succeeds as long as the markup holds articles, so an act whose articles carry only headings — a deleted article in a consolidated text, say — parses cleanly and yields no chunks, and an empty set reconciled against stored rows is a deletion. The document is failed instead, which keeps its rows and closes the run as failed.
 
 ## 5 Embed
 Embedding turns each chunk into a vector, so that retrieval can find a provision (a piece of law) by what it means rather than by the words it happens to use.
@@ -196,6 +198,6 @@ Both indexes are built at ingest. Neither is sufficient alone: keywords cannot m
 ## 6 Runs
 Every ingest is recorded as a run. Each stage reports what it added, changed, left alone and failed on, and that report is stored on the run row rather than only printed, so a run can be accounted for after the fact.
 
-A document that fails one stage does not abort the run: the failure is recorded against its CELEX id, the remaining documents carry on, and the run itself closes as failed. A run that dies outright — a provider outage, a Ctrl-C, an out-of-memory kill — closes as aborted instead, which is what tells later runs that its documents are a prefix and not a corpus. A successful run is stamped with the date the corpus last changed plus a fingerprint of it, so an unchanged re-run keeps its version and a run that did not succeed gets none.
+A document that fails one stage does not abort the run: the failure is recorded against its CELEX id, the remaining documents carry on, and the run itself closes as failed. A run that dies outright — a provider outage, a Ctrl-C, an out-of-memory kill — closes as aborted instead. Neither status stands for a corpus: only a successful run tells later runs that its documents are the whole of its topic. A successful run is stamped with the date the corpus last changed plus a fingerprint of it, so an unchanged re-run keeps its version and a run that did not succeed gets none.
 
 Each document is committed as it finishes, so a run interrupted partway keeps everything it had already stored and the next run fills in only what is missing. The trade is that a run in progress is visible: until it finishes, a reader sees some acts at their new version and some at the old. The corpus version is stamped only at the end, so anything keyed on it still flips in one step.

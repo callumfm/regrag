@@ -326,7 +326,7 @@ async def test_dropped_document_loses_its_chunks(db_session, local_store, corpus
 async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fetch(
     db_session, local_store, corpus_client
 ):
-    """A failed fetch drops the doc from what the next run treats as previous; chunks must still go.
+    """A failed fetch does not hide the drop from the next run, and the chunks must still go.
 
     The failure has to land on a version the run actually downloads: an unchanged act is
     never requested, so it has no way to fail.
@@ -351,7 +351,7 @@ async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fet
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.discover.dropped == []
+    assert report.discover.dropped == ["32023R2449"]
     assert await chunk_rows(db_session, "32023R2449") == []
     assert await chunk_rows(db_session, "32015R0757")
 

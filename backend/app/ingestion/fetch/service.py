@@ -6,7 +6,7 @@ from sqlalchemy import ColumnElement, ScalarSelect, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.ingestion.enums import COMPLETED, IngestRunStatus
+from app.ingestion.enums import COMPLETE_CORPUS, IngestRunStatus
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
 
@@ -32,12 +32,12 @@ def latest_run_docs() -> Select[tuple[RawDocument]]:
 
 
 def standing_docs() -> Select[tuple[RawDocument]]:
-    """Documents held from each topic's latest closed-out run on, aborted runs included.
+    """Documents held from each topic's latest complete run on, incomplete runs included.
 
-    A run that died mid-loop still downloaded what it committed; only a run that closed
-    out can retire the rows before it.
+    A run that died mid-loop or failed a download still downloaded what it committed; only a
+    run that got through its whole topic can retire the rows before it.
     """
-    floor = _latest_run_id(IngestRun.status.in_(COMPLETED))
+    floor = _latest_run_id(IngestRun.status.in_(COMPLETE_CORPUS))
     return select(RawDocument).where(RawDocument.ingest_run_id >= floor)
 
 

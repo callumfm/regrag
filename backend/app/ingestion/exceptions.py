@@ -31,3 +31,7 @@ class EmptyDownloadError(IngestionError):
 
 class ParseError(IngestionError):
     """A document could not be parsed into a section tree."""
+
+
+class EmptyChunkSetError(IngestionError):
+    """A stored document chunked to nothing, which is a bad parse rather than a repeal."""
