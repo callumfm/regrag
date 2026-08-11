@@ -9,6 +9,11 @@ class IngestRunStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    ABORTED = "aborted"
+
+
+CLOSED_OUT = (IngestRunStatus.COMPLETED, IngestRunStatus.FAILED)
+"""Runs that finished enumerating their corpus; an aborted one holds only the prefix it reached."""
 
 
 class DocChange(StrEnum):

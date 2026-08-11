@@ -88,13 +88,13 @@ async def test_a_failed_discovery_leaves_the_corpus_unknown(db_session):
     assert await celexes_to_keep(db_session, result=result, topics=["fueleu"]) is None
 
 
-async def test_sparql_failure_aborts_and_marks_run_failed(db_session, local_store, corpus_client):
+async def test_sparql_failure_aborts_and_marks_run_aborted(db_session, local_store, corpus_client):
     client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
     with pytest.raises(httpx.HTTPStatusError):
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.status is IngestRunStatus.FAILED
+    assert run.status is IngestRunStatus.ABORTED
     assert run.completed_at is not None
 
 
@@ -208,7 +208,7 @@ async def test_malformed_sparql_payload_raises_discovery_error(
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
 
-async def test_a_failure_after_fetch_still_marks_the_run_failed(
+async def test_a_failure_after_fetch_still_marks_the_run_aborted(
     db_session, local_store, corpus_client, monkeypatch
 ):
     async def explode(*args, **kwargs):
@@ -220,11 +220,11 @@ async def test_a_failure_after_fetch_still_marks_the_run_failed(
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.status is IngestRunStatus.FAILED
+    assert run.status is IngestRunStatus.ABORTED
     assert run.completed_at is not None
 
 
-async def test_a_failure_closing_the_run_out_still_marks_it_failed(
+async def test_a_failure_closing_the_run_out_still_marks_it_aborted(
     db_session, local_store, corpus_client, monkeypatch
 ):
     """The closing commit is where an integrity error or a Ctrl-C lands, so it must be covered."""
@@ -243,7 +243,7 @@ async def test_a_failure_closing_the_run_out_still_marks_it_failed(
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.status is IngestRunStatus.FAILED
+    assert run.status is IngestRunStatus.ABORTED
     assert run.completed_at is not None
 
 
@@ -505,7 +505,7 @@ async def test_a_store_write_failure_is_recorded_not_raised(
     assert not report.ok
 
 
-async def test_an_interrupt_still_marks_the_run_failed(
+async def test_an_interrupt_still_marks_the_run_aborted(
     db_session, local_store, corpus_client, monkeypatch
 ):
     async def interrupt(*args, **kwargs):
@@ -517,7 +517,7 @@ async def test_an_interrupt_still_marks_the_run_failed(
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.status is IngestRunStatus.FAILED
+    assert run.status is IngestRunStatus.ABORTED
     assert run.completed_at is not None
 
 
@@ -535,7 +535,7 @@ async def test_a_database_failure_does_not_mask_itself(
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.status is IngestRunStatus.FAILED
+    assert run.status is IngestRunStatus.ABORTED
 
 
 async def test_partial_fetch_leaves_its_chunks_unstamped(db_session, local_store, corpus_client):
@@ -698,6 +698,39 @@ async def test_a_document_that_fails_does_not_stop_the_documents_after_it(
     assert report.parse.parsed == ["32023R2449"]
     assert report.chunk.added > 0
     assert not report.ok
+
+
+async def test_a_run_that_died_mid_loop_does_not_stand_for_its_topics_corpus(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """An aborted run holds a prefix, not a corpus: another topic must not prune the rest."""
+    docs = mrv_docs()
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+    assert await chunk_rows(db_session, "32023R2449")
+
+    real = pipeline.chunk_and_store_document
+    calls: list[int] = []
+
+    async def die_on_the_second(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "chunk_and_store_document", die_on_the_second)
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    with pytest.raises(KeyboardInterrupt):
+        await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    monkeypatch.setattr(pipeline, "chunk_and_store_document", real)
+    client, _ = corpus_client(
+        {"fueleu": FUELEU_SPARQL},
+        {"32023R1805": httpx.Response(200, content=FUELEU_HTML.encode())},
+    )
+    await ingest(db_session, client=client, topics=["fueleu"], store=local_store)
+
+    assert await chunk_rows(db_session, "32023R2449")
 
 
 async def test_a_run_that_dies_in_embed_keeps_its_documents_and_chunks(

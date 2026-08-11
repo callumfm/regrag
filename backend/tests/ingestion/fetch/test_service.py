@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.service import get_previous_docs
+from app.ingestion.fetch.service import get_corpus_docs, get_previous_docs
 from app.ingestion.schemas import IngestRun
 
 pytestmark = pytest.mark.anyio
@@ -55,3 +55,42 @@ async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, m
     await db_session.flush()
 
     assert set(await get_previous_docs(db_session, ["mrv"])) == {"32015R0757"}
+
+
+async def test_an_aborted_runs_rows_are_still_held(db_session: AsyncSession, make_document):
+    """A run that died mid-loop downloaded what it committed, so the next run may reuse it."""
+    complete = IngestRun(status=IngestRunStatus.COMPLETED)
+    aborted = IngestRun(status=IngestRunStatus.ABORTED)
+    db_session.add_all(
+        [
+            make_document(complete, "32015R0757", topic="mrv"),
+            make_document(complete, "32023R2449", topic="mrv"),
+            make_document(aborted, "32015R0757", topic="mrv", resolved_celex="02015R0757-20250101"),
+        ]
+    )
+    await db_session.flush()
+
+    previous = await get_previous_docs(db_session, ["mrv"])
+    assert set(previous) == {"32015R0757", "32023R2449"}
+    assert previous["32015R0757"].resolved_celex == "02015R0757-20250101"
+
+
+async def test_an_aborted_run_does_not_stand_for_the_corpus(
+    db_session: AsyncSession, make_document
+):
+    """The fingerprint describes a whole corpus, so a prefix must not be the topic's latest."""
+    complete = IngestRun(status=IngestRunStatus.COMPLETED)
+    aborted = IngestRun(status=IngestRunStatus.ABORTED)
+    db_session.add_all(
+        [
+            make_document(complete, "32015R0757", topic="mrv"),
+            make_document(complete, "32023R2449", topic="mrv"),
+            make_document(aborted, "32015R0757", topic="mrv"),
+        ]
+    )
+    await db_session.flush()
+
+    assert {doc.celex for doc in await get_corpus_docs(db_session)} == {
+        "32015R0757",
+        "32023R2449",
+    }

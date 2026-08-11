@@ -29,10 +29,10 @@ async def _mark_failed(session: AsyncSession, run: IngestRun, result: IngestRunR
     await session.rollback()
     try:
         await complete_ingest_run(
-            session, run, status=IngestRunStatus.FAILED, result=result.report()
+            session, run, status=IngestRunStatus.ABORTED, result=result.report()
         )
     except SQLAlchemyError:
-        logger.exception("run %s could not be marked failed", run_id)
+        logger.exception("run %s could not be marked aborted", run_id)
 
 
 async def celexes_to_keep(

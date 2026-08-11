@@ -13,7 +13,7 @@ from app.ingestion.fetch.models import FetchedDocument, FetchRunResult
 from app.ingestion.fetch.service import get_previous_docs
 from app.ingestion.fetch.stage import _reuse_stored_version, fetch_document
 from app.ingestion.schemas import IngestRun
-from app.ingestion.service import create_ingest_run
+from app.ingestion.service import complete_ingest_run, create_ingest_run
 from app.ingestion.storage import document_key, read_document
 from tests.conftest import MRV_SPARQL, binding, discovered_document, payload
 
@@ -97,6 +97,7 @@ async def fetch(db_session, client, topics, store) -> tuple[FetchRunResult, list
         result += one
         if item is not None:
             fetched.append(item)
+    await complete_ingest_run(db_session, run, status=IngestRunStatus.COMPLETED)
     return result, fetched
 
 
