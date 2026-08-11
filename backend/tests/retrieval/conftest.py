@@ -3,6 +3,7 @@
 import re
 import zlib
 from math import sqrt
+from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,3 +45,13 @@ async def corpus(
         row.embedding = toy_embed(row.text)
     await db_session.flush()
     return rows
+
+
+@pytest.fixture(autouse=True)
+def query_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Query vectors share the corpus's space, so a search is a real nearest-neighbour test."""
+
+    async def _embed(texts: list[str], **kwargs: Any) -> list[list[float]]:
+        return [toy_embed(text) for text in texts]
+
+    monkeypatch.setattr("app.retrieval.pipeline.embed", _embed)
