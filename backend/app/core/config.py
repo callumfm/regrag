@@ -17,14 +17,27 @@ class Environment(StrEnum):
     PROD = "prod"
 
 
-ENVIRONMENT: Environment = Environment(os.environ.get("ENVIRONMENT", "dev"))
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+def load_environment() -> Environment:
+    """Read $ENVIRONMENT, naming the accepted values when it holds something else."""
+    name = os.environ.get("ENVIRONMENT", Environment.DEV)
+    try:
+        return Environment(name)
+    except ValueError:
+        accepted = ", ".join(Environment)
+        raise ValueError(
+            f"ENVIRONMENT={name!r} is not a valid environment; expected one of: {accepted}"
+        ) from None
 
 
-def get_env_file(env: Environment = ENVIRONMENT) -> str:
-    if env == Environment.TEST:
-        return ".env.example"
-    return f".env.{env.value}"
+ENVIRONMENT: Environment = load_environment()
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = BACKEND_ROOT.parent
+
+
+def get_env_file(env: Environment = ENVIRONMENT) -> Path:
+    """Absolute, so the file is found whatever directory the process was started from."""
+    name = ".env.example" if env == Environment.TEST else f".env.{env.value}"
+    return BACKEND_ROOT / name
 
 
 class BaseConfig(BaseSettings):
@@ -117,12 +130,15 @@ class PostgresConfig(BaseConfig):
         }
 
 
+EMBED_DIMENSIONS = 1024
+"""Width of the document_chunks.embedding column: not a setting, changing it needs a migration."""
+
+
 class EmbeddingConfig(BaseConfig):
     """Voyage embedding configuration."""
 
     VOYAGE_API_KEY: str = ""
     EMBED_MODEL: str = "voyage/voyage-4-lite"
-    EMBED_DIMENSIONS: int = 1024
     EMBED_TIMEOUT: int = 30
 
 
