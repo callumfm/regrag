@@ -64,5 +64,5 @@ def discover_corpus(
     """Discover every topic's corpus and diff it against what the previous run held."""
     documents = discover_topics(client, topics)
     dropped = find_dropped_celexes(documents, previous_celexes)
-    result = DiscoverRunResult(celexes=[document.celex for document in documents], dropped=dropped)
+    result = DiscoverRunResult(dropped=dropped)
     return documents, result

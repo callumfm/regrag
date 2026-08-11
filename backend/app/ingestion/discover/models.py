@@ -1,7 +1,5 @@
 """What discovery found: one candidate act, the document it selects, and the run's diff."""
 
-from typing import ClassVar
-
 from pydantic import Field
 
 from app.core.models import FrozenModel
@@ -28,9 +26,6 @@ class DiscoveredDocument(FrozenModel):
 class DiscoverRunResult(StageRunResult):
     """What discovery found this run, and what the previous run held that it no longer returns."""
 
-    UNCOUNTED: ClassVar[frozenset[str]] = StageRunResult.UNCOUNTED | {"celexes"}
-
-    celexes: list[str] = Field(default_factory=list)
     dropped: list[str] = Field(default_factory=list)
 
     def details(self) -> list[str]:

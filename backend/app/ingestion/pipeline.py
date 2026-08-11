@@ -41,16 +41,22 @@ async def _mark_failed(session: AsyncSession, run: IngestRun, result: IngestRunR
 
 
 async def celexes_to_keep(
-    session: AsyncSession, *, result: IngestRunResult, topics: Sequence[str]
+    session: AsyncSession,
+    *,
+    discovered: Sequence[DiscoveredDocument],
+    result: IngestRunResult,
+    topics: Sequence[str],
 ) -> set[str] | None:
     """The celexes the corpus consists of after this run: what it discovered, plus other topics'.
 
-    None when any stage before chunk failed: pruning is irreversible, so a run with errors does
-    not earn it.
+    None when fetch or parse failed: pruning is irreversible, and discovery either enumerates
+    the corpus or raises, so there is no partial discovery to guard against.
     """
-    if not (result.discover.ok and result.fetch.ok and result.parse.ok):
+    if not (result.fetch.ok and result.parse.ok):
         return None
-    return set(result.discover.celexes) | await get_other_topic_celexes(session, topics)
+    return {document.celex for document in discovered} | await get_other_topic_celexes(
+        session, topics
+    )
 
 
 @asynccontextmanager
@@ -123,7 +129,9 @@ async def ingest(
         logger.info("[fetch] %s", result.fetch.summary())
         logger.info("[parse] %s", result.parse.summary())
 
-        corpus_celexes = await celexes_to_keep(session, result=result, topics=topics)
+        corpus_celexes = await celexes_to_keep(
+            session, discovered=discovered, result=result, topics=topics
+        )
         if corpus_celexes is not None:
             result.chunk += await prune_chunks(session, corpus_celexes=corpus_celexes)
         logger.info("[chunk] %s", result.chunk.summary())

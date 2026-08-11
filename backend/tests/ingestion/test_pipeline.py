@@ -11,7 +11,6 @@ from app.core.storage import StorageError
 from app.ingestion import pipeline
 from app.ingestion.celex import consolidated_stem
 from app.ingestion.chunk.chunker import chunk_document
-from app.ingestion.discover.models import DiscoverRunResult
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch.models import FetchRunResult
@@ -29,6 +28,7 @@ from tests.conftest import (
     binding,
     chunk_rows,
     chunk_versions,
+    discovered_document,
     payload,
     recorded_run,
 )
@@ -51,42 +51,41 @@ async def test_celexes_to_keep_unions_this_run_with_the_topics_it_left_alone(
     db_session.add(make_document(other, "32015R0757", topic="mrv"))
     await db_session.flush()
 
-    result = recorded_run(
-        discover=DiscoverRunResult(celexes=["32023R1805"]),
-        parse=ParseRunResult(parsed=["32023R1805"]),
+    celexes = await celexes_to_keep(
+        db_session,
+        discovered=[discovered_document("32023R1805", topic="fueleu")],
+        result=recorded_run(parse=ParseRunResult(parsed=["32023R1805"])),
+        topics=["fueleu"],
     )
-    celexes = await celexes_to_keep(db_session, result=result, topics=["fueleu"])
 
     assert celexes == {"32023R1805", "32015R0757"}
 
 
 async def test_a_partial_fetch_leaves_the_corpus_unknown(db_session):
     result = recorded_run(
-        discover=DiscoverRunResult(celexes=["32023R1805"]),
         fetch=FetchRunResult(failed={"32015R0757": "404"}),
         parse=ParseRunResult(parsed=["32023R1805"]),
     )
 
-    assert await celexes_to_keep(db_session, result=result, topics=["fueleu"]) is None
+    celexes = await celexes_to_keep(
+        db_session,
+        discovered=[discovered_document("32023R1805", topic="fueleu")],
+        result=result,
+        topics=["fueleu"],
+    )
+    assert celexes is None
 
 
 async def test_a_document_that_would_not_parse_leaves_the_corpus_unknown(db_session):
-    result = recorded_run(
-        discover=DiscoverRunResult(celexes=["32023R1805"]),
-        parse=ParseRunResult(failed={"32023R1805": "ParseError"}),
+    result = recorded_run(parse=ParseRunResult(failed={"32023R1805": "ParseError"}))
+
+    celexes = await celexes_to_keep(
+        db_session,
+        discovered=[discovered_document("32023R1805", topic="fueleu")],
+        result=result,
+        topics=["fueleu"],
     )
-
-    assert await celexes_to_keep(db_session, result=result, topics=["fueleu"]) is None
-
-
-async def test_a_failed_discovery_leaves_the_corpus_unknown(db_session):
-    """Pruning against a corpus discovery could not fully enumerate would delete live chunks."""
-    result = recorded_run(
-        discover=DiscoverRunResult(celexes=["32023R1805"], failed={"mrv": "HTTPError: 503"}),
-        parse=ParseRunResult(parsed=["32023R1805"]),
-    )
-
-    assert await celexes_to_keep(db_session, result=result, topics=["fueleu"]) is None
+    assert celexes is None
 
 
 async def test_sparql_failure_aborts_and_marks_run_aborted(db_session, local_store, corpus_client):

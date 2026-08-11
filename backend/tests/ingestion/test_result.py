@@ -20,22 +20,6 @@ def test_stages_finds_every_result_and_nothing_else() -> None:
     ]
 
 
-def test_summing_fetch_results_does_not_multiply_the_discovered_corpus() -> None:
-    """Discovery runs once per run; fetch runs once per document, so only fetch may accumulate."""
-    discover = DiscoverRunResult(celexes=["a", "b"], dropped=["c"])
-    streamed = FetchRunResult(new=["a"]) + FetchRunResult(unchanged=["b"])
-
-    assert discover.celexes == ["a", "b"]
-    assert not hasattr(streamed, "discovered")
-    assert streamed.new == ["a"]
-    assert streamed.unchanged == ["b"]
-
-
-def test_the_discovered_corpus_is_not_counted_in_the_discover_summary() -> None:
-    """celexes is the run's input manifest, not an outcome bucket fetch would double-count."""
-    assert DiscoverRunResult(celexes=["a", "b"], dropped=["c"]).summary() == "1 dropped, 0 failed"
-
-
 def test_a_run_is_ok_when_no_stage_failed() -> None:
     assert recorded_run().ok
     assert recorded_run().status is IngestRunStatus.COMPLETED
@@ -68,7 +52,7 @@ def test_summary_reports_every_stage_on_its_own_line() -> None:
     result = recorded_run(
         7,
         corpus_version="2026-08-05-abc1234",
-        discover=DiscoverRunResult(celexes=["a", "b"]),
+        discover=DiscoverRunResult(),
         fetch=FetchRunResult(new=["a"], unchanged=["b"]),
         parse=ParseRunResult(parsed=["a", "b"]),
         chunk=ChunkRunResult(added=12, unchanged=30),
@@ -102,7 +86,7 @@ def test_summary_lists_each_stage_s_failures() -> None:
 def test_report_covers_every_stage_with_its_counts_and_failures() -> None:
     result = recorded_run(
         7,
-        discover=DiscoverRunResult(celexes=["a", "b"]),
+        discover=DiscoverRunResult(),
         fetch=FetchRunResult(new=["a"], unchanged=["b"]),
         parse=ParseRunResult(parsed=["a"], failed={"b": "ParseError: no body"}),
         chunk=ChunkRunResult(added=12, unchanged=30),

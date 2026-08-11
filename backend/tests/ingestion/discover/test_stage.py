@@ -50,6 +50,5 @@ def test_discover_corpus_reports_what_it_found_and_what_the_previous_run_lost(co
         client, topics=["mrv"], previous_celexes=["32015R0757", "31999R0001"]
     )
 
-    assert result.celexes == [document.celex for document in documents]
     assert result.dropped == ["31999R0001"]
     assert result.ok
