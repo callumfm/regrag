@@ -60,30 +60,23 @@ async def _article(celex: str, article: str) -> tuple[RetrievedChunk, ...]:
         return await get_article(session, celex=celex, article=article)
 
 
-def _run(args: argparse.Namespace) -> int:
-    """Run the search or article branch and print its results; 0 on success, 1 on LLM failure."""
-    try:
-        if args.article:
-            chunks = asyncio.run(_article(*args.article))
-            print_article(chunks)
-            found = bool(chunks)
-        else:
-            filters = SearchFilters(celex=args.celex, topic=args.topic)
-            results = asyncio.run(_search(args.query, filters, args.limit))
-            print_results(results)
-            found = bool(results)
-    except LLMError as exc:
-        print(f"retrieval failed: {exc}", file=sys.stderr)
-        return 1
-    if not found:
-        print("no results")
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.query and not args.article:
         parser.error("give a query, or --article CELEX ARTICLE")
     setup_logging()
-    return _run(args)
+    try:
+        if args.article:
+            found = asyncio.run(_article(*args.article))
+            print_article(found)
+        else:
+            filters = SearchFilters(celex=args.celex, topic=args.topic)
+            found = asyncio.run(_search(args.query, filters, args.limit))
+            print_results(found)
+    except LLMError as exc:
+        print(f"retrieval failed: {exc}", file=sys.stderr)
+        return 1
+    if not found:
+        print("no results")
+    return 0
