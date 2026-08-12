@@ -5,10 +5,10 @@ import contextlib
 import httpx
 import pytest
 
+from app.core.config import config
 from app.ingestion import cli
 from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.cli import main
-from app.ingestion.constants import CRAWL_DELAYS, SEEDS
 from app.ingestion.enums import DocChange, Stage
 from app.ingestion.exceptions import MalformedDiscoveryError
 from app.ingestion.models import DocumentOutcome, IngestRunResult
@@ -33,7 +33,7 @@ def fake_ingest(monkeypatch):
 def test_no_topics_ingests_all_seeds(fake_ingest):
     calls, _ = fake_ingest
     assert main([]) == 0
-    assert calls == [sorted(SEEDS)]
+    assert calls == [sorted(config.SEEDS)]
 
 
 def test_explicit_topics_passed_through(fake_ingest):
@@ -121,4 +121,4 @@ async def test_ingest_builds_a_client_that_paces_eurlex(monkeypatch):
     monkeypatch.setattr(cli, "get_session", fake_session)
     monkeypatch.setattr(cli, "ingest", fake_ingest_call)
     await cli._ingest(["mrv"])
-    assert built["delays"] == CRAWL_DELAYS
+    assert built["delays"] == config.CRAWL_DELAYS

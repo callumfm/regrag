@@ -138,6 +138,25 @@ class EmbeddingConfig(BaseConfig):
     EMBED_TIMEOUT: int = 30
 
 
+class IngestConfig(BaseConfig):
+    """Ingestion tunables: SEEDS names each topic's seed act, and CRAWL_DELAYS the seconds
+    between requests per host (eur-lex publishes 10 in robots.txt, the rest is courtesy).
+    Discovery aborts when at least MIN_SUSPICIOUS_DROPS documents and over MAX_DROP_RATIO of
+    the previous corpus vanish at once. Chunks split at MAX_CHARS characters; the embed sweep
+    reads EMBED_PAGE_SIZE chunks a page with EMBED_CONCURRENCY provider calls in flight
+    (llm_retry absorbs the provider's rate limits); a stored failure message is cut at
+    MAX_FAILURE_CHARS so one talkative provider cannot bloat the run row."""
+
+    SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
+    CRAWL_DELAYS: dict[str, float] = {"eur-lex.europa.eu": 10.0, "publications.europa.eu": 1.0}
+    MAX_DROP_RATIO: float = 0.2
+    MIN_SUSPICIOUS_DROPS: int = 3
+    MAX_CHARS: int = 2000
+    EMBED_PAGE_SIZE: int = 500
+    EMBED_CONCURRENCY: int = 4
+    MAX_FAILURE_CHARS: int = 500
+
+
 class RetrievalConfig(BaseConfig):
     """Search tunables: the per-leg candidate pools feeding Reciprocal Rank Fusion, whose RRF_K
     damping scores a rank 1/(k + rank), then the cross-encoder's pool and its off switch."""
@@ -152,7 +171,9 @@ class RetrievalConfig(BaseConfig):
     RERANK_POOL: int = 30
 
 
-class Config(AppConfig, PostgresConfig, EmbeddingConfig, RetrievalConfig, StorageConfig):
+class Config(
+    AppConfig, PostgresConfig, EmbeddingConfig, IngestConfig, RetrievalConfig, StorageConfig
+):
     """Combined configuration class for core app functionality."""
 
 

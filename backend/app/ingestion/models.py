@@ -6,9 +6,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.core.config import config
 from app.core.models import FrozenModel
 from app.ingestion.chunk.models import ChunkCounts
-from app.ingestion.constants import MAX_FAILURE_CHARS
 from app.ingestion.embed.models import EmbedOutcome
 from app.ingestion.enums import DocChange, IngestRunStatus, Stage
 
@@ -101,7 +101,7 @@ class IngestRunResult(BaseModel):
             stage.value: {
                 **counts,
                 "failed": {
-                    celex: error[:MAX_FAILURE_CHARS]
+                    celex: error[: config.MAX_FAILURE_CHARS]
                     for celex, error in self.failures(stage).items()
                 },
             }

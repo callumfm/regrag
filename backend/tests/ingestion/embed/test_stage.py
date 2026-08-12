@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.config import EMBED_DIMENSIONS
+from app.core.config import EMBED_DIMENSIONS, config
 from app.core.llm import LLMError
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import ChunkToEmbed, get_unembedded_chunks
@@ -177,7 +177,7 @@ async def test_a_corpus_larger_than_one_page_ends_with_every_chunk_embedded(
     db_session, ingest_run, make_chunk_row, monkeypatch
 ):
     """The sweep writes vectors as it reads, so the cursor must not skip rows beneath it."""
-    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_PAGE_SIZE", 2)
+    monkeypatch.setattr(config, "EMBED_PAGE_SIZE", 2)
     db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 7))
     await db_session.flush()
 
@@ -198,7 +198,7 @@ async def test_a_batch_that_keeps_failing_does_not_loop_the_sweep(
         raise LLMError("provider down")
 
     monkeypatch.setattr("app.ingestion.embed.stage.embed", always_fails)
-    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_PAGE_SIZE", 2)
+    monkeypatch.setattr(config, "EMBED_PAGE_SIZE", 2)
     db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 5))
     await db_session.flush()
 
@@ -213,7 +213,7 @@ async def test_a_database_failure_in_one_batch_does_not_kill_the_sweep(
     db_session, ingest_run, make_chunk_row, monkeypatch
 ):
     """A failed write rolls back alone: the cursor was read before it, later batches commit."""
-    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_PAGE_SIZE", 2)
+    monkeypatch.setattr(config, "EMBED_PAGE_SIZE", 2)
     db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 4))
     await db_session.flush()
 
@@ -269,7 +269,7 @@ async def test_in_flight_provider_calls_are_capped(
 ):
     peaks: list[int] = []
     monkeypatch.setattr("app.ingestion.embed.stage.embed", overlap_tracker(peaks))
-    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_CONCURRENCY", 2)
+    monkeypatch.setattr(config, "EMBED_CONCURRENCY", 2)
     for celex in ["32015R0757", "32023R1805", "32024R0001"]:
         db_session.add_all(rows(make_chunk_row, ingest_run, celex, 1))
     await db_session.flush()

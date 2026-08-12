@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
+from app.core.config import config
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.models import Chunk
-from app.ingestion.constants import MAX_CHARS
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.html.parser import parse_eurlex_html
 
@@ -47,7 +47,7 @@ def test_fueleu_long_annex_prose_is_split_into_parts(fueleu: tuple[Chunk, ...]) 
 
 
 def test_every_chunk_is_within_the_length_limit(fueleu: tuple[Chunk, ...]) -> None:
-    assert max(len(c.text) for c in fueleu) <= MAX_CHARS
+    assert max(len(c.text) for c in fueleu) <= config.MAX_CHARS
 
 
 def test_mrv_letter_suffixed_article_is_preserved(mrv: tuple[Chunk, ...]) -> None:

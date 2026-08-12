@@ -8,6 +8,7 @@ from operator import attrgetter
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import config
 from app.core.llm import EMBED_BATCH_SIZE, EmbedInput, LLMError, embed, llm_retry
 from app.ingestion.chunk.service import (
     ChunkToEmbed,
@@ -15,7 +16,6 @@ from app.ingestion.chunk.service import (
     get_unembedded_chunks,
     set_chunk_embeddings,
 )
-from app.ingestion.constants import EMBED_CONCURRENCY, EMBED_PAGE_SIZE
 from app.ingestion.embed.models import EmbedOutcome
 
 Batch = tuple[str, Sequence[ChunkToEmbed]]
@@ -36,7 +36,7 @@ async def _embed_texts(chunks: Sequence[ChunkToEmbed]) -> list[list[float]]:
 
 async def _embed_batches(batches: Sequence[Batch]) -> list[list[list[float]] | BaseException]:
     """Embed every batch, at most EMBED_CONCURRENCY provider calls in flight at once."""
-    semaphore = asyncio.Semaphore(EMBED_CONCURRENCY)
+    semaphore = asyncio.Semaphore(config.EMBED_CONCURRENCY)
 
     async def paced(batch: Sequence[ChunkToEmbed]) -> list[list[float]]:
         async with semaphore:
@@ -48,7 +48,7 @@ async def _embed_batches(batches: Sequence[Batch]) -> list[list[list[float]] | B
 async def _pages(session: AsyncSession) -> AsyncIterator[Sequence[ChunkToEmbed]]:
     """Vectorless chunks a page at a time, the cursor read before the page can be rolled back."""
     after: tuple[str, int] | None = None
-    while page := await get_unembedded_chunks(session, after=after, limit=EMBED_PAGE_SIZE):
+    while page := await get_unembedded_chunks(session, after=after, limit=config.EMBED_PAGE_SIZE):
         after = (page[-1].celex, page[-1].id)
         yield page
 

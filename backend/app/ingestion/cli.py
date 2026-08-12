@@ -7,11 +7,11 @@ import sys
 import httpx
 from pydantic import ValidationError
 
+from app.core.config import config
 from app.core.db.session import get_session
 from app.core.http import http_client
 from app.core.logger import setup_logging
 from app.core.storage import StorageError, get_object_store
-from app.ingestion.constants import CRAWL_DELAYS, SEEDS
 from app.ingestion.exceptions import DiscoveryError
 from app.ingestion.models import IngestRunResult
 from app.ingestion.pipeline import ingest
@@ -23,14 +23,14 @@ def build_parser() -> argparse.ArgumentParser:
         "topics",
         nargs="*",
         metavar="topic",
-        help=f"topics to ingest (default: {', '.join(sorted(SEEDS))})",
+        help=f"topics to ingest (default: {', '.join(sorted(config.SEEDS))})",
     )
     return parser
 
 
 async def _ingest(topics: list[str]) -> IngestRunResult:
     store = get_object_store()
-    async with http_client(delays=CRAWL_DELAYS) as client:
+    async with http_client(delays=config.CRAWL_DELAYS) as client:
         async with get_session(auto_commit=False) as session:
             return await ingest(session, client=client, topics=topics, store=store)
 
@@ -38,10 +38,11 @@ async def _ingest(topics: list[str]) -> IngestRunResult:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    topics = args.topics or sorted(SEEDS)
-    unknown = sorted(set(topics) - SEEDS.keys())
+    topics = args.topics or sorted(config.SEEDS)
+    unknown = sorted(set(topics) - config.SEEDS.keys())
     if unknown:
-        parser.error(f"unknown topics: {', '.join(unknown)} (known: {', '.join(sorted(SEEDS))})")
+        known = ", ".join(sorted(config.SEEDS))
+        parser.error(f"unknown topics: {', '.join(unknown)} (known: {known})")
     setup_logging()
     try:
         report = asyncio.run(_ingest(topics))

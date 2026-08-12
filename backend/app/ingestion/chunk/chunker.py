@@ -2,10 +2,10 @@
 
 from collections.abc import Iterator
 
+from app.core.config import config
 from app.ingestion.chunk.models import Chunk, Locator
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.split import split_section_text
-from app.ingestion.constants import MAX_CHARS
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.models import ParsedDocument, Section
 
@@ -32,7 +32,9 @@ def iter_section_chunks(
         yield from iter_section_chunks(child, document, inherited, max_chars)
 
 
-def chunk_document(document: ParsedDocument, max_chars: int = MAX_CHARS) -> tuple[Chunk, ...]:
+def chunk_document(
+    document: ParsedDocument, max_chars: int = config.MAX_CHARS
+) -> tuple[Chunk, ...]:
     """Every text-bearing section of the parsed tree as a chunk, in document order."""
     return tuple(
         chunk
