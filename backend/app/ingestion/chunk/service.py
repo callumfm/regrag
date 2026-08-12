@@ -75,7 +75,7 @@ async def update_chunks(session: AsyncSession, updates: Sequence[dict[str, Any]]
     await session.flush()
 
 
-def _stale_chunk_updates(
+def _updates_for_changed_chunks(
     matched: Collection[ContentKey],
     incoming: Mapping[ContentKey, Chunk],
     existing: Mapping[ContentKey, Row[Any]],
@@ -106,7 +106,7 @@ async def sync_document_chunks(
     await create_chunks(session, added, ingest_run_id=ingest_run_id)
 
     matched = existing.keys() & incoming.keys()
-    updates = _stale_chunk_updates(matched, incoming, existing)
+    updates = _updates_for_changed_chunks(matched, incoming, existing)
     await update_chunks(session, updates)
 
     return ChunkCounts(
