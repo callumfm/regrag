@@ -105,8 +105,8 @@ async def delete_chunks(session: AsyncSession, chunk_ids: Collection[int]) -> No
     await session.flush()
 
 
-async def refresh_chunks(session: AsyncSession, updates: Sequence[dict[str, Any]]) -> None:
-    """Rewrite derived fields on matched rows, leaving text and embedding untouched."""
+async def update_chunks(session: AsyncSession, updates: Sequence[dict[str, Any]]) -> None:
+    """Bulk-update chunk rows; each dict carries an id plus the columns to set."""
     if not updates:
         return
     stmt = update(DocumentChunk)
@@ -131,7 +131,7 @@ async def upsert_document_chunks(
 
     matched = existing.keys() & incoming.keys()
     stale = stale_updates(matched, incoming, existing)
-    await refresh_chunks(session, stale)
+    await update_chunks(session, stale)
 
     return ChunkCounts(
         added=len(added),
