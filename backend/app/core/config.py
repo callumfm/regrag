@@ -138,7 +138,15 @@ class EmbeddingConfig(BaseConfig):
     EMBED_TIMEOUT: int = 30
 
 
-class Config(AppConfig, PostgresConfig, EmbeddingConfig, StorageConfig):
+class RerankConfig(BaseConfig):
+    """Voyage rerank of fused search results; the flag is the unmeasured feature's off switch."""
+
+    RERANK_ENABLED: bool = True
+    RERANK_MODEL: str = "voyage/rerank-2.5"
+    RERANK_TIMEOUT: int = 30
+
+
+class Config(AppConfig, PostgresConfig, EmbeddingConfig, RerankConfig, StorageConfig):
     """Combined configuration class for core app functionality."""
 
 

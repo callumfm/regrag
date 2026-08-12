@@ -10,6 +10,7 @@ from app.core.config import (
     Config,
     EmbeddingConfig,
     Environment,
+    RerankConfig,
     StorageBackend,
     StorageConfig,
     get_env_file,
@@ -105,3 +106,15 @@ def test_the_env_file_is_absolute_so_the_working_directory_cannot_change_it(env,
 
     assert env_file == BACKEND_ROOT / filename
     assert env_file.is_absolute()
+
+
+def test_rerank_defaults_to_on_with_voyage_2_5():
+    rerank = RerankConfig()
+
+    assert rerank.RERANK_ENABLED is True
+    assert rerank.RERANK_MODEL == "voyage/rerank-2.5"
+    assert rerank.RERANK_TIMEOUT == 30
+
+
+def test_combined_config_carries_the_rerank_settings():
+    assert Config().RERANK_ENABLED is True
