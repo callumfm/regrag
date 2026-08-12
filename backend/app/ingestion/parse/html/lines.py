@@ -57,9 +57,11 @@ def read_subheading(node: Node, level_pattern: re.Pattern[str] | None) -> Subhea
 
 
 def collect_lines(node: Node, level_pattern: re.Pattern[str] | None = None) -> list[Line]:
-    """Walk in document order, emitting one line per block and per flattened list row."""
+    """Walk in document order, one line per block, falling back to the node's own text."""
     lines: list[Line] = []
     _collect(node, lines, level_pattern)
+    if not lines and (text := clean_text(node.text())):
+        lines.append(text)
     return lines
 
 
@@ -86,8 +88,7 @@ def _collect(node: Node, lines: list[Line], level_pattern: re.Pattern[str] | Non
 
 def block_text(node: Node) -> str:
     """Join a node's text block by block, so flattened list rows stay on separate lines."""
-    lines = collect_lines(node)
-    return "\n".join(line for line in lines if isinstance(line, str)) or clean_text(node.text())
+    return "\n".join(line for line in collect_lines(node) if isinstance(line, str))
 
 
 def prose_lines(node: Node, *headings: str) -> list[str]:

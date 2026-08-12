@@ -92,6 +92,16 @@ def test_a_container_carrying_a_level_class_is_recursed_into_not_read_as_a_headi
     ]
 
 
+def test_a_node_holding_no_blocks_falls_back_to_its_own_text():
+    node = subdivision(
+        '<html><body><div id="anx_I">'
+        '<div class="oj-normal">Bare prose <span>with inline</span> markup.</div>'
+        "</div></body></html>",
+        "anx_I",
+    )
+    assert collect_lines(node) == ["Bare prose with inline markup."]
+
+
 def test_a_stream_with_no_subheadings_becomes_one_flat_paragraph():
     sections = nest_under_subheadings(["one", "two"])
     assert len(sections) == 1
