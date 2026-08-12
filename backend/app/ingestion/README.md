@@ -74,9 +74,9 @@ Documents are stored as objects, files on disk in dev, a Cloudflare R2 bucket in
 A new consolidation is therefore a new object rather than a replacement for the old one. This is deliberate: the database keeps one row per document per run, each recording the hash of the bytes that run read, and those bytes are verified against that hash on every later read. Overwriting would leave every earlier run pointing at bytes that no longer match.
 
 ### 2.2 Re-fetching
-Fetch compares each act's resolved version against the previous run's, so an unchanged document is not downloaded or written again. The comparison is on the version id, not the text — a new consolidation is a new id.
+Fetch compares the version discovery carries forward against the one it carried forward for the run that stored the document, so an unchanged document is not downloaded or written again. The comparison is on the version id, not the text — a new consolidation is a new id. It is on the version asked for rather than the one served, because an act whose consolidated text EUR-Lex will not serve resolves to the original act every time, and comparing that against the consolidated id it asked for would deny the match on every run.
 
-Reusing a version means reading its stored bytes, which also proves they are still there. The row and the object are backed up separately, so a restore can leave them disagreeing; bytes that are missing, or that no longer hash to what the row recorded, are treated as bytes we do not have and the version is downloaded again.
+Reusing a version means reading its stored bytes, which also proves they are still there. The row and the object are backed up separately, so a restore can leave them disagreeing; bytes that are missing, or that no longer hash to what the row recorded, are treated as bytes we do not have and the version is downloaded again. A store that cannot be read at all is a different thing, and fails the document rather than sending the whole corpus back to EUR-Lex.
 
 ## 3 Parse
 Parse turns each downloaded page into a structure: the articles, paragraphs and annexes the document is made of.

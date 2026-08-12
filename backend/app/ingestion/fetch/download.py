@@ -2,13 +2,23 @@
 
 import httpx
 
-from app.core.http import http_retry
+from app.core.http import is_transient
+from app.core.retry import transient_retry
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
 from app.ingestion.fetch.models import ResolvedVersion
 
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}"
 MISSING_MARKER = "The requested document does not exist."
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """A version EUR-Lex is rendering on demand resolves itself, like any transient failure."""
+    return isinstance(exc, DocumentStillRenderingError) or is_transient(exc)
+
+
+download_retry = transient_retry(_is_retryable)
+"""Decorator retrying one EUR-Lex request, including the 202 it answers while rendering."""
 
 
 def version_candidates(document: DiscoveredDocument) -> list[str]:
@@ -40,29 +50,31 @@ def is_still_rendering(response: httpx.Response) -> bool:
     return response.status_code == httpx.codes.ACCEPTED
 
 
-def expected_version(document: DiscoveredDocument) -> ResolvedVersion:
-    """Where the download will land if EUR-Lex still serves the version discovery wants first."""
-    celex = version_candidates(document)[0]
-    return ResolvedVersion(resolved_celex=celex, url=html_url(celex))
+@download_retry
+async def download_version(
+    client: httpx.AsyncClient, document: DiscoveredDocument, celex: str
+) -> bytes | None:
+    """The HTML EUR-Lex serves for one version, or None if it denies having that version."""
+    response = await client.get(html_url(celex))
+    if is_still_rendering(response):
+        raise DocumentStillRenderingError(
+            f"{document.topic}:{document.celex}: EUR-Lex is still rendering {celex}"
+        )
+    if is_missing(response):
+        return None
+    response.raise_for_status()
+    return response.content
 
 
-@http_retry
 async def download_fetchable_version(
     client: httpx.AsyncClient, document: DiscoveredDocument
 ) -> tuple[ResolvedVersion, bytes]:
     """The newest version EUR-Lex will serve, and the HTML it served for it."""
     candidates = version_candidates(document)
     for candidate in candidates:
-        url = html_url(candidate)
-        response = await client.get(url)
-        if is_still_rendering(response):
-            raise DocumentStillRenderingError(
-                f"{document.topic}:{document.celex}: EUR-Lex is still rendering {candidate}"
-            )
-        if is_missing(response):
-            continue
-        response.raise_for_status()
-        return ResolvedVersion(resolved_celex=candidate, url=url), response.content
+        content = await download_version(client, document, candidate)
+        if content is not None:
+            return ResolvedVersion(resolved_celex=candidate, url=html_url(candidate)), content
     raise NoFetchableVersionError(
         f"{document.topic}:{document.celex}: no fetchable HTML, tried {candidates}"
     )

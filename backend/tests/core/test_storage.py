@@ -12,6 +12,7 @@ from app.core.config import StorageBackend
 from app.core.exceptions import DomainError
 from app.core.storage import (
     LocalObjectStore,
+    ObjectNotFoundError,
     S3ObjectStore,
     StorageError,
     get_object_store,
@@ -42,6 +43,24 @@ def test_exists_is_false_before_put_and_true_after(local_store: LocalObjectStore
 def test_get_of_a_missing_key_raises_storage_error(local_store: LocalObjectStore):
     with pytest.raises(StorageError, match="get failed"):
         local_store.get(KEY)
+
+
+def test_a_key_with_nothing_at_it_is_absent_rather_than_a_failed_store(
+    local_store: LocalObjectStore,
+):
+    """Callers that can recover from an absent object must not recover from an unreachable store."""
+    with pytest.raises(ObjectNotFoundError):
+        local_store.get(KEY)
+
+
+def test_a_local_store_that_cannot_be_read_is_not_reported_as_absent(
+    local_store: LocalObjectStore,
+):
+    local_store.put(KEY, HTML)
+    (local_store.root / KEY).chmod(0o000)
+    with pytest.raises(StorageError) as raised:
+        local_store.get(KEY)
+    assert not isinstance(raised.value, ObjectNotFoundError)
 
 
 def test_a_failed_operation_names_what_refused_it(local_store: LocalObjectStore):
@@ -155,6 +174,18 @@ def test_s3_exists_surfaces_a_transport_failure():
 def test_s3_get_of_a_missing_object_raises_storage_error():
     with pytest.raises(StorageError, match="get failed"):
         s3_store().get(KEY)
+
+
+def test_s3_get_of_a_missing_object_is_absent_rather_than_a_failed_store():
+    with pytest.raises(ObjectNotFoundError):
+        s3_store().get(KEY)
+
+
+def test_s3_get_that_is_refused_is_not_reported_as_absent():
+    """A rotated credential answers every read the same way: an outage, not an empty bucket."""
+    with pytest.raises(StorageError) as raised:
+        failing_s3(denied()).get(KEY)
+    assert not isinstance(raised.value, ObjectNotFoundError)
 
 
 def test_s3_put_failure_raises_storage_error():
