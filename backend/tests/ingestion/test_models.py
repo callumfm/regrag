@@ -84,7 +84,7 @@ def test_report_covers_every_stage_with_its_counts_and_failures(run: IngestRunRe
         "discover": {"dropped": 1, "failed": {}},
         "fetch": {"new": 1, "updated": 0, "reused": 1, "failed": {}},
         "parse": {"parsed": 2, "failed": {"c": "ParseError: no body"}},
-        "chunk": {"added": 12, "deleted": 0, "kept": 30, "refreshed": 0, "failed": {}},
+        "chunk": {"added": 12, "deleted": 0, "kept": 30, "updated": 0, "failed": {}},
         "embed": {"embedded": 12, "already_embedded": 0, "failed": {}},
     }
 
@@ -126,7 +126,7 @@ def test_summary_reports_every_stage_on_its_own_line_with_its_unit(run: IngestRu
         "  [discover] 2 documents: 0 dropped, 0 failed",
         "  [fetch] 2 documents: 1 new, 0 updated, 1 reused, 0 failed",
         "  [parse] 2 documents: 2 parsed, 0 failed",
-        "  [chunk] 42 chunks: 12 added, 0 deleted, 30 kept, 0 refreshed, 0 failed",
+        "  [chunk] 42 chunks: 12 added, 0 deleted, 30 kept, 0 updated, 0 failed",
         "  [embed] 42 chunks: 12 embedded, 30 already embedded, 0 failed",
         "  fetch new: a",
     ]
@@ -148,8 +148,8 @@ def test_summary_lists_what_discovery_dropped_and_what_each_stage_failed() -> No
     assert "  embed failed: c (1 chunk: ParseError: provider down)" in result.summary()
 
 
-def test_refreshed_chunks_are_summed_across_documents(run: IngestRunResult) -> None:
+def test_updated_chunks_are_summed_across_documents(run: IngestRunResult) -> None:
     run.documents.append(
-        DocumentOutcome(celex="d", change=DocChange.UPDATED, chunks=ChunkCounts(refreshed=4))
+        DocumentOutcome(celex="d", change=DocChange.UPDATED, chunks=ChunkCounts(updated=4))
     )
-    assert run.chunks.refreshed == 4
+    assert run.chunks.updated == 4

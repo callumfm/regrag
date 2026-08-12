@@ -113,7 +113,7 @@ async def sync_document_chunks(
         added=len(added),
         deleted=len(deleted),
         kept=len(matched) - len(updates),
-        refreshed=len(updates),
+        updated=len(updates),
     )
 
 

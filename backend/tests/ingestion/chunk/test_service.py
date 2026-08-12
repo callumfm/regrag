@@ -46,7 +46,7 @@ async def test_repeat_upsert_changes_nothing(db_session: AsyncSession, ingest_ru
         db_session, celex="32023R1805", chunks=chunks, ingest_run_id=ingest_run.id
     )
 
-    assert (result.added, result.deleted, result.kept, result.refreshed) == (0, 0, 2, 0)
+    assert (result.added, result.deleted, result.kept, result.updated) == (0, 0, 2, 0)
     assert {row.id for row in await chunk_rows(db_session)} == before
 
 
@@ -268,7 +268,7 @@ async def test_key_stored_chunks_carries_the_derived_fields(
     assert (row.topic, row.citation, row.references) == ("fueleu", "Article 4(1)", [])
 
 
-async def test_matched_row_with_changed_references_is_refreshed_in_place(
+async def test_matched_row_with_changed_references_is_updated_in_place(
     db_session: AsyncSession, ingest_run: IngestRun, later_run: IngestRun
 ):
     """Same text, corrected extraction: the row updates without losing its embedding."""
@@ -285,7 +285,7 @@ async def test_matched_row_with_changed_references_is_refreshed_in_place(
         db_session, celex="32023R1805", chunks=[corrected], ingest_run_id=later_run.id
     )
 
-    assert (result.added, result.deleted, result.kept, result.refreshed) == (0, 0, 0, 1)
+    assert (result.added, result.deleted, result.kept, result.updated) == (0, 0, 0, 1)
     row = (await chunk_rows(db_session))[0]
     assert row.id == before_id
     assert row.references[0]["annex"] == "I"
@@ -304,7 +304,7 @@ async def test_matched_row_picks_up_a_changed_topic(
         db_session, celex="32023R1805", chunks=[chunk(topic="mrv")], ingest_run_id=ingest_run.id
     )
 
-    assert (result.kept, result.refreshed) == (0, 1)
+    assert (result.kept, result.updated) == (0, 1)
     assert (await chunk_rows(db_session))[0].topic == "mrv"
 
 
