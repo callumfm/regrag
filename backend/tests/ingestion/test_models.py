@@ -5,21 +5,27 @@ import pytest
 from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.constants import MAX_FAILURE_CHARS
 from app.ingestion.enums import DocChange, IngestRunStatus, Stage
-from app.ingestion.exceptions import DocumentFailed, ParseError
-from app.ingestion.models import IngestRunResult
+from app.ingestion.exceptions import ParseError
+from app.ingestion.models import DocumentOutcome, IngestRunResult
 
 
-def failure(stage: Stage = Stage.PARSE, celex: str = "b") -> DocumentFailed:
-    """The exception the loop catches, as a stage would have raised it."""
-    return DocumentFailed(stage, celex, ParseError("no body"))
+def failed_doc(
+    stage: Stage = Stage.PARSE, celex: str = "b", error: str = "ParseError: no body"
+) -> DocumentOutcome:
+    """A document outcome as the loop records a stage failure."""
+    return DocumentOutcome(celex=celex, failed=stage, error=error)
 
 
 @pytest.fixture
 def run() -> IngestRunResult:
     """A run that fetched two documents and chunked one of them."""
     result = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234")
-    result.record("a", change=DocChange.NEW, chunks=ChunkCounts(added=12, kept=30))
-    result.record("b", change=DocChange.REUSED, chunks=ChunkCounts())
+    result.documents.append(
+        DocumentOutcome(celex="a", change=DocChange.NEW, chunks=ChunkCounts(added=12, kept=30))
+    )
+    result.documents.append(
+        DocumentOutcome(celex="b", change=DocChange.REUSED, chunks=ChunkCounts())
+    )
     return result
 
 
@@ -31,7 +37,7 @@ def test_a_run_is_ok_when_no_document_failed(run: IngestRunResult) -> None:
 def test_a_failure_in_any_stage_fails_the_run() -> None:
     for stage in (Stage.FETCH, Stage.PARSE, Stage.CHUNK):
         result = IngestRunResult(run_id=1)
-        result.fail(failure(stage))
+        result.documents.append(failed_doc(stage))
         assert not result.ok
         assert result.status is IngestRunStatus.FAILED
 
@@ -45,7 +51,7 @@ def test_an_embed_failure_fails_the_run() -> None:
 def test_a_failed_document_counts_towards_nothing_but_its_failure() -> None:
     """The loop rolled its work back, so no stage may claim it."""
     result = IngestRunResult(run_id=1)
-    result.fail(failure(Stage.CHUNK, "a"))
+    result.documents.append(failed_doc(Stage.CHUNK, "a"))
 
     assert result.report()["fetch"] == {"new": 0, "updated": 0, "reused": 0, "failed": {}}
     assert result.report()["parse"] == {"parsed": 0, "failed": {}}
@@ -59,19 +65,19 @@ def test_the_prune_is_counted_as_chunks_deleted(run: IngestRunResult) -> None:
 
 def test_a_run_with_no_fetch_or_parse_failure_may_prune(run: IngestRunResult) -> None:
     assert run.corpus_complete
-    run.fail(failure(Stage.CHUNK, "c"))
+    run.documents.append(failed_doc(Stage.CHUNK, "c"))
     assert run.corpus_complete
 
 
 @pytest.mark.parametrize("stage", [Stage.FETCH, Stage.PARSE])
 def test_a_run_that_lost_a_document_may_not_prune(run: IngestRunResult, stage: Stage) -> None:
-    run.fail(failure(stage, "c"))
+    run.documents.append(failed_doc(stage, "c"))
     assert not run.corpus_complete
 
 
 def test_report_covers_every_stage_with_its_counts_and_failures(run: IngestRunResult) -> None:
     run.dropped = ["z"]
-    run.fail(failure(Stage.PARSE, "c"))
+    run.documents.append(failed_doc(Stage.PARSE, "c"))
     run.embed.embedded = 12
 
     assert run.report() == {
@@ -124,8 +130,8 @@ def test_summary_says_so_when_no_version_was_stamped() -> None:
 
 def test_summary_lists_what_discovery_dropped_and_what_each_stage_failed() -> None:
     result = IngestRunResult(run_id=7, dropped=["z"])
-    result.fail(DocumentFailed(Stage.FETCH, "a", ConnectionError("404")))
-    result.fail(failure(Stage.PARSE, "b"))
+    result.documents.append(failed_doc(Stage.FETCH, "a", "ConnectionError: 404"))
+    result.documents.append(failed_doc(Stage.PARSE, "b"))
     result.embed.fail("c", ParseError("provider down"))
 
     assert "  discover dropped: z" in result.summary()

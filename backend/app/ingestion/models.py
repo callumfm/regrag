@@ -11,7 +11,6 @@ from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.constants import MAX_FAILURE_CHARS
 from app.ingestion.embed.models import EmbedOutcome
 from app.ingestion.enums import DocChange, IngestRunStatus, Stage
-from app.ingestion.exceptions import DocumentFailed
 
 UNITS = {
     Stage.DISCOVER: "documents",
@@ -42,16 +41,6 @@ class IngestRunResult(BaseModel):
     documents: list[DocumentOutcome] = Field(default_factory=list)
     pruned: int = 0
     embed: EmbedOutcome = Field(default_factory=EmbedOutcome)
-
-    def record(self, celex: str, *, change: DocChange, chunks: ChunkCounts) -> None:
-        """Record a document the run committed, from the one point in the loop that can say so."""
-        self.documents.append(DocumentOutcome(celex=celex, change=change, chunks=chunks))
-
-    def fail(self, failure: DocumentFailed) -> None:
-        """Record a document the run rolled back, against the stage that stopped it."""
-        self.documents.append(
-            DocumentOutcome(celex=failure.celex, failed=failure.stage, error=failure.reason)
-        )
 
     def failures(self, stage: Stage) -> dict[str, str]:
         """Why each document this stage could not process failed."""

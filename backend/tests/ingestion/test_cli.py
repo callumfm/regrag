@@ -10,8 +10,8 @@ from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.cli import main
 from app.ingestion.constants import CRAWL_DELAYS, SEEDS
 from app.ingestion.enums import DocChange, Stage
-from app.ingestion.exceptions import DocumentFailed, MalformedDiscoveryError, ParseError
-from app.ingestion.models import IngestRunResult
+from app.ingestion.exceptions import MalformedDiscoveryError
+from app.ingestion.models import DocumentOutcome, IngestRunResult
 
 pytestmark = pytest.mark.anyio
 
@@ -51,21 +51,35 @@ def test_unknown_topic_rejected(fake_ingest, capsys):
 
 def test_prints_summary_and_exits_zero_when_clean(fake_ingest, capsys):
     _, report = fake_ingest
-    report.record("32023R1805", change=DocChange.NEW, chunks=ChunkCounts(added=3))
+    report.documents.append(
+        DocumentOutcome(celex="32023R1805", change=DocChange.NEW, chunks=ChunkCounts(added=3))
+    )
     assert main([]) == 0
     assert "1 new" in capsys.readouterr().out
 
 
 def test_exits_nonzero_when_documents_failed(fake_ingest, capsys):
     _, report = fake_ingest
-    report.fail(DocumentFailed(Stage.FETCH, "32023R2917", ConnectionError("no fetchable HTML")))
+    report.documents.append(
+        DocumentOutcome(
+            celex="32023R2917",
+            failed=Stage.FETCH,
+            error="ConnectionError: no fetchable HTML",
+        )
+    )
     assert main([]) == 1
     assert "fetch failed: 32023R2917" in capsys.readouterr().out
 
 
 def test_exits_nonzero_when_a_document_failed_to_parse(fake_ingest, capsys):
     _, report = fake_ingest
-    report.fail(DocumentFailed(Stage.PARSE, "32023R2449", ParseError("unrecognised dialect")))
+    report.documents.append(
+        DocumentOutcome(
+            celex="32023R2449",
+            failed=Stage.PARSE,
+            error="ParseError: unrecognised dialect",
+        )
+    )
     assert main([]) == 1
     assert "parse failed: 32023R2449" in capsys.readouterr().out
 
