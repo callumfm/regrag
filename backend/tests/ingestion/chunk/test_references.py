@@ -208,3 +208,13 @@ def test_attributes_article_across_a_parliament_and_council_prefix() -> None:
             article="6",
         ),
     )
+
+
+def test_a_numbered_pre_2000_instrument_reads_number_then_year() -> None:
+    references = extract_references("slots allocated under Regulation (EEC) No 95/93")
+    assert references == (Reference(raw="Regulation (EEC) No 95/93", instrument="31993R0095"),)
+
+
+def test_a_numbered_instrument_with_two_year_shaped_halves_reads_number_first() -> None:
+    references = extract_references("fertilisers under Regulation (EC) No 2003/2003")
+    assert references == (Reference(raw="Regulation (EC) No 2003/2003", instrument="32003R2003"),)

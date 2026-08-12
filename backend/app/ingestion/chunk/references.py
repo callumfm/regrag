@@ -49,7 +49,9 @@ class InstrumentMention(Mention):
 
 
 def order_number_and_year(numbered: bool, first: str, second: str) -> tuple[str, str]:
-    """A '765/2008' pair as (number, year); EU drafting uses both orderings."""
+    """A '765/2008' pair as (number, year); the 'No NN/MM' form is always number-first."""
+    if numbered:
+        return first, second
     left, right = celex.as_year(first), celex.as_year(second)
     if left and right:
         return (second, first) if left >= right else (first, second)
@@ -57,7 +59,7 @@ def order_number_and_year(numbered: bool, first: str, second: str) -> tuple[str,
         return first, second
     if left:
         return second, first
-    return (first, second) if numbered else (second, first)
+    return second, first
 
 
 def expand_enumeration(
