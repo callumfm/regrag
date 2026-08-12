@@ -11,7 +11,7 @@ from app.core.llm import EMBED_BATCH_SIZE, EmbedInput, LLMError, embed, llm_retr
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import count_embedded_chunks, get_unembedded_chunks
 from app.ingestion.constants import EMBED_PAGE_SIZE
-from app.ingestion.embed.models import EmbedRunResult
+from app.ingestion.embed.models import EmbedOutcome
 
 
 def _batches(chunks: Sequence[DocumentChunk]) -> Iterator[tuple[str, Sequence[DocumentChunk]]]:
@@ -42,16 +42,21 @@ async def _pages(session: AsyncSession) -> AsyncIterator[Sequence[DocumentChunk]
         yield page
 
 
-async def embed_chunks(session: AsyncSession) -> EmbedRunResult:
-    """Fill in every missing chunk vector; a batch that fails is recorded against its document."""
-    result = EmbedRunResult(unchanged=await count_embedded_chunks(session))
+async def embed_chunks(session: AsyncSession) -> EmbedOutcome:
+    """Fill in every missing chunk vector, committing each batch as it lands.
+
+    The savepoint is what a failed batch rolls back to: a plain rollback would expire the
+    page's remaining rows, and embedding is the part that costs money to redo.
+    """
+    result = EmbedOutcome(already_embedded=await count_embedded_chunks(session))
     async for page in _pages(session):
         for celex, batch in _batches(page):
             try:
                 async with session.begin_nested():
                     await _embed_batch(session, batch)
-                result.embedded += len(batch)
             except (LLMError, SQLAlchemyError) as exc:
                 result.fail(celex, exc)
-        await session.commit()
+            else:
+                result.embedded += len(batch)
+                await session.commit()
     return result

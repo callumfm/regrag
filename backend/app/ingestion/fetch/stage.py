@@ -7,15 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import utc_now
 from app.core.storage import ObjectStore, StorageError
 from app.ingestion.discover.models import DiscoveredDocument
-from app.ingestion.enums import DocChange
-from app.ingestion.exceptions import IngestionError
+from app.ingestion.enums import DocChange, Stage
+from app.ingestion.exceptions import DocumentFailed, IngestionError
 from app.ingestion.fetch.download import download_fetchable_version, expected_version
-from app.ingestion.fetch.models import (
-    FetchedDocument,
-    FetchRunResult,
-    ResolvedVersion,
-    StoredBytes,
-)
+from app.ingestion.fetch.models import FetchedDocument, ResolvedVersion, StoredBytes
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import read_document, write_document
@@ -85,18 +80,14 @@ async def fetch_document(
     previous: RawDocument | None,
     run: IngestRun,
     store: ObjectStore,
-) -> tuple[FetchedDocument | None, FetchRunResult]:
-    """Download one discovered document and record its row, or record why it would not download."""
-    result = FetchRunResult()
+) -> tuple[FetchedDocument, DocChange]:
+    """Download one discovered document and record its row, or say why it would not download."""
     try:
-        async with session.begin_nested():
-            fetched, change = await _reuse_or_download(
-                client, discovered, previous=previous, run=run, store=store
-            )
-            session.add(fetched.document)
-            await session.flush()
+        fetched, change = await _reuse_or_download(
+            client, discovered, previous=previous, run=run, store=store
+        )
+        session.add(fetched.document)
+        await session.flush()
     except (IngestionError, StorageError, httpx.HTTPError, SQLAlchemyError) as exc:
-        result.fail(discovered.celex, exc)
-        return None, result
-    result.record(change, discovered.celex)
-    return fetched, result
+        raise DocumentFailed(Stage.FETCH, discovered.celex, exc) from exc
+    return fetched, change

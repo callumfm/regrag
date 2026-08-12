@@ -32,7 +32,7 @@ async def test_first_upsert_inserts_every_chunk(db_session: AsyncSession, ingest
         chunks=[chunk(), chunk(article="5")],
         ingest_run_id=ingest_run.id,
     )
-    assert (result.added, result.removed, result.unchanged) == (2, 0, 0)
+    assert (result.added, result.deleted, result.kept) == (2, 0, 0)
     assert len(await chunk_rows(db_session)) == 2
 
 
@@ -47,7 +47,7 @@ async def test_repeat_upsert_changes_nothing(db_session: AsyncSession, ingest_ru
         db_session, celex="32023R1805", chunks=chunks, ingest_run_id=ingest_run.id
     )
 
-    assert (result.added, result.removed, result.unchanged) == (0, 0, 2)
+    assert (result.added, result.deleted, result.kept) == (0, 0, 2)
     assert {row.id for row in await chunk_rows(db_session)} == before
 
 
@@ -78,7 +78,7 @@ async def test_edited_chunk_is_replaced_not_duplicated(
         ingest_run_id=later_run.id,
     )
 
-    assert (result.added, result.removed, result.unchanged) == (1, 1, 0)
+    assert (result.added, result.deleted, result.kept) == (1, 1, 0)
     rows = await chunk_rows(db_session)
     assert [row.text for row in rows] == ["Reworded entirely."]
     assert rows[0].ingest_run_id == later_run.id
@@ -135,7 +135,7 @@ async def test_upserting_nothing_over_a_document_with_no_rows_is_not_an_error(
     result = await upsert_document_chunks(
         db_session, celex="32023R1805", chunks=[], ingest_run_id=ingest_run.id
     )
-    assert (result.added, result.removed, result.unchanged) == (0, 0, 0)
+    assert (result.added, result.deleted, result.kept) == (0, 0, 0)
 
 
 async def test_duplicate_chunks_persist_as_separate_occurrences(

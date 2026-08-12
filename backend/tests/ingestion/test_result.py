@@ -1,54 +1,118 @@
-"""One ingest run's outcome: stage roll-up, the row it stores, the summary the CLI prints."""
+"""One ingest run's outcome: what it counts, the row it stores, the summary the CLI prints."""
 
-from app.ingestion.chunk.models import ChunkRunResult
-from app.ingestion.discover.models import DiscoverRunResult
-from app.ingestion.embed.models import EmbedRunResult
-from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.models import FetchRunResult
-from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.result import IngestRunResult
+import pytest
 
-
-def test_stages_finds_every_result_and_nothing_else() -> None:
-    assert list(IngestRunResult(run_id=1).stages) == [
-        "discover",
-        "fetch",
-        "parse",
-        "chunk",
-        "embed",
-    ]
+from app.ingestion.chunk.models import ChunkCounts
+from app.ingestion.enums import DocChange, IngestRunStatus, Stage
+from app.ingestion.exceptions import DocumentFailed, ParseError
+from app.ingestion.result import MAX_FAILURE_CHARS, IngestRunResult
 
 
-def test_a_run_is_ok_when_no_stage_failed() -> None:
-    assert IngestRunResult(run_id=1).ok
-    assert IngestRunResult(run_id=1).status is IngestRunStatus.SUCCESS
+def failure(stage: Stage = Stage.PARSE, celex: str = "b") -> DocumentFailed:
+    """The exception the loop catches, as a stage would have raised it."""
+    return DocumentFailed(stage, celex, ParseError("no body"))
+
+
+@pytest.fixture
+def run() -> IngestRunResult:
+    """A run that fetched two documents and chunked one of them."""
+    result = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234")
+    result.record("a", change=DocChange.NEW, chunks=ChunkCounts(added=12, kept=30))
+    result.record("b", change=DocChange.REUSED, chunks=ChunkCounts())
+    return result
+
+
+def test_a_run_is_ok_when_no_document_failed(run: IngestRunResult) -> None:
+    assert run.ok
+    assert run.status is IngestRunStatus.SUCCESS
 
 
 def test_a_failure_in_any_stage_fails_the_run() -> None:
-    assert not IngestRunResult(run_id=1, fetch=FetchRunResult(failed={"a": "404"})).ok
-    assert not IngestRunResult(run_id=1, parse=ParseRunResult(failed={"a": "ParseError"})).ok
-    assert IngestRunResult(run_id=1, chunk=ChunkRunResult(failed={"a": "boom"})).status is (
-        IngestRunStatus.FAILED
-    )
+    for stage in (Stage.FETCH, Stage.PARSE, Stage.CHUNK):
+        result = IngestRunResult(run_id=1)
+        result.fail(failure(stage))
+        assert not result.ok
+        assert result.status is IngestRunStatus.FAILED
 
 
-def test_summary_reports_every_stage_on_its_own_line() -> None:
-    result = IngestRunResult(
-        run_id=7,
-        corpus_version="2026-08-05-abc1234",
-        discover=DiscoverRunResult(),
-        fetch=FetchRunResult(new=["a"], unchanged=["b"]),
-        parse=ParseRunResult(parsed=["a", "b"]),
-        chunk=ChunkRunResult(added=12, unchanged=30),
-        embed=EmbedRunResult(embedded=12, unchanged=30),
-    )
-    assert result.summary().splitlines() == [
+def test_an_embed_failure_fails_the_run() -> None:
+    result = IngestRunResult(run_id=1)
+    result.embed.fail("a", ParseError("boom"))
+    assert not result.ok
+
+
+def test_a_failed_document_counts_towards_nothing_but_its_failure() -> None:
+    """The loop rolled its work back, so no stage may claim it."""
+    result = IngestRunResult(run_id=1)
+    result.fail(failure(Stage.CHUNK, "a"))
+
+    assert result.report()["fetch"] == {"new": 0, "updated": 0, "reused": 0, "failed": {}}
+    assert result.report()["parse"] == {"parsed": 0, "failed": {}}
+    assert result.report()["chunk"]["failed"] == {"a": "ParseError: no body"}
+
+
+def test_the_prune_is_counted_as_chunks_deleted(run: IngestRunResult) -> None:
+    run.pruned = 5
+    assert run.chunks == ChunkCounts(added=12, deleted=5, kept=30)
+
+
+def test_a_run_with_no_fetch_or_parse_failure_may_prune(run: IngestRunResult) -> None:
+    assert run.corpus_complete
+    run.fail(failure(Stage.CHUNK, "c"))
+    assert run.corpus_complete
+
+
+@pytest.mark.parametrize("stage", [Stage.FETCH, Stage.PARSE])
+def test_a_run_that_lost_a_document_may_not_prune(run: IngestRunResult, stage: Stage) -> None:
+    run.fail(failure(stage, "c"))
+    assert not run.corpus_complete
+
+
+def test_report_covers_every_stage_with_its_counts_and_failures(run: IngestRunResult) -> None:
+    run.dropped = ["z"]
+    run.fail(failure(Stage.PARSE, "c"))
+    run.embed.embedded = 12
+
+    assert run.report() == {
+        "discover": {"dropped": 1, "failed": {}},
+        "fetch": {"new": 1, "updated": 0, "reused": 1, "failed": {}},
+        "parse": {"parsed": 2, "failed": {"c": "ParseError: no body"}},
+        "chunk": {"added": 12, "deleted": 0, "kept": 30, "failed": {}},
+        "embed": {"embedded": 12, "already_embedded": 0, "failed": {}},
+    }
+
+
+def test_report_leaves_out_the_run_s_own_columns(run: IngestRunResult) -> None:
+    """Both are columns already, and corpus_version is stamped after the row is written."""
+    assert "run_id" not in run.report()
+    assert "corpus_version" not in run.report()
+
+
+def test_report_caps_a_failure_message_a_provider_made_too_long() -> None:
+    result = IngestRunResult(run_id=1)
+    result.embed.failed["c"] = "x" * (MAX_FAILURE_CHARS + 100)
+    assert result.report()["embed"]["failed"]["c"] == "x" * MAX_FAILURE_CHARS
+
+
+def test_report_leaves_the_recorded_failure_message_whole() -> None:
+    """Capping is a storage concern: the summary still prints the message in full."""
+    message = "x" * (MAX_FAILURE_CHARS + 100)
+    result = IngestRunResult(run_id=1)
+    result.embed.failed["c"] = message
+    result.report()
+    assert message in result.summary()
+
+
+def test_summary_reports_every_stage_on_its_own_line_with_its_unit(run: IngestRunResult) -> None:
+    run.embed.embedded, run.embed.already_embedded = 12, 30
+
+    assert run.summary().splitlines() == [
         "run 7 (2026-08-05-abc1234)",
-        "  [discover] 0 dropped, 0 failed",
-        "  [fetch] 1 new, 0 changed, 1 unchanged, 0 failed",
-        "  [parse] 2 parsed, 0 failed",
-        "  [chunk] 12 added, 0 removed, 30 unchanged, 0 failed",
-        "  [embed] 12 embedded, 30 unchanged, 0 failed",
+        "  [discover] 2 documents: 0 dropped, 0 failed",
+        "  [fetch] 2 documents: 1 new, 0 updated, 1 reused, 0 failed",
+        "  [parse] 2 documents: 2 parsed, 0 failed",
+        "  [chunk] 42 chunks: 12 added, 0 deleted, 30 kept, 0 failed",
+        "  [embed] 42 chunks: 12 embedded, 30 already embedded, 0 failed",
         "  fetch new: a",
     ]
 
@@ -57,36 +121,13 @@ def test_summary_says_so_when_no_version_was_stamped() -> None:
     assert IngestRunResult(run_id=7).summary().startswith("run 7 (not stamped)")
 
 
-def test_summary_lists_each_stage_s_failures() -> None:
-    result = IngestRunResult(
-        run_id=7,
-        fetch=FetchRunResult(failed={"a": "HTTPError: 404"}),
-        parse=ParseRunResult(failed={"b": "ParseError: no body"}),
-    )
-    assert "  fetch failed: a (HTTPError: 404)" in result.summary()
+def test_summary_lists_what_discovery_dropped_and_what_each_stage_failed() -> None:
+    result = IngestRunResult(run_id=7, dropped=["z"])
+    result.fail(DocumentFailed(Stage.FETCH, "a", ConnectionError("404")))
+    result.fail(failure(Stage.PARSE, "b"))
+    result.embed.fail("c", ParseError("provider down"))
+
+    assert "  discover dropped: z" in result.summary()
+    assert "  fetch failed: a (ConnectionError: 404)" in result.summary()
     assert "  parse failed: b (ParseError: no body)" in result.summary()
-
-
-def test_report_covers_every_stage_with_its_counts_and_failures() -> None:
-    result = IngestRunResult(
-        run_id=7,
-        discover=DiscoverRunResult(),
-        fetch=FetchRunResult(new=["a"], unchanged=["b"]),
-        parse=ParseRunResult(parsed=["a"], failed={"b": "ParseError: no body"}),
-        chunk=ChunkRunResult(added=12, unchanged=30),
-        embed=EmbedRunResult(embedded=12),
-    )
-    assert result.report() == {
-        "discover": {"dropped": 0, "failed": {}},
-        "fetch": {"new": 1, "changed": 0, "unchanged": 1, "failed": {}},
-        "parse": {"parsed": 1, "failed": {"b": "ParseError: no body"}},
-        "chunk": {"added": 12, "removed": 0, "unchanged": 30, "failed": {}},
-        "embed": {"embedded": 12, "unchanged": 0, "failed": {}},
-    }
-
-
-def test_report_leaves_out_the_run_s_own_columns() -> None:
-    """Both are columns already, and corpus_version is stamped after the row is written."""
-    report = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234").report()
-    assert "run_id" not in report
-    assert "corpus_version" not in report
+    assert "  embed failed: c (ParseError: provider down)" in result.summary()

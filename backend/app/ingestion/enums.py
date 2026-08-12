@@ -16,19 +16,29 @@ COMPLETE_CORPUS = (IngestRunStatus.SUCCESS,)
 """Runs whose rows stand for their whole topic; any other run holds a prefix of it."""
 
 
+class Stage(StrEnum):
+    """The stages of an ingest run, in the order the pipeline runs them."""
+
+    DISCOVER = "discover"
+    FETCH = "fetch"
+    PARSE = "parse"
+    CHUNK = "chunk"
+    EMBED = "embed"
+
+
 class DocChange(StrEnum):
-    """How a discovered document compares to the previous run."""
+    """What a run did with a discovered document, against the version the last run resolved."""
 
     NEW = "new"
-    CHANGED = "changed"
-    UNCHANGED = "unchanged"
+    UPDATED = "updated"
+    REUSED = "reused"
 
     @classmethod
     def between(cls, previous: str | None, current: str) -> "DocChange":
         """How this run's resolved celex compares to the previous run's, if there was one."""
         if previous is None:
             return cls.NEW
-        return cls.CHANGED if previous != current else cls.UNCHANGED
+        return cls.UPDATED if previous != current else cls.REUSED
 
 
 class SectionKind(StrEnum):

@@ -8,7 +8,6 @@ from pydantic import computed_field
 
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
-from app.ingestion.models import StageRunResult
 from app.ingestion.parse.models import Section
 
 
@@ -78,9 +77,9 @@ class Chunk(Locator):
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
-class ChunkRunResult(StageRunResult):
-    """What reconciling chunks changed, per document or summed across a run."""
+class ChunkCounts(FrozenModel):
+    """What reconciling chunks changed, for one document or summed across a run."""
 
     added: int = 0
-    removed: int = 0
-    unchanged: int = 0
+    deleted: int = 0
+    kept: int = 0

@@ -9,15 +9,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
-from app.ingestion.chunk.models import ChunkRunResult
-from app.ingestion.chunk.stage import chunk_and_store_document, prune_chunks
+from app.ingestion.chunk.service import delete_chunks_outside
+from app.ingestion.chunk.stage import chunk_and_store_document
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.embed.stage import embed_chunks
-from app.ingestion.enums import IngestRunStatus
+from app.ingestion.enums import IngestRunStatus, Stage
+from app.ingestion.exceptions import DocumentFailed
 from app.ingestion.fetch.service import get_other_topic_celexes, get_previous_docs
 from app.ingestion.fetch.stage import fetch_document
-from app.ingestion.parse.models import ParseRunResult
 from app.ingestion.parse.stage import parse_document
 from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
@@ -39,19 +39,9 @@ async def _mark_aborted(session: AsyncSession, run: IngestRun, result: IngestRun
 
 
 async def celexes_to_keep(
-    session: AsyncSession,
-    *,
-    discovered: Sequence[DiscoveredDocument],
-    result: IngestRunResult,
-    topics: Sequence[str],
-) -> set[str] | None:
-    """The celexes the corpus consists of after this run: what it discovered, plus other topics'.
-
-    None when fetch or parse failed: pruning is irreversible, and discovery either enumerates
-    the corpus or raises, so there is no partial discovery to guard against.
-    """
-    if not (result.fetch.ok and result.parse.ok):
-        return None
+    session: AsyncSession, *, discovered: Sequence[DiscoveredDocument], topics: Sequence[str]
+) -> set[str]:
+    """The celexes the corpus consists of after this run: what it discovered, plus other topics'."""
     return {document.celex for document in discovered} | await get_other_topic_celexes(
         session, topics
     )
@@ -81,44 +71,42 @@ async def ingest(
     """Run the whole pipeline under one ingest run."""
     async with ingest_run(session) as (run, result):
         previous = await get_previous_docs(session, topics)
-        discovered, result.discover = await discover_corpus(
+        discovered, result.dropped = await discover_corpus(
             client, topics=topics, previous_celexes=previous
         )
-        logger.info("[discover] %s", result.discover.summary())
+        logger.info("%s", result.line(Stage.DISCOVER))
 
         for document in discovered:
-            fetched, fetch_result = await fetch_document(
+            try:
+                async with session.begin_nested():
+                    fetched, change = await fetch_document(
+                        session,
+                        client=client,
+                        discovered=document,
+                        previous=previous.get(document.celex),
+                        run=run,
+                        store=store,
+                    )
+                    chunks = await chunk_and_store_document(
+                        session, parse_document(fetched), ingest_run_id=run.id
+                    )
+            except DocumentFailed as failure:
+                result.fail(failure)
+            else:
+                await session.commit()
+                result.record(document.celex, change=change, chunks=chunks)
+
+        logger.info("%s", result.line(Stage.FETCH))
+        logger.info("%s", result.line(Stage.PARSE))
+
+        if result.corpus_complete:
+            result.pruned = await delete_chunks_outside(
                 session,
-                client=client,
-                discovered=document,
-                previous=previous.get(document.celex),
-                run=run,
-                store=store,
+                corpus_celexes=await celexes_to_keep(session, discovered=discovered, topics=topics),
             )
-            parsed, parse_result = (
-                parse_document(fetched) if fetched is not None else (None, ParseRunResult())
-            )
-            chunk_result = (
-                await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
-                if parsed is not None
-                else ChunkRunResult()
-            )
-            await session.commit()
-            result.fetch.merge(fetch_result)
-            result.parse.merge(parse_result)
-            result.chunk.merge(chunk_result)
-
-        logger.info("[fetch] %s", result.fetch.summary())
-        logger.info("[parse] %s", result.parse.summary())
-
-        corpus_celexes = await celexes_to_keep(
-            session, discovered=discovered, result=result, topics=topics
-        )
-        if corpus_celexes is not None:
-            result.chunk += await prune_chunks(session, corpus_celexes=corpus_celexes)
-        logger.info("[chunk] %s", result.chunk.summary())
+        logger.info("%s", result.line(Stage.CHUNK))
 
         result.embed = await embed_chunks(session)
-        logger.info("[embed] %s", result.embed.summary())
+        logger.info("%s", result.line(Stage.EMBED))
 
     return result

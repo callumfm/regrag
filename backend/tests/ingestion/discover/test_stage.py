@@ -48,9 +48,9 @@ def test_find_dropped_celexes_is_empty_when_all_are_discovered():
 async def test_discover_corpus_reports_what_it_found_and_what_the_previous_run_lost(corpus_client):
     client, _ = corpus_client({"mrv": MRV_SPARQL}, {})
 
-    documents, result = await discover_corpus(
+    documents, dropped = await discover_corpus(
         client, topics=["mrv"], previous_celexes=["32015R0757", "31999R0001"]
     )
 
-    assert result.dropped == ["31999R0001"]
-    assert result.ok
+    assert [document.celex for document in documents] == ["32015R0757", "32023R2449"]
+    assert dropped == ["31999R0001"]
