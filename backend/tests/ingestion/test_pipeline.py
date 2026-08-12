@@ -175,7 +175,7 @@ async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_zero(
         "discover": {"dropped": 0, "failed": {}},
         "fetch": {"new": 0, "updated": 0, "reused": 0, "failed": {}},
         "parse": {"parsed": 0, "failed": {}},
-        "chunk": {"added": 0, "deleted": 0, "kept": 0, "failed": {}},
+        "chunk": {"added": 0, "deleted": 0, "kept": 0, "refreshed": 0, "failed": {}},
         "embed": {"embedded": 0, "already_embedded": 0, "failed": {}},
     }
 
@@ -797,5 +797,11 @@ async def test_a_run_where_every_document_fails_still_reports_the_later_stages(
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert report.report()["parse"] == {"parsed": 0, "failed": {}}
-    assert report.report()["chunk"] == {"added": 0, "deleted": 0, "kept": 0, "failed": {}}
+    assert report.report()["chunk"] == {
+        "added": 0,
+        "deleted": 0,
+        "kept": 0,
+        "refreshed": 0,
+        "failed": {},
+    }
     assert not report.ok
