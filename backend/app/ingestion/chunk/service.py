@@ -6,7 +6,6 @@ from typing import NamedTuple, cast
 
 from sqlalchemy import CursorResult, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import defer
 
 from app.ingestion.chunk.models import Chunk, ChunkCounts
 from app.ingestion.chunk.schemas import DocumentChunk
@@ -86,22 +85,21 @@ async def upsert_document_chunks(
 
 async def get_unembedded_chunks(
     session: AsyncSession, *, after: tuple[str, int] | None = None, limit: int
-) -> Sequence[DocumentChunk]:
+) -> Sequence[ChunkToEmbed]:
     """One page of vectorless chunks, ordered so a batch can stay inside one document.
 
     Keyset, not OFFSET: the sweep writes vectors as it reads, so rows leave this query's
     predicate mid-run and an offset would skip past the ones that shifted under it.
     """
     stmt = (
-        select(DocumentChunk)
-        .options(defer(DocumentChunk.search_vector))
+        select(DocumentChunk.id, DocumentChunk.celex, DocumentChunk.text)
         .where(DocumentChunk.embedding.is_(None))
         .order_by(DocumentChunk.celex, DocumentChunk.id)
         .limit(limit)
     )
     if after is not None:
         stmt = stmt.where(tuple_(DocumentChunk.celex, DocumentChunk.id) > after)
-    return (await session.scalars(stmt)).all()
+    return [ChunkToEmbed(*row) for row in await session.execute(stmt)]
 
 
 async def set_chunk_embeddings(

@@ -7,5 +7,7 @@ CRAWL_DELAYS = {"eur-lex.europa.eu": 10.0, "publications.europa.eu": 1.0}
 MAX_DROP_RATIO = 0.2
 MIN_SUSPICIOUS_DROPS = 3
 EMBED_PAGE_SIZE = 500
+EMBED_CONCURRENCY = 4
+"""Embedding requests in flight at once; llm_retry absorbs the provider's rate limits."""
 MAX_FAILURE_CHARS = 500
 """Cap on a stored failure message, so one talkative provider cannot bloat the run row."""
