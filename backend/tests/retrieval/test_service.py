@@ -16,7 +16,6 @@ pytestmark = pytest.mark.anyio
 
 NO_FILTERS = SearchFilters()
 INVENTED_CELEX = "39999R9999"
-"""An act no fixture holds, so a test can give it whatever paragraphs it needs to sort."""
 SUPERSEDED = 300
 """Dead vectors hugging the query: enough to exhaust hnsw.ef_search, whose default is 40."""
 SURVIVORS = 50

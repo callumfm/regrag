@@ -23,7 +23,13 @@ CHUNK_COLUMNS = (
     DocumentChunk.title,
     DocumentChunk.text,
 )
-"""What a caller sees; never the embedding or the search vector, which are large and internal."""
+
+ARTICLE_ORDER = (
+    DocumentChunk.paragraph.is_not(None),
+    cast(func.substring(DocumentChunk.paragraph, "^[0-9]+"), Integer),
+    func.substring(DocumentChunk.paragraph, "^[0-9]*(.*)$"),
+    DocumentChunk.part,
+)
 
 
 def _filtered(stmt: Select, filters: SearchFilters) -> Select:
@@ -107,19 +113,10 @@ async def hybrid_search(
     return tuple(SearchResult.model_validate(row, from_attributes=True) for row in rows)
 
 
-ARTICLE_ORDER = (
-    DocumentChunk.paragraph.is_not(None),
-    cast(func.substring(DocumentChunk.paragraph, "^[0-9]+"), Integer),
-    func.substring(DocumentChunk.paragraph, "^[0-9]*(.*)$"),
-    DocumentChunk.part,
-)
-"""Reading order: chapeau first, then '2' before '10', '11' before '11a', then split parts."""
-
-
 async def get_article(
     session: AsyncSession, *, celex: str, article: str
 ) -> tuple[RetrievedChunk, ...]:
-    """One article's chunks in reading order; an article the act does not have returns nothing."""
+    """One article's chunks in reading order: chapeau first, then '2' before '10' before '11a'."""
     stmt = (
         select(*CHUNK_COLUMNS)
         .where(
