@@ -42,7 +42,7 @@ async def test_every_vectorless_chunk_gets_a_vector(db_session, ingest_run, make
 
     result = await embed_chunks(db_session)
 
-    assert (result.embedded, result.unchanged, result.failed) == (3, 0, {})
+    assert (result.embedded, result.already_embedded, result.failed) == (3, 0, {})
     assert await get_unembedded_chunks(db_session, limit=100) == []
 
 
@@ -73,7 +73,7 @@ async def test_already_embedded_chunks_are_reported_not_re_embedded(
 
     result = await embed_chunks(db_session)
 
-    assert (result.embedded, result.unchanged) == (2, 1)
+    assert (result.embedded, result.already_embedded) == (2, 1)
     assert len(embeddings.calls) == 1
 
 
@@ -150,7 +150,7 @@ async def test_an_empty_table_makes_no_provider_call(db_session, embeddings):
     result = await embed_chunks(db_session)
 
     assert embeddings.calls == []
-    assert (result.embedded, result.unchanged) == (0, 0)
+    assert (result.embedded, result.already_embedded) == (0, 0)
 
 
 async def test_a_corpus_larger_than_one_page_ends_with_every_chunk_embedded(

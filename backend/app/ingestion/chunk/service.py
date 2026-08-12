@@ -8,7 +8,7 @@ from sqlalchemy import CursorResult, delete, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
-from app.ingestion.chunk.models import Chunk, ChunkRunResult
+from app.ingestion.chunk.models import Chunk, ChunkCounts
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.exceptions import EmptyChunkSetError
 
@@ -61,7 +61,7 @@ async def delete_chunks(session: AsyncSession, chunk_ids: Collection[int]) -> No
 
 async def upsert_document_chunks(
     session: AsyncSession, *, celex: str, chunks: Sequence[Chunk], ingest_run_id: int
-) -> ChunkRunResult:
+) -> ChunkCounts:
     """Reconcile a document's chunks by content hash, leaving matched rows otherwise untouched."""
     incoming = {(digest, n): chunk for chunk, digest, n in with_content_keys(chunks)}
     existing = await get_chunk_ids(session, celex)
@@ -71,8 +71,8 @@ async def upsert_document_chunks(
     added = [key for key in incoming if key not in existing]
     await delete_chunks(session, [existing[key] for key in gone])
     await insert_chunks(session, {key: incoming[key] for key in added}, ingest_run_id=ingest_run_id)
-    return ChunkRunResult(
-        added=len(added), removed=len(gone), unchanged=len(existing.keys() & incoming.keys())
+    return ChunkCounts(
+        added=len(added), deleted=len(gone), kept=len(existing.keys() & incoming.keys())
     )
 
 

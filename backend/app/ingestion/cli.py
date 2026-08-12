@@ -13,8 +13,8 @@ from app.core.logger import setup_logging
 from app.core.storage import StorageError, get_object_store
 from app.ingestion.constants import CRAWL_DELAYS, SEEDS
 from app.ingestion.exceptions import DiscoveryError
+from app.ingestion.models import IngestRunResult
 from app.ingestion.pipeline import ingest
-from app.ingestion.result import IngestRunResult
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -7,7 +7,7 @@ import httpx
 
 from app.core.http import http_retry
 from app.ingestion.constants import MAX_DROP_RATIO, MIN_SUSPICIOUS_DROPS, SEEDS
-from app.ingestion.discover.models import DiscoveredDocument, DiscoverRunResult
+from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.select import select_topic_documents
 from app.ingestion.discover.sparql import SPARQL_ENDPOINT, collect_candidate_acts, topic_query
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
@@ -64,9 +64,7 @@ def find_dropped_celexes(
 
 async def discover_corpus(
     client: httpx.AsyncClient, *, topics: Sequence[str], previous_celexes: Iterable[str]
-) -> tuple[list[DiscoveredDocument], DiscoverRunResult]:
-    """Discover every topic's corpus and diff it against what the previous run held."""
+) -> tuple[list[DiscoveredDocument], list[str]]:
+    """Discover every topic's corpus, and the celexes the previous run held that it lost."""
     documents = await discover_topics(client, topics)
-    dropped = find_dropped_celexes(documents, previous_celexes)
-    result = DiscoverRunResult(dropped=dropped)
-    return documents, result
+    return documents, find_dropped_celexes(documents, previous_celexes)

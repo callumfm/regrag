@@ -1,138 +1,146 @@
-"""The shared stage-result base: reporting, and how two results combine."""
-
-from typing import ClassVar
+"""One ingest run's outcome: what it counts, the row it stores, the summary the CLI prints."""
 
 import pytest
-from pydantic import Field
 
-from app.ingestion.models import StageRunResult
-
-
-class Result(StageRunResult):
-    """A stand-in subclass so the base can be tested without a real stage."""
-
-    added: int = 0
-    celexes: list[str] = Field(default_factory=list)
+from app.ingestion.chunk.models import ChunkCounts
+from app.ingestion.constants import MAX_FAILURE_CHARS
+from app.ingestion.enums import DocChange, IngestRunStatus, Stage
+from app.ingestion.exceptions import ParseError
+from app.ingestion.models import DocumentOutcome, IngestRunResult
 
 
-class OtherResult(StageRunResult):
-    """A second subclass with different field names, to prove __add__ rejects a type mismatch."""
-
-    removed: int = 0
-    tags: list[str] = Field(default_factory=list)
-
-
-class StrFieldResult(StageRunResult):
-    """A subclass with an unmergeable str field."""
-
-    note: str = ""
+def failed_doc(
+    stage: Stage = Stage.PARSE, celex: str = "b", error: str = "ParseError: no body"
+) -> DocumentOutcome:
+    """A document outcome as the loop records a stage failure."""
+    return DocumentOutcome(celex=celex, failed=stage, error=error)
 
 
-class BoolFieldResult(StageRunResult):
-    """A subclass with an unmergeable bool field."""
+@pytest.fixture
+def run() -> IngestRunResult:
+    """A run that fetched two documents and chunked one of them."""
+    result = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234")
+    result.documents.append(
+        DocumentOutcome(celex="a", change=DocChange.NEW, chunks=ChunkCounts(added=12, kept=30))
+    )
+    result.documents.append(
+        DocumentOutcome(celex="b", change=DocChange.REUSED, chunks=ChunkCounts())
+    )
+    return result
 
-    flag: bool = False
+
+def test_a_run_is_ok_when_no_document_failed(run: IngestRunResult) -> None:
+    assert run.ok
+    assert run.status is IngestRunStatus.SUCCESS
 
 
-def test_ok_is_true_until_something_fails() -> None:
-    assert Result().ok
-    assert not Result(failed={"32023R1805": "ParseError: no body"}).ok
+@pytest.mark.parametrize("stage", [Stage.FETCH, Stage.PARSE, Stage.CHUNK])
+def test_a_failure_in_any_stage_fails_the_run(stage: Stage) -> None:
+    result = IngestRunResult(run_id=1)
+    result.documents.append(failed_doc(stage))
+    assert not result.ok
+    assert result.status is IngestRunStatus.FAILED
 
 
-def test_counts_covers_every_declared_field_but_the_uncounted_ones() -> None:
-    assert Result(added=3, celexes=["a", "b"], failed={"c": "boom"}).counts() == {
-        "added": 3,
-        "celexes": 2,
+def test_an_embed_failure_fails_the_run() -> None:
+    result = IngestRunResult(run_id=1)
+    result.embed.fail("a", ParseError("boom"))
+    assert not result.ok
+
+
+def test_a_failed_document_counts_towards_nothing_but_its_failure() -> None:
+    """The loop rolled its work back, so no stage may claim it."""
+    result = IngestRunResult(run_id=1)
+    result.documents.append(failed_doc(Stage.CHUNK, "a"))
+
+    assert result.report()["fetch"] == {"new": 0, "updated": 0, "reused": 0, "failed": {}}
+    assert result.report()["parse"] == {"parsed": 0, "failed": {}}
+    assert result.report()["chunk"]["failed"] == {"a": "ParseError: no body"}
+
+
+def test_the_prune_is_counted_as_chunks_deleted(run: IngestRunResult) -> None:
+    run.pruned = 5
+    assert run.chunks == ChunkCounts(added=12, deleted=5, kept=30)
+
+
+def test_a_run_with_no_fetch_or_parse_failure_may_prune(run: IngestRunResult) -> None:
+    assert run.corpus_complete
+    run.documents.append(failed_doc(Stage.CHUNK, "c"))
+    assert run.corpus_complete
+
+
+@pytest.mark.parametrize("stage", [Stage.FETCH, Stage.PARSE])
+def test_a_run_that_lost_a_document_may_not_prune(run: IngestRunResult, stage: Stage) -> None:
+    run.documents.append(failed_doc(stage, "c"))
+    assert not run.corpus_complete
+
+
+def test_report_covers_every_stage_with_its_counts_and_failures(run: IngestRunResult) -> None:
+    run.dropped = ["z"]
+    run.documents.append(failed_doc(Stage.PARSE, "c"))
+    run.embed.embedded = 12
+
+    assert run.report() == {
+        "discover": {"dropped": 1, "failed": {}},
+        "fetch": {"new": 1, "updated": 0, "reused": 1, "failed": {}},
+        "parse": {"parsed": 2, "failed": {"c": "ParseError: no body"}},
+        "chunk": {"added": 12, "deleted": 0, "kept": 30, "failed": {}},
+        "embed": {"embedded": 12, "already_embedded": 0, "failed": {}},
     }
 
 
-def test_counts_skips_a_field_the_subclass_declares_uncounted() -> None:
-    class Quiet(Result):
-        UNCOUNTED: ClassVar[frozenset[str]] = Result.UNCOUNTED | {"celexes"}
-
-    assert Quiet(added=3, celexes=["a", "b"]).counts() == {"added": 3}
-
-
-def test_report_pairs_the_counts_with_the_failures() -> None:
-    result = Result(added=3, celexes=["a", "b"], failed={"c": "boom"})
-    assert result.report() == {"added": 3, "celexes": 2, "failed": {"c": "boom"}}
-
-
-def test_report_carries_a_new_bucket_without_being_told_about_it() -> None:
-    """Adding a field to a stage result must not need a reporting change."""
-
-    class Extra(Result):
-        skipped: int = 0
-
-    assert Extra(added=1, skipped=2).report() == {
-        "added": 1,
-        "celexes": 0,
-        "skipped": 2,
-        "failed": {},
-    }
+def test_report_leaves_out_the_run_s_own_columns(run: IngestRunResult) -> None:
+    """Both are columns already, and corpus_version is stamped after the row is written."""
+    assert "run_id" not in run.report()
+    assert "corpus_version" not in run.report()
 
 
 def test_report_caps_a_failure_message_a_provider_made_too_long() -> None:
-    result = Result(failed={"c": "x" * (StageRunResult.MAX_FAILURE_CHARS + 100)})
-    assert result.report()["failed"]["c"] == "x" * StageRunResult.MAX_FAILURE_CHARS
+    result = IngestRunResult(run_id=1)
+    result.embed.failed["c"] = "x" * (MAX_FAILURE_CHARS + 100)
+    assert result.report()["embed"]["failed"]["c"] == "x" * MAX_FAILURE_CHARS
 
 
 def test_report_leaves_the_recorded_failure_message_whole() -> None:
-    """Capping is a storage concern: details() still prints the message in full."""
-    message = "x" * (StageRunResult.MAX_FAILURE_CHARS + 100)
-    result = Result(failed={"c": message})
+    """Capping is a storage concern: the summary still prints the message in full."""
+    message = "x" * (MAX_FAILURE_CHARS + 100)
+    result = IngestRunResult(run_id=1)
+    result.embed.failed["c"] = message
     result.report()
-    assert result.failed["c"] == message
+    assert message in result.summary()
 
 
-def test_a_stage_with_no_buckets_still_reports_its_failures() -> None:
-    assert StageRunResult(failed={"c": "boom"}).summary() == "1 failed"
+def test_the_discover_line_reports_the_given_total_not_the_documents_seen_so_far() -> None:
+    """The mid-run discover log fires before documents populate, so it takes an explicit total."""
+    result = IngestRunResult(run_id=1, dropped=["z"])
+    assert result.line(Stage.DISCOVER, total=2) == "[discover] 2 documents: 1 dropped, 0 failed"
 
 
-def test_summary_renders_counts_in_order_then_the_failure_count() -> None:
-    result = Result(added=3, celexes=["a", "b"], failed={"c": "boom"})
-    assert result.summary() == "3 added, 2 celexes, 1 failed"
+def test_summary_reports_every_stage_on_its_own_line_with_its_unit(run: IngestRunResult) -> None:
+    run.embed.embedded, run.embed.already_embedded = 12, 30
+
+    assert run.summary().splitlines() == [
+        "run 7 (2026-08-05-abc1234)",
+        "  [discover] 2 documents: 0 dropped, 0 failed",
+        "  [fetch] 2 documents: 1 new, 0 updated, 1 reused, 0 failed",
+        "  [parse] 2 documents: 2 parsed, 0 failed",
+        "  [chunk] 42 chunks: 12 added, 0 deleted, 30 kept, 0 failed",
+        "  [embed] 42 chunks: 12 embedded, 30 already embedded, 0 failed",
+        "  fetch new: a",
+    ]
 
 
-def test_summary_always_reports_failures_even_when_there_are_none() -> None:
-    assert Result(added=1).summary() == "1 added, 0 celexes, 0 failed"
+def test_summary_says_so_when_no_version_was_stamped() -> None:
+    assert IngestRunResult(run_id=7).summary().startswith("run 7 (not stamped)")
 
 
-def test_details_lists_failures_sorted_by_celex() -> None:
-    result = Result(failed={"b": "second", "a": "first"})
-    assert result.details() == ["failed: a (first)", "failed: b (second)"]
+def test_summary_lists_what_discovery_dropped_and_what_each_stage_failed() -> None:
+    result = IngestRunResult(run_id=7, dropped=["z"])
+    result.documents.append(failed_doc(Stage.FETCH, "a", "ConnectionError: 404"))
+    result.documents.append(failed_doc(Stage.PARSE, "b"))
+    result.embed.fail("c", ParseError("provider down"))
 
-
-def test_add_sums_ints_concatenates_lists_and_merges_dicts() -> None:
-    total = Result(added=1, celexes=["a"], failed={"x": "one"}) + Result(
-        added=2, celexes=["b"], failed={"y": "two"}
-    )
-    assert total.added == 3
-    assert total.celexes == ["a", "b"]
-    assert total.failed == {"x": "one", "y": "two"}
-
-
-def test_add_returns_the_subclass_not_the_base() -> None:
-    assert type(Result() + Result()) is Result
-
-
-def test_add_leaves_both_operands_untouched() -> None:
-    left, right = Result(added=1, celexes=["a"]), Result(added=2, celexes=["b"])
-    _ = left + right
-    assert (left.added, left.celexes) == (1, ["a"])
-    assert (right.added, right.celexes) == (2, ["b"])
-
-
-def test_add_rejects_mismatched_subclasses() -> None:
-    with pytest.raises(TypeError):
-        Result() + OtherResult()
-
-
-def test_add_rejects_a_str_field_naming_it_in_the_error() -> None:
-    with pytest.raises(TypeError, match="note"):
-        StrFieldResult(note="a") + StrFieldResult(note="b")
-
-
-def test_add_rejects_a_bool_field_rather_than_raising_validation_error() -> None:
-    with pytest.raises(TypeError):
-        BoolFieldResult(flag=True) + BoolFieldResult(flag=True)
+    assert "  discover dropped: z" in result.summary()
+    assert "  fetch failed: a (ConnectionError: 404)" in result.summary()
+    assert "  parse failed: b (ParseError: no body)" in result.summary()
+    assert "  embed failed: c (ParseError: provider down)" in result.summary()

@@ -1,10 +1,7 @@
 """Format-neutral parser IR: every parser produces a ParsedDocument section tree."""
 
-from pydantic import Field
-
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
-from app.ingestion.models import StageRunResult
 
 
 class Section(FrozenModel):
@@ -24,9 +21,3 @@ class ParsedDocument(FrozenModel):
     celex: str
     topic: str
     sections: tuple[Section, ...]
-
-
-class ParseRunResult(StageRunResult):
-    """Which fetched documents yielded a section tree."""
-
-    parsed: list[str] = Field(default_factory=list)

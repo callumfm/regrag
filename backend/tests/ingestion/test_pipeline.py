@@ -11,15 +11,13 @@ from app.core.storage import StorageError
 from app.ingestion import pipeline
 from app.ingestion.celex import consolidated_stem
 from app.ingestion.chunk.chunker import chunk_document
-from app.ingestion.enums import IngestRunStatus, SectionKind
+from app.ingestion.enums import DocChange, IngestRunStatus, SectionKind, Stage
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
-from app.ingestion.fetch.models import FetchRunResult
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_previous_docs
+from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.html.parser import parse_eurlex_html
-from app.ingestion.parse.models import ParseRunResult
-from app.ingestion.pipeline import celexes_to_keep, ingest
-from app.ingestion.result import IngestRunResult
+from app.ingestion.pipeline import _prune_dropped_chunks, ingest
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import document_key
 from tests.conftest import (
@@ -43,49 +41,30 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
     } | (overrides or {})
 
 
-async def test_celexes_to_keep_unions_this_run_with_the_topics_it_left_alone(
-    db_session, make_document
+def committed(report: IngestRunResult, change: DocChange) -> list[str]:
+    """The celexes the run committed into one of fetch's buckets."""
+    return sorted(doc.celex for doc in report.committed if doc.change is change)
+
+
+async def test_prune_keeps_this_runs_corpus_and_the_other_topics_documents(
+    db_session, make_document, make_chunk_row
 ):
+    """The prune deletes only chunks no topic wants: not this run's, not another topic's."""
     other = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add(make_document(other, "32015R0757", topic="mrv"))
+    db_session.add(make_chunk_row(other, celex="32015R0757", topic="mrv"))
+    db_session.add(make_chunk_row(other, celex="32023R1805", topic="fueleu"))
+    db_session.add(make_chunk_row(other, celex="32009L0016", topic="fueleu"))
     await db_session.flush()
 
-    celexes = await celexes_to_keep(
+    pruned = await _prune_dropped_chunks(
         db_session,
         discovered=[discovered_document("32023R1805", topic="fueleu")],
-        result=IngestRunResult(run_id=1, parse=ParseRunResult(parsed=["32023R1805"])),
         topics=["fueleu"],
     )
 
-    assert celexes == {"32023R1805", "32015R0757"}
-
-
-async def test_a_partial_fetch_leaves_the_corpus_unknown(db_session):
-    result = IngestRunResult(
-        run_id=1,
-        fetch=FetchRunResult(failed={"32015R0757": "404"}),
-        parse=ParseRunResult(parsed=["32023R1805"]),
-    )
-
-    celexes = await celexes_to_keep(
-        db_session,
-        discovered=[discovered_document("32023R1805", topic="fueleu")],
-        result=result,
-        topics=["fueleu"],
-    )
-    assert celexes is None
-
-
-async def test_a_document_that_would_not_parse_leaves_the_corpus_unknown(db_session):
-    result = IngestRunResult(run_id=1, parse=ParseRunResult(failed={"32023R1805": "ParseError"}))
-
-    celexes = await celexes_to_keep(
-        db_session,
-        discovered=[discovered_document("32023R1805", topic="fueleu")],
-        result=result,
-        topics=["fueleu"],
-    )
-    assert celexes is None
+    assert pruned == 1
+    assert {row.celex for row in await chunk_rows(db_session)} == {"32015R0757", "32023R1805"}
 
 
 async def test_sparql_failure_aborts_and_marks_run_aborted(db_session, local_store, corpus_client):
@@ -194,10 +173,10 @@ async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_zero(
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.result == {
         "discover": {"dropped": 0, "failed": {}},
-        "fetch": {"new": 0, "changed": 0, "unchanged": 0, "failed": {}},
+        "fetch": {"new": 0, "updated": 0, "reused": 0, "failed": {}},
         "parse": {"parsed": 0, "failed": {}},
-        "chunk": {"added": 0, "removed": 0, "unchanged": 0, "failed": {}},
-        "embed": {"embedded": 0, "unchanged": 0, "failed": {}},
+        "chunk": {"added": 0, "deleted": 0, "kept": 0, "failed": {}},
+        "embed": {"embedded": 0, "already_embedded": 0, "failed": {}},
     }
 
 
@@ -279,7 +258,7 @@ async def test_run_persists_chunks_for_every_document(db_session, local_store, c
 
     rows = await chunk_rows(db_session)
     assert report.ok
-    assert report.chunk.added == len(rows) > 0
+    assert report.chunks.added == len(rows) > 0
     assert {row.celex for row in rows} == {"32015R0757", "32023R2449"}
     assert {row.ingest_run_id for row in rows} == {report.run_id}
     assert await chunk_versions(db_session) == {report.corpus_version}
@@ -296,8 +275,8 @@ async def test_second_identical_run_adds_and_removes_nothing(
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     second = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert (second.chunk.added, second.chunk.removed) == (0, 0)
-    assert second.chunk.unchanged == len(before)
+    assert (second.chunks.added, second.chunks.deleted) == (0, 0)
+    assert second.chunks.kept == len(before)
     assert {row.id for row in await chunk_rows(db_session)} == before
 
 
@@ -318,7 +297,7 @@ async def test_dropped_document_loses_its_chunks(db_session, local_store, corpus
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, docs)
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.discover.dropped == ["32023R2449"]
+    assert report.dropped == ["32023R2449"]
     assert await chunk_rows(db_session, "32023R2449") == []
     assert await chunk_rows(db_session, "32015R0757")
 
@@ -351,7 +330,7 @@ async def test_dropped_document_loses_its_chunks_after_an_intervening_failed_fet
     client, _ = corpus_client({"mrv": ONLY_SEED_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.discover.dropped == ["32023R2449"]
+    assert report.dropped == ["32023R2449"]
     assert await chunk_rows(db_session, "32023R2449") == []
     assert await chunk_rows(db_session, "32015R0757")
 
@@ -392,7 +371,7 @@ async def test_a_plausible_repeal_still_prunes(db_session, local_store, corpus_c
     client, _ = corpus_client({"mrv": httpx.Response(200, json=payload(*kept))}, wide_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.discover.dropped == ["32026R0003"]
+    assert report.dropped == ["32026R0003"]
     assert await chunk_rows(db_session, "32026R0003") == []
 
 
@@ -411,9 +390,9 @@ async def test_an_incomplete_run_prunes_nothing(db_session, local_store, corpus_
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.discover.dropped == ["32023R2449"]
+    assert report.dropped == ["32023R2449"]
     assert not report.ok
-    assert report.chunk.removed == 0
+    assert report.chunks.deleted == 0
     assert await chunk_rows(db_session, "32023R2449")
 
 
@@ -440,7 +419,7 @@ async def test_a_celex_another_topic_still_holds_survives_being_dropped(
     client, _ = corpus_client({"fueleu": FUELEU_SPARQL}, shared_docs)
     report = await ingest(db_session, client=client, topics=["fueleu"], store=local_store)
 
-    assert report.discover.dropped == ["32015R0757"]
+    assert report.dropped == ["32015R0757"]
     assert await chunk_rows(db_session, "32015R0757")
 
 
@@ -453,7 +432,7 @@ async def test_unparseable_document_is_recorded_and_others_persist(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert "32023R2449" in report.parse.failed
+    assert "32023R2449" in report.failures(Stage.PARSE)
     assert not report.ok
     assert await chunk_rows(db_session, "32015R0757")
     assert await chunk_rows(db_session, "32023R2449") == []
@@ -502,8 +481,8 @@ async def test_a_store_write_failure_is_recorded_not_raised(
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert sorted(report.fetch.failed) == ["32015R0757", "32023R2449"]
-    assert all("StorageError" in reason for reason in report.fetch.failed.values())
+    assert sorted(report.failures(Stage.FETCH)) == ["32015R0757", "32023R2449"]
+    assert all("StorageError" in reason for reason in report.failures(Stage.FETCH).values())
     assert not report.ok
 
 
@@ -579,7 +558,7 @@ async def test_failed_fetch_still_chunks_what_was_downloaded(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert "32023R2449" in report.fetch.failed
+    assert "32023R2449" in report.failures(Stage.FETCH)
     assert not report.ok
     assert report.corpus_version is None
     assert await chunk_rows(db_session, "32015R0757")
@@ -682,8 +661,8 @@ async def test_a_second_run_embeds_nothing_and_reports_the_rest_unchanged(
     second = await ingest_fueleu(db_session, local_store, corpus_client)
 
     assert second.ok
-    assert second.embed.failed == {}
-    assert (second.embed.embedded, second.embed.unchanged) == (0, stored)
+    assert second.failures(Stage.EMBED) == {}
+    assert (second.embed.embedded, second.embed.already_embedded) == (0, stored)
 
 
 async def test_a_document_that_fails_does_not_stop_the_documents_after_it(
@@ -695,11 +674,50 @@ async def test_a_document_that_fails_does_not_stop_the_documents_after_it(
 
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert list(report.fetch.failed) == ["32015R0757"]
-    assert report.fetch.new == ["32023R2449"]
-    assert report.parse.parsed == ["32023R2449"]
-    assert report.chunk.added > 0
+    assert list(report.failures(Stage.FETCH)) == ["32015R0757"]
+    assert committed(report, DocChange.NEW) == ["32023R2449"]
+    assert report.chunks.added > 0
     assert not report.ok
+
+
+async def test_a_document_that_fails_to_parse_leaves_no_row_behind(
+    db_session, local_store, corpus_client
+):
+    """A document lands whole or not at all, so no count can claim work the loop rolled back."""
+    client, _ = corpus_client(
+        {"mrv": MRV_SPARQL},
+        mrv_docs({"32023R2449": httpx.Response(200, content=b"<html>not eur-lex</html>")}),
+    )
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    assert list(report.failures(Stage.PARSE)) == ["32023R2449"]
+    assert committed(report, DocChange.NEW) == ["32015R0757"]
+    assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
+
+
+async def test_a_failed_document_leaves_the_rows_the_next_one_needs_readable(
+    db_session, local_store, corpus_client
+):
+    """Rolling one document back must not expire the previous run's rows out from under the rest."""
+    docs = mrv_docs()
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
+    await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    consolidated = httpx.Response(
+        200,
+        json=payload(
+            binding("32015R0757", force="1", cons=new_version("32015R0757")),
+            binding("32023R2449", force="1"),
+        ),
+    )
+    client, _ = corpus_client(
+        {"mrv": consolidated},
+        mrv_docs({new_version("32015R0757"): httpx.Response(400, text="bad")}),
+    )
+    report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
+
+    assert list(report.failures(Stage.FETCH)) == ["32015R0757"]
+    assert committed(report, DocChange.REUSED) == ["32023R2449"]
 
 
 async def test_a_run_that_died_mid_loop_does_not_stand_for_its_topics_corpus(
@@ -761,7 +779,7 @@ async def test_a_run_that_dies_in_embed_keeps_its_documents_and_chunks(
 
     assert calls == []
     assert second.embed.embedded == stored
-    assert second.chunk.added == 0
+    assert second.chunks.added == 0
     assert second.ok
 
 
@@ -779,5 +797,5 @@ async def test_a_run_where_every_document_fails_still_reports_the_later_stages(
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert report.report()["parse"] == {"parsed": 0, "failed": {}}
-    assert report.report()["chunk"] == {"added": 0, "removed": 0, "unchanged": 0, "failed": {}}
+    assert report.report()["chunk"] == {"added": 0, "deleted": 0, "kept": 0, "failed": {}}
     assert not report.ok
