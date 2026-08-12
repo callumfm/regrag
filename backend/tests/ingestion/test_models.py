@@ -44,7 +44,7 @@ def test_a_failure_in_any_stage_fails_the_run(stage: Stage) -> None:
 
 def test_an_embed_failure_fails_the_run() -> None:
     result = IngestRunResult(run_id=1)
-    result.embed.fail("a", ParseError("boom"))
+    result.embed.fail("a", ParseError("boom"), chunks=1)
     assert not result.ok
 
 
@@ -97,15 +97,17 @@ def test_report_leaves_out_the_run_s_own_columns(run: IngestRunResult) -> None:
 
 def test_report_caps_a_failure_message_a_provider_made_too_long() -> None:
     result = IngestRunResult(run_id=1)
-    result.embed.failed["c"] = "x" * (MAX_FAILURE_CHARS + 100)
-    assert result.report()["embed"]["failed"]["c"] == "x" * MAX_FAILURE_CHARS
+    result.embed.fail("c", ParseError("x" * (MAX_FAILURE_CHARS + 100)), chunks=1)
+    stored = result.report()["embed"]["failed"]["c"]
+    assert len(stored) == MAX_FAILURE_CHARS
+    assert stored.startswith("1 chunk: ParseError: xxx")
 
 
 def test_report_leaves_the_recorded_failure_message_whole() -> None:
     """Capping is a storage concern: the summary still prints the message in full."""
     message = "x" * (MAX_FAILURE_CHARS + 100)
     result = IngestRunResult(run_id=1)
-    result.embed.failed["c"] = message
+    result.embed.fail("c", ParseError(message), chunks=1)
     result.report()
     assert message in result.summary()
 
@@ -138,9 +140,9 @@ def test_summary_lists_what_discovery_dropped_and_what_each_stage_failed() -> No
     result = IngestRunResult(run_id=7, dropped=["z"])
     result.documents.append(failed_doc(Stage.FETCH, "a", "ConnectionError: 404"))
     result.documents.append(failed_doc(Stage.PARSE, "b"))
-    result.embed.fail("c", ParseError("provider down"))
+    result.embed.fail("c", ParseError("provider down"), chunks=1)
 
     assert "  discover dropped: z" in result.summary()
     assert "  fetch failed: a (ConnectionError: 404)" in result.summary()
     assert "  parse failed: b (ParseError: no body)" in result.summary()
-    assert "  embed failed: c (ParseError: provider down)" in result.summary()
+    assert "  embed failed: c (1 chunk: ParseError: provider down)" in result.summary()

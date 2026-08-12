@@ -45,7 +45,7 @@ class IngestRunResult(BaseModel):
     def failures(self, stage: Stage) -> dict[str, str]:
         """Why each document this stage could not process failed."""
         if stage is Stage.EMBED:
-            return dict(self.embed.failed)
+            return self.embed.failures
         return {doc.celex: doc.error for doc in self.documents if doc.failed is stage}
 
     @property

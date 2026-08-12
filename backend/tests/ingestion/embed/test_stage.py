@@ -87,8 +87,22 @@ async def test_a_failed_batch_is_recorded_against_its_document(
     result = await embed_chunks(db_session)
 
     assert result.embedded == 0
-    assert list(result.failed) == ["32023R1805"]
-    assert "LLMError" in result.failed["32023R1805"]
+    assert result.failures == {"32023R1805": "2 chunks: LLMError: embedding call failed"}
+
+
+async def test_every_failed_batch_of_a_document_counts_towards_its_loss(
+    db_session, ingest_run, make_chunk_row, embeddings
+):
+    """A document spanning several batches reports every chunk it lost, not just the last one's."""
+    embeddings.errors[1] = LLMError("embedding call failed")
+    embeddings.errors[2] = LLMError("embedding call failed")
+    db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 200))
+    await db_session.flush()
+
+    result = await embed_chunks(db_session)
+
+    assert result.embedded == 0
+    assert result.failures == {"32023R1805": "200 chunks: LLMError: embedding call failed"}
 
 
 async def test_one_document_failing_does_not_stop_the_others(
