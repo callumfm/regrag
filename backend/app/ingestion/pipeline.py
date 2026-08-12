@@ -101,7 +101,7 @@ async def ingest(
         discovered, result.dropped = await discover_corpus(
             client, topics=topics, previous_celexes=previous
         )
-        logger.info("%s", result.line(Stage.DISCOVER))
+        logger.info("%s", result.line(Stage.DISCOVER, total=len(discovered)))
 
         for document in discovered:
             outcome = await _ingest_document(

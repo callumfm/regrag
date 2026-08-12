@@ -34,12 +34,12 @@ def test_a_run_is_ok_when_no_document_failed(run: IngestRunResult) -> None:
     assert run.status is IngestRunStatus.SUCCESS
 
 
-def test_a_failure_in_any_stage_fails_the_run() -> None:
-    for stage in (Stage.FETCH, Stage.PARSE, Stage.CHUNK):
-        result = IngestRunResult(run_id=1)
-        result.documents.append(failed_doc(stage))
-        assert not result.ok
-        assert result.status is IngestRunStatus.FAILED
+@pytest.mark.parametrize("stage", [Stage.FETCH, Stage.PARSE, Stage.CHUNK])
+def test_a_failure_in_any_stage_fails_the_run(stage: Stage) -> None:
+    result = IngestRunResult(run_id=1)
+    result.documents.append(failed_doc(stage))
+    assert not result.ok
+    assert result.status is IngestRunStatus.FAILED
 
 
 def test_an_embed_failure_fails_the_run() -> None:
@@ -108,6 +108,12 @@ def test_report_leaves_the_recorded_failure_message_whole() -> None:
     result.embed.failed["c"] = message
     result.report()
     assert message in result.summary()
+
+
+def test_the_discover_line_reports_the_given_total_not_the_documents_seen_so_far() -> None:
+    """The mid-run discover log fires before documents populate, so it takes an explicit total."""
+    result = IngestRunResult(run_id=1, dropped=["z"])
+    assert result.line(Stage.DISCOVER, total=2) == "[discover] 2 documents: 1 dropped, 0 failed"
 
 
 def test_summary_reports_every_stage_on_its_own_line_with_its_unit(run: IngestRunResult) -> None:

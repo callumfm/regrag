@@ -108,10 +108,11 @@ class IngestRunResult(BaseModel):
             for stage, counts in self.counts.items()
         }
 
-    def line(self, stage: Stage) -> str:
+    def line(self, stage: Stage, *, total: int | None = None) -> str:
         """One stage's counts on a line, carrying the unit those counts are in."""
         counts, unit = self.counts[stage], UNITS[stage]
-        total = len(self.documents) if unit == "documents" else sum(counts.values())
+        if total is None:
+            total = len(self.documents) if unit == "documents" else sum(counts.values())
         buckets = ", ".join(f"{value} {label.replace('_', ' ')}" for label, value in counts.items())
         return f"[{stage}] {total} {unit}: {buckets}, {len(self.failures(stage))} failed"
 
