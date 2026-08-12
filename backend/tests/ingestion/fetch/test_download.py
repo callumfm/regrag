@@ -11,7 +11,6 @@ from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVer
 from app.ingestion.fetch.download import (
     MISSING_MARKER,
     download_fetchable_version,
-    expected_version,
     is_missing,
     is_missing_document_page,
     version_candidates,
@@ -77,19 +76,6 @@ def test_soft_404_is_missing():
 
 def test_served_document_is_not_missing():
     assert not is_missing(doc_response())
-
-
-def test_expected_version_points_at_the_candidate_without_a_request():
-    assert expected_version(
-        discovered_document(candidate="02015R0757-20250101")
-    ) == ResolvedVersion(
-        resolved_celex="02015R0757-20250101",
-        url="https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:02015R0757-20250101",
-    )
-
-
-def test_expected_version_falls_back_to_the_act_when_discovery_found_no_consolidation():
-    assert expected_version(discovered_document(celex="32023R2449")).resolved_celex == "32023R2449"
 
 
 async def test_downloads_candidate_when_html_exists():

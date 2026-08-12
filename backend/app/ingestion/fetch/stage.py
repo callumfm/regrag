@@ -9,7 +9,7 @@ from app.core.storage import ObjectStore, StorageError
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.enums import DocChange
 from app.ingestion.exceptions import IngestionError
-from app.ingestion.fetch.download import download_fetchable_version, expected_version
+from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.models import (
     FetchedDocument,
     FetchRunResult,
@@ -28,20 +28,20 @@ def _reuse_stored_version(
 ) -> Fetched | None:
     """The version and bytes the previous run stored, if the download would land on that version.
 
-    Sparing the request is the point: an unchanged act is the common case, and reading its
-    stored bytes both proves they are still there and gives parse what it needs.
+    Discovery pointing at the same candidate is what settles that: the version EUR-Lex served
+    for it is the one it will serve again, whether that was the candidate or the original act.
     """
-    expected = expected_version(discovered)
-    if previous is None or previous.resolved_celex != expected.resolved_celex:
+    if previous is None or previous.candidate_celex != discovered.candidate_celex:
         return None
     try:
         content = read_document(store, previous)
     except StorageError:
         return None
+    resolution = ResolvedVersion(resolved_celex=previous.resolved_celex, url=previous.url)
     stored = StoredBytes(
         sha256=previous.sha256, size_bytes=previous.size_bytes, fetched_at=previous.fetched_at
     )
-    return expected, stored, content
+    return resolution, stored, content
 
 
 async def _download_new_version(
@@ -69,7 +69,7 @@ async def _reuse_or_download(
         previous.resolved_celex if previous else None, resolution.resolved_celex
     )
     document = RawDocument(
-        **discovered.model_dump(exclude={"candidate_celex"}),
+        **discovered.model_dump(),
         **resolution.model_dump(),
         **stored.model_dump(),
         run=run,

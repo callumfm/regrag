@@ -44,6 +44,24 @@ def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store,
     )
 
 
+def test_reuse_carries_the_version_that_was_served_not_the_one_that_was_asked_for(
+    local_store, store_document
+):
+    """The fallback case: the row keeps pointing at the act EUR-Lex served, and its URL."""
+    prev = store_document(
+        IngestRun(status=IngestRunStatus.SUCCESS),
+        celex="32023R1805",
+        candidate_celex="02023R1805-20250101",
+    )
+    asked_again = discovered_document("32023R1805", candidate="02023R1805-20250101")
+
+    reused = _reuse_stored_version(local_store, asked_again, prev)
+
+    assert reused is not None
+    assert reused[0].resolved_celex == "32023R1805"
+    assert reused[0].url.endswith("CELEX:32023R1805")
+
+
 def test_a_newly_discovered_consolidation_is_not_reused(local_store, store_document):
     """Discovery pointing somewhere new is exactly the case that has to hit the network."""
     prev = stored(store_document)
@@ -128,6 +146,34 @@ async def test_unchanged_run_makes_no_html_requests_and_carries_sha(
     assert calls == []
     firsts = {r.celex: r.sha256 for r in (await get_previous_docs(db_session, ["mrv"])).values()}
     assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
+
+
+async def test_a_consolidation_eurlex_will_not_serve_is_not_asked_for_again(
+    db_session, local_store, corpus_client
+):
+    """An act with a consolidated id but no consolidated text: run 1 falls back to the act.
+
+    Comparing the stored version against the candidate would deny the match every run and
+    re-download the whole corpus for as long as EUR-Lex serves no consolidation.
+    """
+    sparql = {
+        "mrv": httpx.Response(
+            200,
+            json=payload(
+                binding("32015R0757", force="1", cons="02015R0757-20250101"),
+                binding("32023R2449", force="1"),
+            ),
+        )
+    }
+    docs = mrv_docs({"02015R0757-20250101": httpx.Response(404, text="gone")})
+    client, _ = corpus_client(sparql, docs)
+    await fetch(db_session, client, ["mrv"], local_store)
+
+    client, calls = corpus_client(sparql, docs)
+    report, _ = await fetch(db_session, client, ["mrv"], local_store)
+
+    assert calls == []
+    assert sorted(report.unchanged) == ["32015R0757", "32023R2449"]
 
 
 async def test_new_consolidation_is_changed_and_redownloaded(

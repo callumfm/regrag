@@ -50,12 +50,6 @@ def is_still_rendering(response: httpx.Response) -> bool:
     return response.status_code == httpx.codes.ACCEPTED
 
 
-def expected_version(document: DiscoveredDocument) -> ResolvedVersion:
-    """Where the download will land if EUR-Lex still serves the version discovery wants first."""
-    celex = version_candidates(document)[0]
-    return ResolvedVersion(resolved_celex=celex, url=html_url(celex))
-
-
 @download_retry
 async def download_version(
     client: httpx.AsyncClient, document: DiscoveredDocument, celex: str
