@@ -17,7 +17,7 @@ from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_previous_docs
 from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.html.parser import parse_eurlex_html
-from app.ingestion.pipeline import celexes_to_keep, ingest
+from app.ingestion.pipeline import _prune_dropped_chunks, ingest
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import document_key
 from tests.conftest import (
@@ -46,20 +46,25 @@ def committed(report: IngestRunResult, change: DocChange) -> list[str]:
     return sorted(doc.celex for doc in report.committed if doc.change is change)
 
 
-async def test_celexes_to_keep_unions_this_run_with_the_topics_it_left_alone(
-    db_session, make_document
+async def test_prune_keeps_this_runs_corpus_and_the_other_topics_documents(
+    db_session, make_document, make_chunk_row
 ):
+    """The prune deletes only chunks no topic wants: not this run's, not another topic's."""
     other = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add(make_document(other, "32015R0757", topic="mrv"))
+    db_session.add(make_chunk_row(other, celex="32015R0757", topic="mrv"))
+    db_session.add(make_chunk_row(other, celex="32023R1805", topic="fueleu"))
+    db_session.add(make_chunk_row(other, celex="32009L0016", topic="fueleu"))
     await db_session.flush()
 
-    celexes = await celexes_to_keep(
+    pruned = await _prune_dropped_chunks(
         db_session,
         discovered=[discovered_document("32023R1805", topic="fueleu")],
         topics=["fueleu"],
     )
 
-    assert celexes == {"32023R1805", "32015R0757"}
+    assert pruned == 1
+    assert {row.celex for row in await chunk_rows(db_session)} == {"32015R0757", "32023R1805"}
 
 
 async def test_sparql_failure_aborts_and_marks_run_aborted(db_session, local_store, corpus_client):
