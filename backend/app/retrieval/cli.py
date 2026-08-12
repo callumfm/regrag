@@ -4,10 +4,10 @@ import argparse
 import asyncio
 import sys
 
+from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import LLMError
 from app.core.logger import setup_logging
-from app.retrieval.constants import DEFAULT_LIMIT
 from app.retrieval.models import SearchFilters, SearchResult
 from app.retrieval.pipeline import search
 
@@ -19,7 +19,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("query", help="what to search the corpus for")
     parser.add_argument("--celex", help="restrict to one act")
     parser.add_argument("--topic", help="restrict to one topic")
-    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="results to return")
+    parser.add_argument(
+        "--limit", type=int, default=config.SEARCH_DEFAULT_LIMIT, help="results to return"
+    )
     return parser
 
 

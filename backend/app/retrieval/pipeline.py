@@ -1,10 +1,11 @@
-"""Search: embed the query, then let one query run both legs and fuse their ranks."""
+"""Search: embed the query, let one query run both legs and fuse their ranks, then rerank."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import config
 from app.core.llm import EmbedInput, embed, llm_retry
-from app.retrieval.constants import CANDIDATES, DEFAULT_LIMIT, RRF_K
 from app.retrieval.models import SearchFilters, SearchResult
+from app.retrieval.rerank import rerank_results
 from app.retrieval.service import hybrid_search
 
 
@@ -20,18 +21,22 @@ async def search(
     query: str,
     filters: SearchFilters | None = None,
     *,
-    limit: int = DEFAULT_LIMIT,
-    candidates: int = CANDIDATES,
-    k: int = RRF_K,
+    limit: int = config.SEARCH_DEFAULT_LIMIT,
+    candidates: int = config.SEARCH_CANDIDATES,
+    k: int = config.RRF_K,
 ) -> tuple[SearchResult, ...]:
-    """The corpus's best answers to a query, fused across the vector and keyword legs."""
+    """The corpus's best answers to a query, fused across both legs and reranked."""
     embedding = await _embed_query(query)
-    return await hybrid_search(
+    pool = max(limit, config.RERANK_POOL) if config.RERANK_ENABLED else limit
+    results = await hybrid_search(
         session,
         embedding,
         query,
         filters or SearchFilters(),
         candidates=candidates,
         k=k,
-        limit=limit,
+        limit=pool,
     )
+    if config.RERANK_ENABLED:
+        results = await rerank_results(query, results, limit=limit)
+    return results

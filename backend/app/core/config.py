@@ -138,7 +138,21 @@ class EmbeddingConfig(BaseConfig):
     EMBED_TIMEOUT: int = 30
 
 
-class Config(AppConfig, PostgresConfig, EmbeddingConfig, StorageConfig):
+class RetrievalConfig(BaseConfig):
+    """Search tunables: the per-leg candidate pools feeding Reciprocal Rank Fusion, whose RRF_K
+    damping scores a rank 1/(k + rank), then the cross-encoder's pool and its off switch."""
+
+    SEARCH_CANDIDATES: int = 50
+    SEARCH_DEFAULT_LIMIT: int = 10
+    RRF_K: int = 60
+
+    RERANK_ENABLED: bool = True
+    RERANK_MODEL: str = "voyage/rerank-2.5"
+    RERANK_TIMEOUT: int = 30
+    RERANK_POOL: int = 30
+
+
+class Config(AppConfig, PostgresConfig, EmbeddingConfig, RetrievalConfig, StorageConfig):
     """Combined configuration class for core app functionality."""
 
 

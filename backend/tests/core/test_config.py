@@ -10,6 +10,7 @@ from app.core.config import (
     Config,
     EmbeddingConfig,
     Environment,
+    RetrievalConfig,
     StorageBackend,
     StorageConfig,
     get_env_file,
@@ -105,3 +106,20 @@ def test_the_env_file_is_absolute_so_the_working_directory_cannot_change_it(env,
 
     assert env_file == BACKEND_ROOT / filename
     assert env_file.is_absolute()
+
+
+def test_retrieval_defaults_match_the_shipped_tunables():
+    retrieval = RetrievalConfig()
+
+    assert retrieval.SEARCH_CANDIDATES == 50
+    assert retrieval.SEARCH_DEFAULT_LIMIT == 10
+    assert retrieval.RRF_K == 60
+    assert retrieval.RERANK_ENABLED is True
+    assert retrieval.RERANK_MODEL == "voyage/rerank-2.5"
+    assert retrieval.RERANK_TIMEOUT == 30
+    assert retrieval.RERANK_POOL == 30
+
+
+def test_combined_config_carries_the_retrieval_tunables():
+    assert Config().RERANK_POOL == 30
+    assert Config().RERANK_ENABLED is True
