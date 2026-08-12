@@ -1,10 +1,12 @@
 """Chunk persistence: reconciling a document's chunks by content hash."""
 
 import pytest
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import EMBED_DIMENSIONS
 from app.ingestion.chunk.references import extract_references
+from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import (
     count_embedded_chunks,
     delete_chunks,
@@ -12,6 +14,7 @@ from app.ingestion.chunk.service import (
     get_chunk_ids,
     get_unembedded_chunks,
     insert_chunks,
+    set_chunk_embeddings,
     upsert_document_chunks,
     with_content_keys,
 )
@@ -337,3 +340,52 @@ async def test_insert_chunks_stores_each_chunk_under_its_content_key(
     rows = await chunk_rows(db_session)
     assert {(row.content_hash, row.occurrence) for row in rows} == set(incoming)
     assert {row.ingest_run_id for row in rows} == {ingest_run.id}
+
+
+async def test_set_chunk_embeddings_writes_every_vector(db_session, ingest_run, make_chunk_row):
+    created = [
+        make_chunk_row(ingest_run, content_hash=str(index).ljust(64, "a")) for index in range(3)
+    ]
+    db_session.add_all(created)
+    await db_session.flush()
+
+    await set_chunk_embeddings(
+        db_session,
+        {row.id: [float(index)] * EMBED_DIMENSIONS for index, row in enumerate(created)},
+    )
+
+    stored = await db_session.execute(
+        select(DocumentChunk.id, DocumentChunk.embedding).order_by(DocumentChunk.id)
+    )
+    assert [vector[0] for _, vector in stored] == [0.0, 1.0, 2.0]
+    assert await get_unembedded_chunks(db_session, limit=100) == []
+
+
+async def test_set_chunk_embeddings_is_one_round_trip(
+    db_engine, db_session, ingest_run, make_chunk_row
+):
+    """One executemany UPDATE for the whole batch, not a RETURNING round trip per row."""
+    created = [
+        make_chunk_row(ingest_run, content_hash=str(index).ljust(64, "b")) for index in range(3)
+    ]
+    db_session.add_all(created)
+    await db_session.flush()
+    updates: list[bool] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("UPDATE"):
+            updates.append(executemany)
+
+    event.listen(db_engine.sync_engine, "before_cursor_execute", record)
+    try:
+        await set_chunk_embeddings(
+            db_session, {row.id: [0.5] * EMBED_DIMENSIONS for row in created}
+        )
+    finally:
+        event.remove(db_engine.sync_engine, "before_cursor_execute", record)
+
+    assert updates == [True]
+
+
+async def test_set_chunk_embeddings_with_nothing_issues_nothing(db_session):
+    await set_chunk_embeddings(db_session, {})

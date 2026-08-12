@@ -2,9 +2,9 @@
 
 from collections import Counter
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
-from typing import cast
+from typing import NamedTuple, cast
 
-from sqlalchemy import CursorResult, delete, func, select, tuple_
+from sqlalchemy import CursorResult, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -14,6 +14,14 @@ from app.ingestion.exceptions import EmptyChunkSetError
 
 ContentKey = tuple[str, int]
 """What identifies a chunk within its document: content hash, then occurrence."""
+
+
+class ChunkToEmbed(NamedTuple):
+    """One vectorless chunk: everything the embed stage needs to fill its vector in."""
+
+    id: int
+    celex: str
+    text: str
 
 
 def with_content_keys(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
@@ -94,6 +102,18 @@ async def get_unembedded_chunks(
     if after is not None:
         stmt = stmt.where(tuple_(DocumentChunk.celex, DocumentChunk.id) > after)
     return (await session.scalars(stmt)).all()
+
+
+async def set_chunk_embeddings(
+    session: AsyncSession, vectors: Mapping[int, Sequence[float]]
+) -> None:
+    """Write chunk vectors in one executemany UPDATE by primary key, fetching nothing back."""
+    if not vectors:
+        return
+    stmt = update(DocumentChunk)
+    await session.execute(
+        stmt, [{"id": chunk_id, "embedding": vector} for chunk_id, vector in vectors.items()]
+    )
 
 
 async def count_embedded_chunks(session: AsyncSession) -> int:
