@@ -9,9 +9,9 @@ from app.ingestion.chunk.service import (
     _key_incoming_chunks,
     _key_stored_chunks,
     count_chunks,
+    create_chunks,
     delete_chunks,
     get_chunks,
-    insert_chunks,
     sync_document_chunks,
 )
 from app.ingestion.enums import SectionKind
@@ -334,12 +334,12 @@ async def test_delete_chunks_leaves_the_table_alone_when_given_nothing(
     assert len(await chunk_rows(db_session)) == 1
 
 
-async def test_insert_chunks_stores_each_chunk_under_its_content_key(
+async def test_create_chunks_stores_each_chunk_under_its_content_key(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     incoming = _key_incoming_chunks([chunk(), chunk()])
 
-    await insert_chunks(db_session, incoming, ingest_run_id=ingest_run.id)
+    await create_chunks(db_session, incoming, ingest_run_id=ingest_run.id)
 
     rows = await chunk_rows(db_session)
     assert {(row.content_hash, row.occurrence) for row in rows} == set(incoming)

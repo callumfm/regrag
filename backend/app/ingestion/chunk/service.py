@@ -40,7 +40,7 @@ async def _key_stored_chunks(session: AsyncSession, celex: str) -> dict[ContentK
     return {(row.content_hash, row.occurrence): row for row in rows}
 
 
-async def insert_chunks(
+async def create_chunks(
     session: AsyncSession, chunks: Mapping[ContentKey, Chunk], *, ingest_run_id: int
 ) -> None:
     """Store chunks under their content keys, adding what only persistence knows."""
@@ -103,7 +103,7 @@ async def sync_document_chunks(
     await delete_chunks(session, deleted)
 
     added = {key: chunk for key, chunk in incoming.items() if key not in existing}
-    await insert_chunks(session, added, ingest_run_id=ingest_run_id)
+    await create_chunks(session, added, ingest_run_id=ingest_run_id)
 
     matched = existing.keys() & incoming.keys()
     updates = _stale_chunk_updates(matched, incoming, existing)
