@@ -64,6 +64,22 @@ def test_the_level_one_line_is_not_collected_because_it_is_the_annex_title():
     ]
 
 
+def test_a_container_carrying_a_level_class_is_recursed_into_not_read_as_a_heading():
+    node = subdivision(
+        '<html><body><div id="anx_I">'
+        '<p class="title-gr-seq-level-1">Monitoring methods</p>'
+        '<div class="eli-subdivision title-gr-seq-level-2">'
+        '<p class="title-gr-seq-level-2">A. First part</p>'
+        '<p class="norm">Prose under A.</p>'
+        "</div></div></body></html>",
+        "anx_I",
+    )
+    assert collect_lines(node, SUBHEADING_LEVEL_RE) == [
+        Subheading(2, "A. First part"),
+        "Prose under A.",
+    ]
+
+
 def test_a_stream_with_no_subheadings_becomes_one_flat_paragraph():
     sections = nest_under_subheadings(["one", "two"])
     assert len(sections) == 1

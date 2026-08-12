@@ -49,8 +49,10 @@ def heading_texts(node: Node, *selectors: str) -> set[str]:
 
 
 def read_subheading(node: Node, level_pattern: re.Pattern[str] | None) -> Subheading | None:
-    """The sub-heading this block introduces, read from its own class, or None if it is prose."""
-    match = level_pattern.search(node.attributes.get("class") or "") if level_pattern else None
+    """The sub-heading this paragraph introduces; a container carrying the class opens one."""
+    if node.tag != "p" or level_pattern is None:
+        return None
+    match = level_pattern.search(node.attributes.get("class") or "")
     return Subheading(level=int(match.group(1)), title=clean_text(node.text())) if match else None
 
 
