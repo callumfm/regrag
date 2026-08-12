@@ -1,7 +1,7 @@
 """Chunk persistence: reconcile a document's chunks against what is already stored."""
 
 from collections import Counter
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import Any, NamedTuple, cast
 
 from sqlalchemy import CursorResult, delete, func, select, tuple_, update
@@ -35,17 +35,33 @@ def stored_values(stored: StoredChunk) -> dict[str, Any]:
     return {key: value for key, value in stored._asdict().items() if key != "id"}
 
 
-def with_content_keys(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
-    """Pair each chunk with its hash and the occurrence disambiguating identical siblings."""
+def stale_updates(
+    matched: Collection[ContentKey],
+    incoming: Mapping[ContentKey, Chunk],
+    existing: Mapping[ContentKey, StoredChunk],
+) -> list[dict[str, Any]]:
+    """Updates for matched rows whose derived fields no longer match what the chunker produced."""
+    updates = []
+    for key in matched:
+        values = derived_values(incoming[key])
+        if values != stored_values(existing[key]):
+            updates.append({"id": existing[key].id, **values})
+    return updates
+
+
+def key_incoming_chunks(chunks: Iterable[Chunk]) -> dict[ContentKey, Chunk]:
+    """Freshly chunked text keyed by content hash, occurrence separating identical siblings."""
     seen: Counter[str] = Counter()
+    keyed: dict[ContentKey, Chunk] = {}
     for chunk in chunks:
         digest = chunk.content_hash
-        yield chunk, digest, seen[digest]
+        keyed[digest, seen[digest]] = chunk
         seen[digest] += 1
+    return keyed
 
 
-async def get_stored_chunks(session: AsyncSession, celex: str) -> dict[ContentKey, StoredChunk]:
-    """A document's stored rows, keyed by content hash and occurrence."""
+async def key_stored_chunks(session: AsyncSession, celex: str) -> dict[ContentKey, StoredChunk]:
+    """A document's stored rows under the same keys the incoming chunks carry."""
     stmt = select(
         DocumentChunk.content_hash,
         DocumentChunk.occurrence,
@@ -55,10 +71,13 @@ async def get_stored_chunks(session: AsyncSession, celex: str) -> dict[ContentKe
         DocumentChunk.references,
     ).where(DocumentChunk.celex == celex)
     rows = await session.execute(stmt)
-    return {
-        (content_hash, occurrence): StoredChunk(row_id, topic, citation, references)
-        for content_hash, occurrence, row_id, topic, citation, references in rows
+    chunks = {
+        (row.content_hash, row.occurrence): StoredChunk(
+            row.id, row.topic, row.citation, row.references
+        )
+        for row in rows
     }
+    return chunks
 
 
 async def insert_chunks(
@@ -99,26 +118,26 @@ async def upsert_document_chunks(
     session: AsyncSession, *, celex: str, chunks: Sequence[Chunk], ingest_run_id: int
 ) -> ChunkCounts:
     """Reconcile a document's chunks by content hash, refreshing derived fields on matches."""
-    incoming = {(digest, n): chunk for chunk, digest, n in with_content_keys(chunks)}
-    existing = await get_stored_chunks(session, celex)
+    incoming = key_incoming_chunks(chunks)
+    existing = await key_stored_chunks(session, celex)
     if not incoming and existing:
         raise EmptyChunkSetError(f"{celex}: chunked to nothing over {len(existing)} stored chunks")
-    gone = existing.keys() - incoming.keys()
-    added = [key for key in incoming if key not in existing]
+
+    gone = [existing[key].id for key in existing.keys() - incoming.keys()]
+    await delete_chunks(session, gone)
+
+    added = {key: chunk for key, chunk in incoming.items() if key not in existing}
+    await insert_chunks(session, added, ingest_run_id=ingest_run_id)
+
     matched = existing.keys() & incoming.keys()
-    refreshed = [
-        {"id": existing[key].id, **values}
-        for key in matched
-        if (values := derived_values(incoming[key])) != stored_values(existing[key])
-    ]
-    await delete_chunks(session, [existing[key].id for key in gone])
-    await insert_chunks(session, {key: incoming[key] for key in added}, ingest_run_id=ingest_run_id)
-    await refresh_chunks(session, refreshed)
+    stale = stale_updates(matched, incoming, existing)
+    await refresh_chunks(session, stale)
+
     return ChunkCounts(
         added=len(added),
         deleted=len(gone),
-        kept=len(matched) - len(refreshed),
-        refreshed=len(refreshed),
+        kept=len(matched) - len(stale),
+        refreshed=len(stale),
     )
 
 

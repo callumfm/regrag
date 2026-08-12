@@ -11,11 +11,11 @@ from app.ingestion.chunk.service import (
     count_embedded_chunks,
     delete_chunks,
     delete_chunks_outside,
-    get_stored_chunks,
     get_unembedded_chunks,
     insert_chunks,
+    key_incoming_chunks,
+    key_stored_chunks,
     upsert_document_chunks,
-    with_content_keys,
 )
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import EmptyChunkSetError
@@ -238,20 +238,20 @@ def test_stored_chunk_carries_every_non_identity_field():
 
 
 def test_occurrence_counts_up_for_duplicates():
-    keys = [(digest, n) for _, digest, n in with_content_keys([chunk(), chunk(), chunk()])]
+    keys = list(key_incoming_chunks([chunk(), chunk(), chunk()]))
     assert [n for _, n in keys] == [0, 1, 2]
     assert len({digest for digest, _ in keys}) == 1
 
 
 def test_distinct_chunks_each_start_at_occurrence_zero():
-    keys = [(digest, n) for _, digest, n in with_content_keys([chunk(), chunk(article="5")])]
+    keys = list(key_incoming_chunks([chunk(), chunk(article="5")]))
     assert [n for _, n in keys] == [0, 0]
     assert len({digest for digest, _ in keys}) == 2
 
 
-def test_content_keys_yield_the_original_chunks_in_order():
+def test_content_keys_hold_the_original_chunks_in_order():
     chunks = [chunk(), chunk(article="5")]
-    assert [c for c, _, _ in with_content_keys(chunks)] == chunks
+    assert list(key_incoming_chunks(chunks).values()) == chunks
 
 
 async def test_returns_only_the_chunks_without_a_vector(db_session, ingest_run, make_chunk_row):
@@ -289,31 +289,31 @@ async def test_counts_zero_on_an_empty_table(db_session):
     assert await count_embedded_chunks(db_session) == 0
 
 
-async def test_get_stored_chunks_keys_every_row_by_hash_and_occurrence(
+async def test_key_stored_chunks_keys_every_row_by_hash_and_occurrence(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     await upsert_document_chunks(
         db_session, celex="32023R1805", chunks=[chunk(), chunk()], ingest_run_id=ingest_run.id
     )
-    stored = await get_stored_chunks(db_session, "32023R1805")
+    stored = await key_stored_chunks(db_session, "32023R1805")
     assert sorted(occurrence for _, occurrence in stored) == [0, 1]
     assert len({digest for digest, _ in stored}) == 1
 
 
-async def test_get_stored_chunks_is_scoped_to_one_document(
+async def test_key_stored_chunks_is_scoped_to_one_document(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     await seed_two_topics(db_session, ingest_run)
-    assert len(await get_stored_chunks(db_session, "32023R1805")) == 1
+    assert len(await key_stored_chunks(db_session, "32023R1805")) == 1
 
 
-async def test_get_stored_chunks_carries_the_derived_fields(
+async def test_key_stored_chunks_carries_the_derived_fields(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     await upsert_document_chunks(
         db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
     )
-    row = next(iter((await get_stored_chunks(db_session, "32023R1805")).values()))
+    row = next(iter((await key_stored_chunks(db_session, "32023R1805")).values()))
     assert (row.topic, row.citation, row.references) == ("fueleu", "Article 4(1)", [])
 
 
@@ -386,7 +386,7 @@ async def test_delete_chunks_leaves_the_table_alone_when_given_nothing(
 async def test_insert_chunks_stores_each_chunk_under_its_content_key(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    incoming = {(digest, n): c for c, digest, n in with_content_keys([chunk(), chunk()])}
+    incoming = key_incoming_chunks([chunk(), chunk()])
 
     await insert_chunks(db_session, incoming, ingest_run_id=ingest_run.id)
 
