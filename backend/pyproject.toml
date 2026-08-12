@@ -22,6 +22,7 @@ dependencies = [
 
 [project.scripts]
 ingest = "app.ingestion.cli:main"
+retrieve = "app.retrieval.cli:main"
 
 [dependency-groups]
 dev = [

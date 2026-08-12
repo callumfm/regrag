@@ -27,6 +27,7 @@ FastAPI backend for RegRag: the ingestion pipeline, the retrieval agent and the 
 | ---------------- | ------------------------------------------------------------- |
 | `app/core/`      | Shared contracts: config, db session, http, llm, storage      |
 | `app/ingestion/` | The corpus pipeline: discover → fetch → parse → chunk → embed |
+| `app/retrieval/` | The read side: hybrid search and exact article lookup         |
 | `migrations/`    | Alembic revisions                                             |
 | `tests/`         | Mirrors `app/`, with shared fixtures in `tests/conftest.py`   |
 
