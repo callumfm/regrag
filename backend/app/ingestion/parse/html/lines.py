@@ -64,7 +64,7 @@ def collect_lines(node: Node, level_pattern: re.Pattern[str] | None = None) -> l
 
 
 def _collect(node: Node, lines: list[Line], level_pattern: re.Pattern[str] | None) -> None:
-    """Recurse into containers, emitting one line per text block and skipping repeats."""
+    """Recurse into containers, emitting one line per text block."""
     for child in node.iter(include_text=False):
         subheading = read_subheading(child, level_pattern)
         if subheading is not None:
@@ -80,7 +80,7 @@ def _collect(node: Node, lines: list[Line], level_pattern: re.Pattern[str] | Non
         else:
             _collect(child, lines, level_pattern)
             continue
-        if line and (not lines or lines[-1] != line):
+        if line:
             lines.append(line)
 
 

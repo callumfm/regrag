@@ -64,6 +64,18 @@ def test_the_level_one_line_is_not_collected_because_it_is_the_annex_title():
     ]
 
 
+def test_a_repeated_table_row_is_kept_because_the_repetition_is_the_data():
+    node = subdivision(
+        '<html><body><div id="anx_I"><table><tbody>'
+        "<tr><td>Vessel A</td><td>0</td></tr>"
+        "<tr><td>Vessel A</td><td>0</td></tr>"
+        "<tr><td>Vessel B</td><td>1</td></tr>"
+        "</tbody></table></div></body></html>",
+        "anx_I",
+    )
+    assert collect_lines(node) == ["Vessel A 0", "Vessel A 0", "Vessel B 1"]
+
+
 def test_a_container_carrying_a_level_class_is_recursed_into_not_read_as_a_heading():
     node = subdivision(
         '<html><body><div id="anx_I">'
