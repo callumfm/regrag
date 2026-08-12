@@ -7,7 +7,7 @@ import pytest
 
 from app.ingestion import cli
 from app.ingestion.cli import main
-from app.ingestion.constants import PACE_SECONDS, SEEDS
+from app.ingestion.constants import CRAWL_DELAYS, SEEDS
 from app.ingestion.enums import DocChange
 from app.ingestion.exceptions import MalformedDiscoveryError
 from app.ingestion.result import IngestRunResult
@@ -93,7 +93,7 @@ async def test_ingest_builds_a_client_that_paces_eurlex(monkeypatch):
 
     def fake_client(**kwargs):
         built.update(kwargs)
-        return contextlib.nullcontext(httpx.Client())
+        return contextlib.nullcontext(httpx.AsyncClient())
 
     @contextlib.asynccontextmanager
     async def fake_session(**_):
@@ -106,4 +106,4 @@ async def test_ingest_builds_a_client_that_paces_eurlex(monkeypatch):
     monkeypatch.setattr(cli, "get_session", fake_session)
     monkeypatch.setattr(cli, "ingest", fake_ingest_call)
     await cli._ingest(["mrv"])
-    assert built["pace_seconds"] == PACE_SECONDS
+    assert built["delays"] == CRAWL_DELAYS

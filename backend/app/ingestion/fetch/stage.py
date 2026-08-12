@@ -44,18 +44,18 @@ def _reuse_stored_version(
     return expected, stored, content
 
 
-def _download_new_version(
-    client: httpx.Client, store: ObjectStore, discovered: DiscoveredDocument
+async def _download_new_version(
+    client: httpx.AsyncClient, store: ObjectStore, discovered: DiscoveredDocument
 ) -> Fetched:
     """Download the version EUR-Lex will serve, store its bytes, and stamp the fetch time."""
-    resolution, content = download_fetchable_version(client, discovered)
+    resolution, content = await download_fetchable_version(client, discovered)
     sha256, size_bytes = write_document(store, discovered.celex, resolution.resolved_celex, content)
     stored = StoredBytes(sha256=sha256, size_bytes=size_bytes, fetched_at=utc_now())
     return resolution, stored, content
 
 
-def _reuse_or_download(
-    client: httpx.Client,
+async def _reuse_or_download(
+    client: httpx.AsyncClient,
     discovered: DiscoveredDocument,
     *,
     previous: RawDocument | None,
@@ -63,9 +63,8 @@ def _reuse_or_download(
     store: ObjectStore,
 ) -> tuple[FetchedDocument, DocChange]:
     """Reuse the version the last run stored, or download the one discovery now points at."""
-    resolution, stored, content = _reuse_stored_version(
-        store, discovered, previous
-    ) or _download_new_version(client, store, discovered)
+    reused = _reuse_stored_version(store, discovered, previous)
+    resolution, stored, content = reused or await _download_new_version(client, store, discovered)
     change = DocChange.between(
         previous.resolved_celex if previous else None, resolution.resolved_celex
     )
@@ -81,7 +80,7 @@ def _reuse_or_download(
 async def fetch_document(
     session: AsyncSession,
     *,
-    client: httpx.Client,
+    client: httpx.AsyncClient,
     discovered: DiscoveredDocument,
     previous: RawDocument | None,
     run: IngestRun,
@@ -91,7 +90,7 @@ async def fetch_document(
     result = FetchRunResult()
     try:
         async with session.begin_nested():
-            fetched, change = _reuse_or_download(
+            fetched, change = await _reuse_or_download(
                 client, discovered, previous=previous, run=run, store=store
             )
             session.add(fetched.document)

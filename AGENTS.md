@@ -19,3 +19,6 @@
   that only works for now and is meant to be replaced later.
 - Do not write inline comments. Prefer self-describing code; where
   explanation is genuinely needed, use a docstring of 1-2 lines max.
+- Never add to a README unasked. The prose there is curated; ask first,
+  and take no for an answer. Design rationale belongs in the commit
+  message or a 1-2 line docstring, not a new README paragraph.

@@ -14,9 +14,11 @@ from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 
 
 @http_retry
-def discover_topic(client: httpx.Client, topic: str, seed_celex: str) -> list[DiscoveredDocument]:
+async def discover_topic(
+    client: httpx.AsyncClient, topic: str, seed_celex: str
+) -> list[DiscoveredDocument]:
     """Run the topic query and select from it; a result set without the seed act is an error."""
-    response = client.get(
+    response = await client.get(
         SPARQL_ENDPOINT,
         params={"query": topic_query(seed_celex), "format": "application/sparql-results+json"},
     )
@@ -27,12 +29,14 @@ def discover_topic(client: httpx.Client, topic: str, seed_celex: str) -> list[Di
     return documents
 
 
-def discover_topics(client: httpx.Client, topics: Sequence[str]) -> list[DiscoveredDocument]:
+async def discover_topics(
+    client: httpx.AsyncClient, topics: Sequence[str]
+) -> list[DiscoveredDocument]:
     """Discover all topics, deduped by celex (first topic wins), wrapping parse errors."""
     by_celex: dict[str, DiscoveredDocument] = {}
     for topic in topics:
         try:
-            documents = discover_topic(client, topic, SEEDS[topic])
+            documents = await discover_topic(client, topic, SEEDS[topic])
         except (KeyError, json.JSONDecodeError) as exc:
             raise MalformedDiscoveryError(f"{topic}: malformed SPARQL response: {exc!r}") from exc
         for document in documents:
@@ -58,11 +62,11 @@ def find_dropped_celexes(
     return dropped
 
 
-def discover_corpus(
-    client: httpx.Client, *, topics: Sequence[str], previous_celexes: Iterable[str]
+async def discover_corpus(
+    client: httpx.AsyncClient, *, topics: Sequence[str], previous_celexes: Iterable[str]
 ) -> tuple[list[DiscoveredDocument], DiscoverRunResult]:
     """Discover every topic's corpus and diff it against what the previous run held."""
-    documents = discover_topics(client, topics)
+    documents = await discover_topics(client, topics)
     dropped = find_dropped_celexes(documents, previous_celexes)
     result = DiscoverRunResult(dropped=dropped)
     return documents, result
