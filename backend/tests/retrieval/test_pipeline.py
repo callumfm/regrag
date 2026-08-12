@@ -1,8 +1,10 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import config
 from app.core.llm import LLMError
 from app.ingestion.chunk.schemas import DocumentChunk
+from app.retrieval.constants import RERANK_POOL
 from app.retrieval.models import SearchFilters
 from app.retrieval.pipeline import search
 
@@ -90,3 +92,67 @@ async def test_a_provider_failure_surfaces_rather_than_returning_nothing(
 
     with pytest.raises(LLMError):
         await search(db_session, "verification period")
+
+
+async def test_rerank_receives_a_pool_wider_than_the_limit(
+    db_session: AsyncSession, corpus: list[DocumentChunk], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pools = []
+
+    async def _capture(query, results, *, limit):
+        pools.append(len(results))
+        return results[:limit]
+
+    monkeypatch.setattr("app.retrieval.pipeline.rerank_results", _capture)
+
+    found = await search(db_session, "greenhouse gas emissions", limit=3)
+
+    assert len(found) == 3
+    assert 3 < pools[0] <= RERANK_POOL
+
+
+async def test_the_reranked_order_is_what_the_caller_receives(
+    db_session: AsyncSession, corpus: list[DocumentChunk], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _reverse(query, results, *, limit):
+        return tuple(reversed(results))[:limit]
+
+    monkeypatch.setattr("app.retrieval.pipeline.rerank_results", _reverse)
+
+    found = await search(db_session, "greenhouse gas emissions", limit=5)
+
+    assert [result.score for result in found] == sorted(result.score for result in found)
+
+
+async def test_disabling_rerank_skips_the_step_and_keeps_the_narrow_pool(
+    db_session: AsyncSession, corpus: list[DocumentChunk], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
+    async def _record(query, results, *, limit):
+        calls.append(query)
+        return results[:limit]
+
+    monkeypatch.setattr("app.retrieval.pipeline.rerank_results", _record)
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    found = await search(db_session, "greenhouse gas emissions", limit=3)
+
+    assert len(found) == 3
+    assert calls == []
+
+
+async def test_a_limit_above_the_rerank_pool_is_honoured(
+    db_session: AsyncSession, corpus: list[DocumentChunk], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pools = []
+
+    async def _capture(query, results, *, limit):
+        pools.append(len(results))
+        return results[:limit]
+
+    monkeypatch.setattr("app.retrieval.pipeline.rerank_results", _capture)
+
+    await search(db_session, "greenhouse gas emissions", limit=RERANK_POOL + 10)
+
+    assert pools[0] > RERANK_POOL
