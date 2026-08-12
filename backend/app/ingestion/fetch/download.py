@@ -2,13 +2,23 @@
 
 import httpx
 
-from app.core.http import http_retry
+from app.core.http import is_transient
+from app.core.retry import transient_retry
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
 from app.ingestion.fetch.models import ResolvedVersion
 
 HTML_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}"
 MISSING_MARKER = "The requested document does not exist."
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """A version EUR-Lex is rendering on demand resolves itself, like any transient failure."""
+    return isinstance(exc, DocumentStillRenderingError) or is_transient(exc)
+
+
+download_retry = transient_retry(_is_retryable)
+"""Decorator retrying one EUR-Lex request, including the 202 it answers while rendering."""
 
 
 def version_candidates(document: DiscoveredDocument) -> list[str]:
@@ -46,7 +56,7 @@ def expected_version(document: DiscoveredDocument) -> ResolvedVersion:
     return ResolvedVersion(resolved_celex=celex, url=html_url(celex))
 
 
-@http_retry
+@download_retry
 async def download_fetchable_version(
     client: httpx.AsyncClient, document: DiscoveredDocument
 ) -> tuple[ResolvedVersion, bytes]:

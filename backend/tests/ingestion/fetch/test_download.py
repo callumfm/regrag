@@ -47,6 +47,17 @@ def rendering_response():
     return httpx.Response(202, content=b"")
 
 
+def queued(responses):
+    """Transport answering each request with the next queued response, recording the celexes."""
+    calls: list[str] = []
+
+    def handler(request):
+        calls.append(request.url.params["uri"].removeprefix("CELEX:"))
+        return responses.pop(0)
+
+    return httpx.MockTransport(handler), calls
+
+
 def test_missing_document_page_detected():
     assert is_missing_document_page(f"<html><body>{MISSING_MARKER}</body></html>")
 
@@ -149,6 +160,18 @@ async def test_still_rendering_document_raises():
     async with httpx.AsyncClient(transport=transport(responses)) as client:
         with pytest.raises(DocumentStillRenderingError, match="32023R2917"):
             await download_fetchable_version(client, discovered_document(celex="32023R2917"))
+
+
+async def test_still_rendering_is_retried_until_eurlex_has_rendered_the_document():
+    """202 is the normal answer for a version nobody asked for recently, not a failed run."""
+    handler, calls = queued([rendering_response(), doc_response()])
+    async with httpx.AsyncClient(transport=handler) as client:
+        resolution, content = await download_fetchable_version(
+            client, discovered_document(celex="32023R2917")
+        )
+    assert resolution.resolved_celex == "32023R2917"
+    assert content == DOC_HTML.encode()
+    assert calls == ["32023R2917", "32023R2917"]
 
 
 async def test_still_rendering_candidate_does_not_fall_back_to_the_original_act():
