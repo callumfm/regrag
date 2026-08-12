@@ -25,7 +25,7 @@ from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.stage import discover_topic
 from app.ingestion.embed.stage import _embed_texts
 from app.ingestion.enums import IngestRunStatus, SectionKind
-from app.ingestion.fetch.download import download_fetchable_version
+from app.ingestion.fetch.download import download_version
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
@@ -33,7 +33,7 @@ from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import write_document
 from app.main import configure_app
 
-RETRIED = (discover_topic, download_fetchable_version, _embed_texts)
+RETRIED = (discover_topic, download_version, _embed_texts)
 
 PARSE_FIXTURES = Path(__file__).parent / "ingestion" / "parse" / "fixtures"
 FUELEU_HTML = (PARSE_FIXTURES / "32023R1805.html").read_text()

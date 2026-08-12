@@ -11,7 +11,6 @@ from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVer
 from app.ingestion.fetch.download import (
     MISSING_MARKER,
     download_fetchable_version,
-    expected_version,
     is_missing,
     is_missing_document_page,
     version_candidates,
@@ -47,6 +46,17 @@ def rendering_response():
     return httpx.Response(202, content=b"")
 
 
+def queued(responses):
+    """Transport answering each request with the next queued response, recording the celexes."""
+    calls: list[str] = []
+
+    def handler(request):
+        calls.append(request.url.params["uri"].removeprefix("CELEX:"))
+        return responses.pop(0)
+
+    return httpx.MockTransport(handler), calls
+
+
 def test_missing_document_page_detected():
     assert is_missing_document_page(f"<html><body>{MISSING_MARKER}</body></html>")
 
@@ -66,19 +76,6 @@ def test_soft_404_is_missing():
 
 def test_served_document_is_not_missing():
     assert not is_missing(doc_response())
-
-
-def test_expected_version_points_at_the_candidate_without_a_request():
-    assert expected_version(
-        discovered_document(candidate="02015R0757-20250101")
-    ) == ResolvedVersion(
-        resolved_celex="02015R0757-20250101",
-        url="https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:02015R0757-20250101",
-    )
-
-
-def test_expected_version_falls_back_to_the_act_when_discovery_found_no_consolidation():
-    assert expected_version(discovered_document(celex="32023R2449")).resolved_celex == "32023R2449"
 
 
 async def test_downloads_candidate_when_html_exists():
@@ -151,6 +148,18 @@ async def test_still_rendering_document_raises():
             await download_fetchable_version(client, discovered_document(celex="32023R2917"))
 
 
+async def test_still_rendering_is_retried_until_eurlex_has_rendered_the_document():
+    """202 is the normal answer for a version nobody asked for recently, not a failed run."""
+    handler, calls = queued([rendering_response(), doc_response()])
+    async with httpx.AsyncClient(transport=handler) as client:
+        resolution, content = await download_fetchable_version(
+            client, discovered_document(celex="32023R2917")
+        )
+    assert resolution.resolved_celex == "32023R2917"
+    assert content == DOC_HTML.encode()
+    assert calls == ["32023R2917", "32023R2917"]
+
+
 async def test_still_rendering_candidate_does_not_fall_back_to_the_original_act():
     """Falling back would swap a consolidated version for the original act and call it changed."""
     responses = {"02023R2917-20231229": rendering_response(), "32023R2917": doc_response()}
@@ -159,6 +168,17 @@ async def test_still_rendering_candidate_does_not_fall_back_to_the_original_act(
             await download_fetchable_version(
                 client, discovered_document(celex="32023R2917", candidate="02023R2917-20231229")
             )
+
+
+async def test_a_denied_candidate_is_not_requested_again_when_a_later_one_retries():
+    """The retry covers one request: restarting the loop re-asks for a version already denied."""
+    handler, calls = queued([missing_response(404), httpx.Response(503), doc_response()])
+    async with httpx.AsyncClient(transport=handler) as client:
+        resolution, _ = await download_fetchable_version(
+            client, discovered_document(celex="32023R2917", candidate="02023R2917-20231229")
+        )
+    assert resolution.resolved_celex == "32023R2917"
+    assert calls == ["02023R2917-20231229", "32023R2917", "32023R2917"]
 
 
 async def test_unexpected_error_status_raises():

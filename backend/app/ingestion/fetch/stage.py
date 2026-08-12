@@ -5,15 +5,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
-from app.core.storage import ObjectStore, StorageError
+from app.core.storage import ObjectNotFoundError, ObjectStore, StorageError
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.enums import DocChange, Stage
 from app.ingestion.exceptions import DocumentFailed, IngestionError
-from app.ingestion.fetch.download import download_fetchable_version, expected_version
+from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.models import FetchedDocument, ResolvedVersion, StoredBytes
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
-from app.ingestion.storage import read_document, write_document
+from app.ingestion.storage import StoredBytesMismatchError, read_document, write_document
 
 Fetched = tuple[ResolvedVersion, StoredBytes, bytes]
 
@@ -23,20 +23,20 @@ def _reuse_stored_version(
 ) -> Fetched | None:
     """The version and bytes the previous run stored, if the download would land on that version.
 
-    Sparing the request is the point: an unchanged act is the common case, and reading its
-    stored bytes both proves they are still there and gives parse what it needs.
+    Discovery pointing at the same candidate is what settles that: the version EUR-Lex served
+    for it is the one it will serve again, whether that was the candidate or the original act.
     """
-    expected = expected_version(discovered)
-    if previous is None or previous.resolved_celex != expected.resolved_celex:
+    if previous is None or previous.candidate_celex != discovered.candidate_celex:
         return None
     try:
         content = read_document(store, previous)
-    except StorageError:
+    except (ObjectNotFoundError, StoredBytesMismatchError):
         return None
+    resolution = ResolvedVersion(resolved_celex=previous.resolved_celex, url=previous.url)
     stored = StoredBytes(
         sha256=previous.sha256, size_bytes=previous.size_bytes, fetched_at=previous.fetched_at
     )
-    return expected, stored, content
+    return resolution, stored, content
 
 
 async def _download_new_version(
@@ -64,7 +64,7 @@ async def _reuse_or_download(
         previous.resolved_celex if previous else None, resolution.resolved_celex
     )
     document = RawDocument(
-        **discovered.model_dump(exclude={"candidate_celex"}),
+        **discovered.model_dump(),
         **resolution.model_dump(),
         **stored.model_dump(),
         run=run,

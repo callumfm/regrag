@@ -19,6 +19,7 @@ class RawDocument(BaseSchema):
     ingest_run_id: Mapped[int] = mapped_column(ForeignKey("ingest_runs.id", ondelete="CASCADE"))
     source: Mapped[str]
     celex: Mapped[str]
+    candidate_celex: Mapped[str | None]
     resolved_celex: Mapped[str]
     topic: Mapped[str]
     url: Mapped[str]

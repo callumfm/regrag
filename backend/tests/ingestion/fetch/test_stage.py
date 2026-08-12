@@ -5,6 +5,7 @@ import hashlib
 import httpx
 import pytest
 
+from app.core.storage import StorageError
 from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.enums import DocChange, IngestRunStatus
 from app.ingestion.exceptions import DocumentFailed, ParseError
@@ -44,6 +45,24 @@ def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store,
     )
 
 
+def test_reuse_carries_the_version_that_was_served_not_the_one_that_was_asked_for(
+    local_store, store_document
+):
+    """The fallback case: the row keeps pointing at the act EUR-Lex served, and its URL."""
+    prev = store_document(
+        IngestRun(status=IngestRunStatus.SUCCESS),
+        celex="32023R1805",
+        candidate_celex="02023R1805-20250101",
+    )
+    asked_again = discovered_document("32023R1805", candidate="02023R1805-20250101")
+
+    reused = _reuse_stored_version(local_store, asked_again, prev)
+
+    assert reused is not None
+    assert reused[0].resolved_celex == "32023R1805"
+    assert reused[0].url.endswith("CELEX:32023R1805")
+
+
 def test_a_newly_discovered_consolidation_is_not_reused(local_store, store_document):
     """Discovery pointing somewhere new is exactly the case that has to hit the network."""
     prev = stored(store_document)
@@ -68,6 +87,21 @@ def test_stored_bytes_that_do_not_match_the_row_are_not_reused(local_store, stor
     local_store.put(key, b"<html>a different version</html>")
 
     assert _reuse_stored_version(local_store, discovered_document("32023R1805"), prev) is None
+
+
+def test_a_store_that_cannot_be_read_is_not_treated_as_a_missing_object(
+    local_store, store_document, monkeypatch
+):
+    """An outage answers every read the same way, and re-downloading only fails at the write."""
+    prev = stored(store_document)
+
+    def outage(key: str) -> bytes:
+        raise StorageError("get", key, "connection reset by peer")
+
+    monkeypatch.setattr(local_store, "get", outage)
+
+    with pytest.raises(StorageError):
+        _reuse_stored_version(local_store, discovered_document("32023R1805"), prev)
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
@@ -143,6 +177,34 @@ async def test_unchanged_run_makes_no_html_requests_and_carries_sha(
     assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
 
 
+async def test_a_consolidation_eurlex_will_not_serve_is_not_asked_for_again(
+    db_session, local_store, corpus_client
+):
+    """An act with a consolidated id but no consolidated text: run 1 falls back to the act.
+
+    Comparing the stored version against the candidate would deny the match every run and
+    re-download the whole corpus for as long as EUR-Lex serves no consolidation.
+    """
+    sparql = {
+        "mrv": httpx.Response(
+            200,
+            json=payload(
+                binding("32015R0757", force="1", cons="02015R0757-20250101"),
+                binding("32023R2449", force="1"),
+            ),
+        )
+    }
+    docs = mrv_docs({"02015R0757-20250101": httpx.Response(404, text="gone")})
+    client, _ = corpus_client(sparql, docs)
+    await fetch(db_session, client, ["mrv"], local_store)
+
+    client, calls = corpus_client(sparql, docs)
+    changes, _, _ = await fetch(db_session, client, ["mrv"], local_store)
+
+    assert calls == []
+    assert celexes(changes, DocChange.REUSED) == ["32015R0757", "32023R2449"]
+
+
 async def test_new_consolidation_is_updated_and_redownloaded(
     db_session, local_store, corpus_client
 ):
@@ -207,6 +269,25 @@ async def test_a_vanished_doc_gets_no_row_from_this_run(db_session, local_store,
 
     assert celexes(changes, DocChange.REUSED) == ["32015R0757"]
     assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
+
+
+async def test_a_store_outage_fails_the_run_rather_than_refetching_the_corpus(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """Every document's bytes become unreadable at once: that is the store, not the corpus."""
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    await fetch(db_session, client, ["mrv"], local_store)
+
+    def outage(key: str) -> bytes:
+        raise StorageError("get", key, "connection reset by peer")
+
+    monkeypatch.setattr(local_store, "get", outage)
+    client, calls = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    changes, failed, _ = await fetch(db_session, client, ["mrv"], local_store)
+
+    assert sorted(failed) == ["32015R0757", "32023R2449"]
+    assert changes == {}
+    assert calls == []
 
 
 async def test_per_doc_failure_continues_and_is_recorded(db_session, local_store, corpus_client):

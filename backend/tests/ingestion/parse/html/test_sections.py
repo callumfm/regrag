@@ -84,6 +84,20 @@ def test_consolidated_annex_label_and_title(mrv: ParsedDocument):
     assert annex.title == "Methods for monitoring greenhouse gas emissions"
 
 
+def test_an_annex_holding_no_blocks_still_yields_its_prose():
+    document = parse_eurlex_html(
+        "<html><body>"
+        '<div class="eli-subdivision" id="art_1">'
+        '<p class="oj-ti-art">Article 1</p><p class="oj-normal">Subject matter.</p></div>'
+        '<div id="anx_I"><div class="oj-normal">Annex prose in a bare div.</div></div>'
+        "</body></html>",
+        "x",
+        "t",
+    )
+    prose = of_kind(annexes(document)[0].children, SectionKind.PARAGRAPH)
+    assert [section.text for section in prose] == ["Annex prose in a bare div."]
+
+
 def test_oj_annex_prose_is_kept_alongside_its_tables(fueleu: ParsedDocument):
     annex = annexes(fueleu)[0]
     prose = of_kind(annex.children, SectionKind.PARAGRAPH)

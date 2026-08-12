@@ -26,6 +26,15 @@ class StorageError(DomainError):
         super().__init__(f"Storage {operation} failed for '{key}'{detail}")
 
 
+class ObjectNotFoundError(StorageError):
+    """Nothing is stored at the key, which the store answered rather than failed to answer."""
+
+
+def is_missing_object(exc: ClientError) -> bool:
+    """Whether the error says the object is not there, rather than that the read failed."""
+    return exc.response.get("Error", {}).get("Code") in NOT_FOUND_CODES
+
+
 def validate_key(key: str) -> None:
     """Refuse anything but a plain relative path, so both backends accept the same keys.
 
@@ -72,8 +81,11 @@ class LocalObjectStore:
             raise StorageError("put", key, exc) from exc
 
     def get(self, key: str) -> bytes:
+        path = self._path(key)
         try:
-            return self._path(key).read_bytes()
+            return path.read_bytes()
+        except FileNotFoundError as exc:
+            raise ObjectNotFoundError("get", key, exc) from exc
         except OSError as exc:
             raise StorageError("get", key, exc) from exc
 
@@ -99,7 +111,11 @@ class S3ObjectStore:
         validate_key(key)
         try:
             return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
-        except BOTO_ERRORS as exc:
+        except ClientError as exc:
+            if is_missing_object(exc):
+                raise ObjectNotFoundError("get", key, exc) from exc
+            raise StorageError("get", key, exc) from exc
+        except BotoCoreError as exc:
             raise StorageError("get", key, exc) from exc
 
     def exists(self, key: str) -> bool:
@@ -107,7 +123,7 @@ class S3ObjectStore:
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
         except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") in NOT_FOUND_CODES:
+            if is_missing_object(exc):
                 return False
             raise StorageError("head", key, exc) from exc
         except BotoCoreError as exc:

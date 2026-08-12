@@ -49,12 +49,12 @@ def http_client(
     )
 
 
-def _is_transient(exc: BaseException) -> bool:
+def is_transient(exc: BaseException) -> bool:
     """Network errors and retryable status codes; client errors are permanent."""
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in RETRYABLE_STATUS_CODES
     return isinstance(exc, httpx.TransportError)
 
 
-http_retry = transient_retry(_is_transient)
+http_retry = transient_retry(is_transient)
 """Decorator retrying transient HTTP failures with exponential backoff."""
