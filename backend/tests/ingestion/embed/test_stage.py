@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import EMBED_DIMENSIONS
 from app.core.llm import LLMError
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.chunk.service import get_unembedded_chunks
+from app.ingestion.chunk.service import get_chunks
 from app.ingestion.embed.stage import _batches, embed_chunks
 
 pytestmark = pytest.mark.anyio
@@ -43,7 +43,7 @@ async def test_every_vectorless_chunk_gets_a_vector(db_session, ingest_run, make
     result = await embed_chunks(db_session)
 
     assert (result.embedded, result.already_embedded, result.failed) == (3, 0, {})
-    assert await get_unembedded_chunks(db_session, limit=100) == []
+    assert await get_chunks(db_session, has_embedding=False, limit=100) == []
 
 
 async def test_vectors_land_on_the_rows_in_input_order(db_session, ingest_run, make_chunk_row):
@@ -157,7 +157,7 @@ async def test_a_later_batch_failing_keeps_the_earlier_batches_vectors(
     assert [len(batch) for batch in embeddings.calls] == [128, 72]
     assert result.embedded == 128
     assert list(result.failed) == ["32023R1805"]
-    assert len(await get_unembedded_chunks(db_session, limit=100)) == 72
+    assert len(await get_chunks(db_session, has_embedding=False, limit=100)) == 72
 
 
 async def test_an_empty_table_makes_no_provider_call(db_session, embeddings):
@@ -178,7 +178,7 @@ async def test_a_corpus_larger_than_one_page_ends_with_every_chunk_embedded(
     result = await embed_chunks(db_session)
 
     assert result.embedded == 7
-    assert await get_unembedded_chunks(db_session, limit=100) == []
+    assert await get_chunks(db_session, has_embedding=False, limit=100) == []
 
 
 async def test_a_batch_that_keeps_failing_does_not_loop_the_sweep(

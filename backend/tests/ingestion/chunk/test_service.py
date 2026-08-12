@@ -8,10 +8,10 @@ from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.service import (
     StoredChunk,
-    count_embedded_chunks,
+    count_chunks,
     delete_chunks,
     delete_chunks_outside,
-    get_unembedded_chunks,
+    get_chunks,
     insert_chunks,
     key_incoming_chunks,
     key_stored_chunks,
@@ -259,7 +259,7 @@ async def test_returns_only_the_chunks_without_a_vector(db_session, ingest_run, 
     db_session.add(make_chunk_row(ingest_run, content_hash="b" * 64, embedding=VECTOR))
     await db_session.flush()
 
-    pending = await get_unembedded_chunks(db_session, limit=100)
+    pending = await get_chunks(db_session, has_embedding=False, limit=100)
 
     assert [row.content_hash for row in pending] == ["a" * 64]
 
@@ -270,7 +270,7 @@ async def test_orders_by_document_then_insertion(db_session, ingest_run, make_ch
         db_session.add(make_chunk_row(ingest_run, celex=celex, content_hash=digest * 64))
     await db_session.flush()
 
-    pending = await get_unembedded_chunks(db_session, limit=100)
+    pending = await get_chunks(db_session, has_embedding=False, limit=100)
 
     assert [row.celex for row in pending] == ["32015R0757", "32023R1805", "32023R1805"]
     assert [row.content_hash[0] for row in pending] == ["b", "a", "c"]
@@ -282,11 +282,11 @@ async def test_counts_only_the_chunks_that_carry_a_vector(db_session, ingest_run
     db_session.add(make_chunk_row(ingest_run, content_hash="c" * 64, embedding=VECTOR))
     await db_session.flush()
 
-    assert await count_embedded_chunks(db_session) == 2
+    assert await count_chunks(db_session, has_embedding=True) == 2
 
 
 async def test_counts_zero_on_an_empty_table(db_session):
-    assert await count_embedded_chunks(db_session) == 0
+    assert await count_chunks(db_session, has_embedding=True) == 0
 
 
 async def test_key_stored_chunks_keys_every_row_by_hash_and_occurrence(

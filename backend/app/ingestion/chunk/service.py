@@ -141,31 +141,42 @@ async def upsert_document_chunks(
     )
 
 
-async def get_unembedded_chunks(
-    session: AsyncSession, *, after: tuple[str, int] | None = None, limit: int
+async def get_chunks(
+    session: AsyncSession,
+    *,
+    has_embedding: bool | None = None,
+    after: tuple[str, int] | None = None,
+    limit: int | None = None,
 ) -> Sequence[DocumentChunk]:
-    """One page of vectorless chunks, ordered so a batch can stay inside one document.
-
-    Keyset, not OFFSET: the sweep writes vectors as it reads, so rows leave this query's
-    predicate mid-run and an offset would skip past the ones that shifted under it.
-    """
+    """Chunks ordered by (celex, id); `after` pages by keyset because the embed sweep
+    moves rows out of the filter mid-scan, which would shift an OFFSET under it."""
     stmt = (
         select(DocumentChunk)
         .options(defer(DocumentChunk.search_vector))
-        .where(DocumentChunk.embedding.is_(None))
         .order_by(DocumentChunk.celex, DocumentChunk.id)
-        .limit(limit)
     )
+    if has_embedding is not None:
+        stmt = stmt.where(
+            DocumentChunk.embedding.is_not(None)
+            if has_embedding
+            else DocumentChunk.embedding.is_(None)
+        )
     if after is not None:
         stmt = stmt.where(tuple_(DocumentChunk.celex, DocumentChunk.id) > after)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return (await session.scalars(stmt)).all()
 
 
-async def count_embedded_chunks(session: AsyncSession) -> int:
-    """How many chunks already carry a vector."""
-    stmt = (
-        select(func.count()).select_from(DocumentChunk).where(DocumentChunk.embedding.is_not(None))
-    )
+async def count_chunks(session: AsyncSession, *, has_embedding: bool | None = None) -> int:
+    """How many chunks there are, optionally filtered by whether they carry a vector."""
+    stmt = select(func.count()).select_from(DocumentChunk)
+    if has_embedding is not None:
+        stmt = stmt.where(
+            DocumentChunk.embedding.is_not(None)
+            if has_embedding
+            else DocumentChunk.embedding.is_(None)
+        )
     return await session.scalar(stmt) or 0
 
 
