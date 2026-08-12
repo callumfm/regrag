@@ -7,6 +7,10 @@ from app.ingestion.exceptions import EmptyDownloadError
 from app.ingestion.fetch.schemas import RawDocument
 
 
+class StoredBytesMismatchError(StorageError):
+    """The object at a document's key is not the one the row recorded."""
+
+
 def document_key(celex: str, resolved_celex: str, sha256: str) -> str:
     """Where a document's bytes live, keyed by content so a new version never overwrites a
     version an earlier parse ran against."""
@@ -34,5 +38,5 @@ def read_document(store: ObjectStore, document: RawDocument) -> bytes:
     key = document_key(document.celex, document.resolved_celex, document.sha256)
     content = store.get(key)
     if hashlib.sha256(content).hexdigest() != document.sha256:
-        raise StorageError("verify", key, "stored bytes do not match the recorded hash")
+        raise StoredBytesMismatchError("verify", key, "stored bytes do not match the recorded hash")
     return content

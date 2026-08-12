@@ -5,7 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
-from app.core.storage import ObjectStore, StorageError
+from app.core.storage import ObjectNotFoundError, ObjectStore, StorageError
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.enums import DocChange
 from app.ingestion.exceptions import IngestionError
@@ -18,7 +18,7 @@ from app.ingestion.fetch.models import (
 )
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
-from app.ingestion.storage import read_document, write_document
+from app.ingestion.storage import StoredBytesMismatchError, read_document, write_document
 
 Fetched = tuple[ResolvedVersion, StoredBytes, bytes]
 
@@ -35,7 +35,7 @@ def _reuse_stored_version(
         return None
     try:
         content = read_document(store, previous)
-    except StorageError:
+    except (ObjectNotFoundError, StoredBytesMismatchError):
         return None
     resolution = ResolvedVersion(resolved_celex=previous.resolved_celex, url=previous.url)
     stored = StoredBytes(

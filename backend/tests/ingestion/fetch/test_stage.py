@@ -5,6 +5,7 @@ import hashlib
 import httpx
 import pytest
 
+from app.core.storage import StorageError
 from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import ParseError
@@ -86,6 +87,21 @@ def test_stored_bytes_that_do_not_match_the_row_are_not_reused(local_store, stor
     local_store.put(key, b"<html>a different version</html>")
 
     assert _reuse_stored_version(local_store, discovered_document("32023R1805"), prev) is None
+
+
+def test_a_store_that_cannot_be_read_is_not_treated_as_a_missing_object(
+    local_store, store_document, monkeypatch
+):
+    """An outage answers every read the same way, and re-downloading only fails at the write."""
+    prev = stored(store_document)
+
+    def outage(key: str) -> bytes:
+        raise StorageError("get", key, "connection reset by peer")
+
+    monkeypatch.setattr(local_store, "get", outage)
+
+    with pytest.raises(StorageError):
+        _reuse_stored_version(local_store, discovered_document("32023R1805"), prev)
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
@@ -241,6 +257,25 @@ async def test_a_vanished_doc_gets_no_row_from_this_run(db_session, local_store,
 
     assert report.unchanged == ["32015R0757"]
     assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
+
+
+async def test_a_store_outage_fails_the_run_rather_than_refetching_the_corpus(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """Every document's bytes become unreadable at once: that is the store, not the corpus."""
+    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    await fetch(db_session, client, ["mrv"], local_store)
+
+    def outage(key: str) -> bytes:
+        raise StorageError("get", key, "connection reset by peer")
+
+    monkeypatch.setattr(local_store, "get", outage)
+    client, calls = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
+    report, _ = await fetch(db_session, client, ["mrv"], local_store)
+
+    assert sorted(report.failed) == ["32015R0757", "32023R2449"]
+    assert not report.ok
+    assert calls == []
 
 
 async def test_per_doc_failure_continues_and_is_recorded(db_session, local_store, corpus_client):
