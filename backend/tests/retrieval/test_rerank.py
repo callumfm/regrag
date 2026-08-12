@@ -31,9 +31,9 @@ def _result(chunk_id: int) -> SearchResult:
     )
 
 
-async def test_rerank_orders_indices_best_first(monkeypatch):
+async def test_rerank_returns_the_provider_ranking_in_order(monkeypatch):
     async def fake_arerank(**kwargs):
-        return _response([(0, 0.1), (1, 0.9), (2, 0.5)])
+        return _response([(1, 0.9), (2, 0.5), (0, 0.1)])
 
     monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
 
@@ -98,13 +98,13 @@ async def test_rerank_raises_on_a_response_that_is_not_a_permutation(monkeypatch
         await _rerank("q", ["a", "b"])
 
 
-def _response_missing_a_score() -> RerankResponse:
-    return RerankResponse.model_construct(results=[{"index": 0}])
+def _response_missing_the_index() -> RerankResponse:
+    return RerankResponse.model_construct(results=[{"relevance_score": 0.9}])
 
 
 async def test_a_response_item_missing_a_field_raises_from_rerank(monkeypatch):
     async def fake_arerank(**kwargs):
-        return _response_missing_a_score()
+        return _response_missing_the_index()
 
     monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
 
@@ -114,7 +114,7 @@ async def test_a_response_item_missing_a_field_raises_from_rerank(monkeypatch):
 
 async def test_a_response_item_missing_a_field_degrades_to_the_fused_order(monkeypatch):
     async def fake_arerank(**kwargs):
-        return _response_missing_a_score()
+        return _response_missing_the_index()
 
     monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
     fused = (_result(1), _result(2))

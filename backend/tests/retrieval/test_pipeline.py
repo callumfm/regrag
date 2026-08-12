@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import config
 from app.core.llm import LLMError
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.retrieval.constants import RERANK_POOL
 from app.retrieval.models import SearchFilters, SearchResult
 from app.retrieval.pipeline import search
 from app.retrieval.rerank import rerank_results
@@ -110,7 +109,7 @@ async def test_rerank_receives_a_pool_wider_than_the_limit(
     found = await search(db_session, "greenhouse gas emissions", limit=3)
 
     assert len(found) == 3
-    assert 3 < pools[0] <= RERANK_POOL
+    assert 3 < pools[0] <= config.RERANK_POOL
 
 
 async def test_the_reranked_order_is_what_the_caller_receives(
@@ -156,7 +155,7 @@ async def test_the_real_rerank_path_reorders_the_pool(
     async def fake_arerank(**kwargs):
         count = len(kwargs["documents"])
         return RerankResponse(
-            results=[{"index": i, "relevance_score": float(i)} for i in range(count)]
+            results=[{"index": i, "relevance_score": float(i)} for i in reversed(range(count))]
         )
 
     monkeypatch.setattr("app.retrieval.pipeline.rerank_results", spying_rerank_results)
@@ -178,6 +177,6 @@ async def test_a_limit_above_the_rerank_pool_is_honoured(
 
     monkeypatch.setattr("app.retrieval.pipeline.rerank_results", _capture)
 
-    await search(db_session, "greenhouse gas emissions", limit=RERANK_POOL + 10)
+    await search(db_session, "greenhouse gas emissions", limit=config.RERANK_POOL + 10)
 
-    assert pools[0] > RERANK_POOL
+    assert pools[0] > config.RERANK_POOL

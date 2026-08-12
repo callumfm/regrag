@@ -146,7 +146,26 @@ class RerankConfig(BaseConfig):
     RERANK_TIMEOUT: int = 30
 
 
-class Config(AppConfig, PostgresConfig, EmbeddingConfig, RerankConfig, StorageConfig):
+class RetrievalConfig(BaseConfig):
+    """Search tunables: pool sizes and fusion shape."""
+
+    SEARCH_CANDIDATES: int = 50
+    """How many top results each search leg (vector, keyword) feeds into the rank fusion."""
+
+    SEARCH_DEFAULT_LIMIT: int = 10
+    """Results returned when a caller does not ask for a specific number."""
+
+    RRF_K: int = 60
+    """Reciprocal Rank Fusion damping: a rank scores 1/(k + rank), so a higher k flattens the
+    reward for top ranks and favours documents both legs agree on."""
+
+    RERANK_POOL: int = 30
+    """How many fused results the cross-encoder sees before the cut to the caller's limit."""
+
+
+class Config(
+    AppConfig, PostgresConfig, EmbeddingConfig, RerankConfig, RetrievalConfig, StorageConfig
+):
     """Combined configuration class for core app functionality."""
 
 

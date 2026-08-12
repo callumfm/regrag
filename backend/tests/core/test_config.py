@@ -11,6 +11,7 @@ from app.core.config import (
     EmbeddingConfig,
     Environment,
     RerankConfig,
+    RetrievalConfig,
     StorageBackend,
     StorageConfig,
     get_env_file,
@@ -118,3 +119,16 @@ def test_rerank_defaults_to_on_with_voyage_2_5():
 
 def test_combined_config_carries_the_rerank_settings():
     assert Config().RERANK_ENABLED is True
+
+
+def test_retrieval_defaults_match_the_shipped_tunables():
+    retrieval = RetrievalConfig()
+
+    assert retrieval.SEARCH_CANDIDATES == 50
+    assert retrieval.SEARCH_DEFAULT_LIMIT == 10
+    assert retrieval.RRF_K == 60
+    assert retrieval.RERANK_POOL == 30
+
+
+def test_combined_config_carries_the_retrieval_tunables():
+    assert Config().RERANK_POOL == 30

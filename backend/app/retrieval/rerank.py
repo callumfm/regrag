@@ -1,9 +1,9 @@
 """Cross-encoder rerank of fused results: one Voyage call, degrading to the fused order."""
 
 import logging
-from operator import itemgetter
 
 import litellm
+from litellm.types.rerank import RerankResponse
 
 from app.core.config import config
 from app.core.llm import TRANSIENT_PROVIDER_ERRORS, LLMError, ProviderError, llm_retry
@@ -27,16 +27,18 @@ async def _rerank(query: str, documents: list[str]) -> list[int]:
         raise LLMError(
             "rerank call failed", transient=isinstance(exc, TRANSIENT_PROVIDER_ERRORS)
         ) from exc
+    return _ranked_indices(response, expected=len(documents))
+
+
+def _ranked_indices(response: RerankResponse, *, expected: int) -> list[int]:
+    """The response's ranking, which the provider returns best-first, checked for completeness."""
     try:
-        ranked = sorted(response.results or [], key=itemgetter("relevance_score"), reverse=True)
-        order = [result["index"] for result in ranked]
-    except (KeyError, TypeError, AttributeError) as exc:
+        order = [result["index"] for result in response.results or []]
+    except (KeyError, TypeError) as exc:
         raise LLMError("rerank call failed") from exc
-    if sorted(order) != list(range(len(documents))):
+    if sorted(order) != list(range(expected)):
         logger.warning(
-            "rerank response misaligned: got %d items for %d documents",
-            len(order),
-            len(documents),
+            "rerank response misaligned: got %d items for %d documents", len(order), expected
         )
         raise LLMError("rerank call failed")
     return order

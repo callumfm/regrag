@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import config
 from app.core.llm import EmbedInput, embed, llm_retry
-from app.retrieval.constants import CANDIDATES, DEFAULT_LIMIT, RERANK_POOL, RRF_K
 from app.retrieval.models import SearchFilters, SearchResult
 from app.retrieval.rerank import rerank_results
 from app.retrieval.service import hybrid_search
@@ -22,13 +21,13 @@ async def search(
     query: str,
     filters: SearchFilters | None = None,
     *,
-    limit: int = DEFAULT_LIMIT,
-    candidates: int = CANDIDATES,
-    k: int = RRF_K,
+    limit: int = config.SEARCH_DEFAULT_LIMIT,
+    candidates: int = config.SEARCH_CANDIDATES,
+    k: int = config.RRF_K,
 ) -> tuple[SearchResult, ...]:
     """The corpus's best answers to a query, fused across both legs and reranked."""
     embedding = await _embed_query(query)
-    pool = max(limit, RERANK_POOL) if config.RERANK_ENABLED else limit
+    pool = max(limit, config.RERANK_POOL) if config.RERANK_ENABLED else limit
     results = await hybrid_search(
         session,
         embedding,
