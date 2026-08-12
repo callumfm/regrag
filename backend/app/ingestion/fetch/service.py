@@ -22,15 +22,6 @@ def _latest_run_id(*predicates: ColumnElement[bool]) -> ScalarSelect[int]:
     return stmt.scalar_subquery()
 
 
-def latest_run_docs() -> Select[tuple[RawDocument]]:
-    """Documents from each topic's own latest run, the one in flight included.
-
-    Aborted runs are skipped: their rows are a prefix, so they would understate their topic.
-    """
-    latest = _latest_run_id(IngestRun.status != IngestRunStatus.ABORTED)
-    return select(RawDocument).where(RawDocument.ingest_run_id == latest)
-
-
 def standing_docs() -> Select[tuple[RawDocument]]:
     """Documents held from each topic's latest complete run on, incomplete runs included.
 
@@ -42,8 +33,10 @@ def standing_docs() -> Select[tuple[RawDocument]]:
 
 
 async def get_corpus_docs(session: AsyncSession) -> Sequence[RawDocument]:
-    """Every topic's latest documents, across all topics."""
-    return (await session.scalars(latest_run_docs())).all()
+    """The newest row per celex the corpus still holds, across all topics."""
+    stmt = standing_docs().order_by(RawDocument.ingest_run_id)
+    rows = await session.scalars(stmt)
+    return list({row.celex: row for row in rows}.values())
 
 
 async def get_other_topic_celexes(session: AsyncSession, topics: Sequence[str]) -> set[str]:
