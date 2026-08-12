@@ -16,6 +16,8 @@ ARTICLE_TAIL = re.compile(r"\s*(?:,|and)\s+(\d{1,3}[a-z]?)\b(?:\((\d+[a-z]?)\))?
 ANNEX_REF = re.compile(r"Annexe?s?\s+([IVXLC]+|\d+)")
 ANNEX_TAIL = re.compile(r"\s*(?:,|and)\s+([IVXLC]{1,4}|\d{1,2})\b")
 INSTRUMENT_REF = re.compile(
+    r"(?:(?:Council|Commission(?:\s+(?:Implementing|Delegated))?"
+    r"|European\s+Parliament\s+and\s+Council)\s+)?"
     r"(Regulation|Directive|Decision)\s*(?:\((?:EU|EC|EEC|Euratom)\)\s*)?(No\s*)?"
     r"(\d{1,4})/(\d{1,4})(?:/\w{2,7})?",
     re.IGNORECASE,

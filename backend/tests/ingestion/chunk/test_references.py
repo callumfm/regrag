@@ -57,7 +57,7 @@ def test_resolves_numbered_instrument_as_number_before_year() -> None:
 
 def test_resolves_a_two_digit_year_to_the_twentieth_century() -> None:
     references = extract_references("as amended by Council Directive 92/43/EEC")
-    assert references == (Reference(raw="Directive 92/43/EEC", instrument="31992L0043"),)
+    assert references == (Reference(raw="Council Directive 92/43/EEC", instrument="31992L0043"),)
 
 
 def test_resolves_a_numbered_instrument_with_a_two_digit_year() -> None:
@@ -158,3 +158,53 @@ def test_an_instrument_a_division_claimed_is_not_cited_again_in_its_own_right() 
     divisions = find_division_mentions(text)
     assert unattributed_instruments(text, divisions, find_instrument_mentions(text)) == []
     assert unattributed_instruments(text, [], find_instrument_mentions(text)) != []
+
+
+def test_attributes_article_across_a_council_prefix() -> None:
+    references = extract_references("pursuant to Article 3 of Council Regulation (EEC) No 3577/92")
+    assert references == (
+        Reference(
+            raw="Article 3 of Council Regulation (EEC) No 3577/92",
+            instrument="31992R3577",
+            article="3",
+        ),
+    )
+
+
+def test_attributes_article_across_a_commission_implementing_prefix() -> None:
+    references = extract_references(
+        "in Article 2 of Commission Implementing Regulation (EU) 2016/1927"
+    )
+    assert references == (
+        Reference(
+            raw="Article 2 of Commission Implementing Regulation (EU) 2016/1927",
+            instrument="32016R1927",
+            article="2",
+        ),
+    )
+
+
+def test_attributes_article_across_a_commission_delegated_prefix() -> None:
+    references = extract_references(
+        "under Article 5 of Commission Delegated Regulation (EU) 2023/1640"
+    )
+    assert references == (
+        Reference(
+            raw="Article 5 of Commission Delegated Regulation (EU) 2023/1640",
+            instrument="32023R1640",
+            article="5",
+        ),
+    )
+
+
+def test_attributes_article_across_a_parliament_and_council_prefix() -> None:
+    references = extract_references(
+        "under Article 6 of European Parliament and Council Directive 95/46/EC"
+    )
+    assert references == (
+        Reference(
+            raw="Article 6 of European Parliament and Council Directive 95/46/EC",
+            instrument="31995L0046",
+            article="6",
+        ),
+    )
