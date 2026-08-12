@@ -218,3 +218,8 @@ def test_a_numbered_pre_2000_instrument_reads_number_then_year() -> None:
 def test_a_numbered_instrument_with_two_year_shaped_halves_reads_number_first() -> None:
     references = extract_references("fertilisers under Regulation (EC) No 2003/2003")
     assert references == (Reference(raw="Regulation (EC) No 2003/2003", instrument="32003R2003"),)
+
+
+def test_an_unnumbered_two_digit_pair_reads_year_then_number() -> None:
+    references = extract_references("equipment approved under Council Directive 96/98/EC")
+    assert references == (Reference(raw="Council Directive 96/98/EC", instrument="31996L0098"),)
