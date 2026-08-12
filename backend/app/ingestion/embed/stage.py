@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator, Iterator, Sequence
+from contextlib import asynccontextmanager
 from itertools import batched, groupby
 from operator import attrgetter
 
@@ -19,6 +20,7 @@ from app.ingestion.chunk.service import (
 from app.ingestion.embed.models import EmbedOutcome
 
 Batch = tuple[str, Sequence[ChunkToEmbed]]
+PendingVectors = asyncio.Task[list[list[float]]]
 
 
 def _batches(chunks: Sequence[ChunkToEmbed]) -> Iterator[Batch]:
@@ -26,23 +28,6 @@ def _batches(chunks: Sequence[ChunkToEmbed]) -> Iterator[Batch]:
     for celex, group in groupby(chunks, attrgetter("celex")):
         for batch in batched(group, EMBED_BATCH_SIZE):
             yield celex, batch
-
-
-@llm_retry
-async def _embed_texts(chunks: Sequence[ChunkToEmbed]) -> list[list[float]]:
-    """Embed one batch, retrying transient provider failures."""
-    return await embed([chunk.text for chunk in chunks], input_type=EmbedInput.DOCUMENT)
-
-
-async def _embed_batches(batches: Sequence[Batch]) -> list[list[list[float]] | BaseException]:
-    """Embed every batch, at most EMBED_CONCURRENCY provider calls in flight at once."""
-    semaphore = asyncio.Semaphore(config.EMBED_CONCURRENCY)
-
-    async def paced(batch: Sequence[ChunkToEmbed]) -> list[list[float]]:
-        async with semaphore:
-            return await _embed_texts(batch)
-
-    return await asyncio.gather(*(paced(batch) for _, batch in batches), return_exceptions=True)
 
 
 async def _pages(session: AsyncSession) -> AsyncIterator[Sequence[ChunkToEmbed]]:
@@ -53,26 +38,53 @@ async def _pages(session: AsyncSession) -> AsyncIterator[Sequence[ChunkToEmbed]]
         yield page
 
 
+@llm_retry
+async def _embed_batch(batch: Sequence[ChunkToEmbed]) -> list[list[float]]:
+    """One provider call embedding one batch's texts, retrying transient failures."""
+    return await embed([chunk.text for chunk in batch], input_type=EmbedInput.DOCUMENT)
+
+
+@asynccontextmanager
+async def _embedding(batches: Sequence[Batch]) -> AsyncIterator[list[PendingVectors]]:
+    """Every batch's provider call in flight, at most EMBED_CONCURRENCY at once; leaving
+    the block cancels whatever an abort left running."""
+    semaphore = asyncio.Semaphore(config.EMBED_CONCURRENCY)
+
+    async def paced(batch: Sequence[ChunkToEmbed]) -> list[list[float]]:
+        async with semaphore:
+            return await _embed_batch(batch)
+
+    tasks = [asyncio.create_task(paced(batch)) for _, batch in batches]
+    try:
+        yield tasks
+    finally:
+        for task in tasks:
+            task.cancel()
+
+
 async def _store_batch(
+    session: AsyncSession, batch: Sequence[ChunkToEmbed], vectors: list[list[float]]
+) -> None:
+    """Write one batch's vectors inside a savepoint: a plain rollback on failure would
+    drag down earlier uncommitted work, like the prune stage's deletes."""
+    async with session.begin_nested():
+        await set_chunk_embeddings(
+            session, {chunk.id: vector for chunk, vector in zip(batch, vectors, strict=True)}
+        )
+
+
+async def _process_batch(
     session: AsyncSession,
     celex: str,
     batch: Sequence[ChunkToEmbed],
-    vectors: list[list[float]] | BaseException,
+    vectors: PendingVectors,
     result: EmbedOutcome,
 ) -> None:
-    """Commit one batch's vectors inside a savepoint, or record why the batch has none:
-    a plain rollback would drag down earlier uncommitted work, like the prune stage's deletes."""
-    if isinstance(vectors, LLMError):
-        result.fail(celex, vectors, chunks=len(batch))
-        return
-    if isinstance(vectors, BaseException):
-        raise vectors
+    """One batch end to end: store its vectors once embedded, commit, count — or record
+    the failure against its document. Anything but a provider or database error aborts."""
     try:
-        async with session.begin_nested():
-            await set_chunk_embeddings(
-                session, {chunk.id: vector for chunk, vector in zip(batch, vectors, strict=True)}
-            )
-    except SQLAlchemyError as exc:
+        await _store_batch(session, batch, await vectors)
+    except (LLMError, SQLAlchemyError) as exc:
         result.fail(celex, exc, chunks=len(batch))
     else:
         await session.commit()
@@ -85,7 +97,7 @@ async def embed_chunks(session: AsyncSession) -> EmbedOutcome:
     result = EmbedOutcome(already_embedded=await count_embedded_chunks(session))
     async for page in _pages(session):
         batches = list(_batches(page))
-        vectors = await _embed_batches(batches)
-        for (celex, batch), batch_vectors in zip(batches, vectors, strict=True):
-            await _store_batch(session, celex, batch, batch_vectors, result)
+        async with _embedding(batches) as embeds:
+            for (celex, batch), vectors in zip(batches, embeds, strict=True):
+                await _process_batch(session, celex, batch, vectors, result)
     return result
