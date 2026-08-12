@@ -8,7 +8,8 @@ import pytest
 
 from app.core.llm import LLMError
 from app.retrieval import rerank as rerank_module
-from app.retrieval.rerank import _rerank
+from app.retrieval.models import SearchResult
+from app.retrieval.rerank import _rerank, rerank_results
 
 pytestmark = pytest.mark.anyio
 
@@ -82,3 +83,76 @@ async def test_rerank_raises_on_a_response_that_is_not_a_permutation(monkeypatch
 
     with pytest.raises(LLMError):
         await _rerank("q", ["a", "b"])
+
+
+def _result(chunk_id: int) -> SearchResult:
+    return SearchResult(
+        id=chunk_id,
+        celex="32015R0757",
+        topic="mrv",
+        citation=f"Article {chunk_id}",
+        title=None,
+        text=f"text of chunk {chunk_id}",
+        score=1.0 / chunk_id,
+        vector_rank=chunk_id,
+        text_rank=None,
+    )
+
+
+async def test_rerank_results_reorders_and_cuts_to_the_limit(monkeypatch):
+    async def fake_arerank(**kwargs):
+        return _response([(2, 0.9), (0, 0.5), (1, 0.1)])
+
+    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
+    fused = (_result(1), _result(2), _result(3))
+
+    reranked = await rerank_results("q", fused, limit=2)
+
+    assert [result.id for result in reranked] == [3, 1]
+
+
+async def test_rerank_results_sends_the_chunk_texts(monkeypatch):
+    calls = []
+
+    async def fake_arerank(**kwargs):
+        calls.append(kwargs)
+        return _response([(0, 0.9), (1, 0.1)])
+
+    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
+
+    await rerank_results("q", (_result(1), _result(2)), limit=2)
+
+    assert calls[0]["documents"] == ["text of chunk 1", "text of chunk 2"]
+
+
+async def test_a_provider_failure_degrades_to_the_fused_order(monkeypatch):
+    async def fake_arerank(**kwargs):
+        raise openai.OpenAIError("provider rejected the request")
+
+    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
+    fused = (_result(1), _result(2), _result(3))
+
+    assert await rerank_results("q", fused, limit=2) == fused[:2]
+
+
+async def test_a_misaligned_response_degrades_to_the_fused_order(monkeypatch):
+    async def fake_arerank(**kwargs):
+        return _response([(0, 0.9)])
+
+    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
+    fused = (_result(1), _result(2))
+
+    assert await rerank_results("q", fused, limit=2) == fused
+
+
+async def test_empty_results_return_empty_without_calling_the_provider(monkeypatch):
+    calls = []
+
+    async def fake_arerank(**kwargs):
+        calls.append(kwargs)
+        return _response([])
+
+    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
+
+    assert await rerank_results("q", (), limit=10) == ()
+    assert calls == []
