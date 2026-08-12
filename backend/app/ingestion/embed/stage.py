@@ -55,7 +55,7 @@ async def embed_chunks(session: AsyncSession) -> EmbedOutcome:
                 async with session.begin_nested():
                     await _embed_batch(session, batch)
             except (LLMError, SQLAlchemyError) as exc:
-                result.fail(celex, exc)
+                result.fail(celex, exc, chunks=len(batch))
             else:
                 result.embedded += len(batch)
                 await session.commit()

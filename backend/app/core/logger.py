@@ -51,7 +51,7 @@ def setup_logging() -> None:
     handler.addFilter(_ContextFilter())
 
     app_logger = logging.getLogger("app")
-    app_logger.addHandler(handler)
+    app_logger.handlers = [handler]
     app_logger.setLevel(logging.INFO)
     app_logger.propagate = False
 

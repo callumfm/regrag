@@ -10,7 +10,8 @@ export function HomePage() {
 			<p className="text-neutral-500 text-sm">
 				{health.isPending && 'Checking backend…'}
 				{health.isError && 'Backend unreachable'}
-				{health.data && `Backend ok — v${health.data.version}`}
+				{health.data &&
+					`Backend ${health.data.status} — v${health.data.version}`}
 			</p>
 		</main>
 	)
