@@ -11,7 +11,7 @@ from app.ingestion.cli import main
 from app.ingestion.constants import CRAWL_DELAYS, SEEDS
 from app.ingestion.enums import DocChange, Stage
 from app.ingestion.exceptions import DocumentFailed, MalformedDiscoveryError, ParseError
-from app.ingestion.result import IngestRunResult
+from app.ingestion.models import IngestRunResult
 
 pytestmark = pytest.mark.anyio
 

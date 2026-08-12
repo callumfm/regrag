@@ -3,9 +3,10 @@
 import pytest
 
 from app.ingestion.chunk.models import ChunkCounts
+from app.ingestion.constants import MAX_FAILURE_CHARS
 from app.ingestion.enums import DocChange, IngestRunStatus, Stage
 from app.ingestion.exceptions import DocumentFailed, ParseError
-from app.ingestion.result import MAX_FAILURE_CHARS, IngestRunResult
+from app.ingestion.models import IngestRunResult
 
 
 def failure(stage: Stage = Stage.PARSE, celex: str = "b") -> DocumentFailed:

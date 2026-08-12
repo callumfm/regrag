@@ -15,9 +15,9 @@ from app.ingestion.enums import DocChange, IngestRunStatus, SectionKind, Stage
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_previous_docs
+from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.pipeline import celexes_to_keep, ingest
-from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import document_key
 from tests.conftest import (

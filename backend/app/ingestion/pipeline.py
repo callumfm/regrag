@@ -18,8 +18,8 @@ from app.ingestion.enums import IngestRunStatus, Stage
 from app.ingestion.exceptions import DocumentFailed
 from app.ingestion.fetch.service import get_other_topic_celexes, get_previous_docs
 from app.ingestion.fetch.stage import fetch_document
+from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.stage import parse_document
-from app.ingestion.result import IngestRunResult
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run
 
@@ -68,11 +68,7 @@ async def ingest(
     topics: Sequence[str],
     store: ObjectStore,
 ) -> IngestRunResult:
-    """Run the whole pipeline under one ingest run, each document landing whole or not at all.
-
-    The per-document savepoint is what makes it whole: a plain rollback would expire every
-    row the run still holds, and the documents after it read them.
-    """
+    """Run the whole pipeline under one ingest run, each document landing whole or not at all."""
     async with ingest_run(session) as (run, result):
         previous = await get_previous_docs(session, topics)
         discovered, result.dropped = await discover_corpus(
