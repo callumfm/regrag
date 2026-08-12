@@ -9,7 +9,7 @@ from app.ingestion.chunk.service import (
     count_embedded_chunks,
     delete_chunks,
     delete_chunks_outside,
-    get_chunk_ids,
+    get_stored_chunks,
     get_unembedded_chunks,
     insert_chunks,
     upsert_document_chunks,
@@ -47,7 +47,7 @@ async def test_repeat_upsert_changes_nothing(db_session: AsyncSession, ingest_ru
         db_session, celex="32023R1805", chunks=chunks, ingest_run_id=ingest_run.id
     )
 
-    assert (result.added, result.deleted, result.kept) == (0, 0, 2)
+    assert (result.added, result.deleted, result.kept, result.refreshed) == (0, 0, 2, 0)
     assert {row.id for row in await chunk_rows(db_session)} == before
 
 
@@ -283,22 +283,72 @@ async def test_counts_zero_on_an_empty_table(db_session):
     assert await count_embedded_chunks(db_session) == 0
 
 
-async def test_get_chunk_ids_keys_every_row_by_hash_and_occurrence(
+async def test_get_stored_chunks_keys_every_row_by_hash_and_occurrence(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     await upsert_document_chunks(
         db_session, celex="32023R1805", chunks=[chunk(), chunk()], ingest_run_id=ingest_run.id
     )
-    ids = await get_chunk_ids(db_session, "32023R1805")
-    assert sorted(occurrence for _, occurrence in ids) == [0, 1]
-    assert len({digest for digest, _ in ids}) == 1
+    stored = await get_stored_chunks(db_session, "32023R1805")
+    assert sorted(occurrence for _, occurrence in stored) == [0, 1]
+    assert len({digest for digest, _ in stored}) == 1
 
 
-async def test_get_chunk_ids_is_scoped_to_one_document(
+async def test_get_stored_chunks_is_scoped_to_one_document(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     await seed_two_topics(db_session, ingest_run)
-    assert len(await get_chunk_ids(db_session, "32023R1805")) == 1
+    assert len(await get_stored_chunks(db_session, "32023R1805")) == 1
+
+
+async def test_get_stored_chunks_carries_the_derived_fields(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+    row = next(iter((await get_stored_chunks(db_session, "32023R1805")).values()))
+    assert (row.topic, row.citation, row.references) == ("fueleu", "Article 4(1)", [])
+
+
+async def test_matched_row_with_changed_references_is_refreshed_in_place(
+    db_session: AsyncSession, ingest_run: IngestRun, later_run: IngestRun
+):
+    """Same text, corrected extraction: the row updates without losing its embedding."""
+    await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+    before = (await chunk_rows(db_session))[0]
+    before_id = before.id
+    before.embedding = VECTOR
+    await db_session.flush()
+
+    corrected = chunk(references=extract_references("as set out in Annex I"))
+    result = await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[corrected], ingest_run_id=later_run.id
+    )
+
+    assert (result.added, result.deleted, result.kept, result.refreshed) == (0, 0, 0, 1)
+    row = (await chunk_rows(db_session))[0]
+    assert row.id == before_id
+    assert row.references[0]["annex"] == "I"
+    assert row.embedding is not None
+    assert row.ingest_run_id == ingest_run.id
+
+
+async def test_matched_row_picks_up_a_changed_topic(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+
+    result = await upsert_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk(topic="mrv")], ingest_run_id=ingest_run.id
+    )
+
+    assert (result.kept, result.refreshed) == (0, 1)
+    assert (await chunk_rows(db_session))[0].topic == "mrv"
 
 
 async def test_delete_chunks_removes_only_the_given_ids(
