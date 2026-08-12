@@ -68,7 +68,11 @@ async def ingest(
     topics: Sequence[str],
     store: ObjectStore,
 ) -> IngestRunResult:
-    """Run the whole pipeline under one ingest run."""
+    """Run the whole pipeline under one ingest run, each document landing whole or not at all.
+
+    The per-document savepoint is what makes it whole: a plain rollback would expire every
+    row the run still holds, and the documents after it read them.
+    """
     async with ingest_run(session) as (run, result):
         previous = await get_previous_docs(session, topics)
         discovered, result.dropped = await discover_corpus(
@@ -87,9 +91,8 @@ async def ingest(
                         run=run,
                         store=store,
                     )
-                    chunks = await chunk_and_store_document(
-                        session, parse_document(fetched), ingest_run_id=run.id
-                    )
+                    parsed = parse_document(fetched)
+                    chunks = await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
             except DocumentFailed as failure:
                 result.fail(failure)
             else:

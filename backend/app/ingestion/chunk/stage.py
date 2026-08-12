@@ -16,10 +16,11 @@ async def chunk_and_store_document(
 ) -> ChunkCounts:
     """Reconcile one document's chunks against the rows already stored for it."""
     try:
+        chunks = chunk_document(document)
         return await upsert_document_chunks(
             session,
             celex=document.celex,
-            chunks=chunk_document(document),
+            chunks=chunks,
             ingest_run_id=ingest_run_id,
         )
     except (IngestionError, SQLAlchemyError) as exc:

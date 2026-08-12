@@ -12,10 +12,6 @@ class IngestRunStatus(StrEnum):
     ABORTED = "aborted"
 
 
-COMPLETE_CORPUS = (IngestRunStatus.SUCCESS,)
-"""Runs whose rows stand for their whole topic; any other run holds a prefix of it."""
-
-
 class Stage(StrEnum):
     """The stages of an ingest run, in the order the pipeline runs them."""
 
