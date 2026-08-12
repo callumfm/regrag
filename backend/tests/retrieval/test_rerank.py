@@ -1,10 +1,9 @@
 """Rerank client: call contract, ordering, and degradation to the fused order."""
 
-from types import SimpleNamespace
-
 import httpx
 import openai
 import pytest
+from litellm.types.rerank import RerankResponse
 
 from app.core.llm import LLMError
 from app.retrieval import rerank as rerank_module
@@ -14,8 +13,22 @@ from app.retrieval.rerank import _rerank, rerank_results
 pytestmark = pytest.mark.anyio
 
 
-def _response(scores: list[tuple[int, float]]) -> SimpleNamespace:
-    return SimpleNamespace(results=[SimpleNamespace(index=i, relevance_score=s) for i, s in scores])
+def _response(scores: list[tuple[int, float]]) -> RerankResponse:
+    return RerankResponse(results=[{"index": i, "relevance_score": s} for i, s in scores])
+
+
+def _result(chunk_id: int) -> SearchResult:
+    return SearchResult(
+        id=chunk_id,
+        celex="32015R0757",
+        topic="mrv",
+        citation=f"Article {chunk_id}",
+        title=None,
+        text=f"text of chunk {chunk_id}",
+        score=1.0 / chunk_id,
+        vector_rank=chunk_id,
+        text_rank=None,
+    )
 
 
 async def test_rerank_orders_indices_best_first(monkeypatch):
@@ -39,11 +52,11 @@ async def test_rerank_sends_configured_call_kwargs(monkeypatch):
     await _rerank("the query", ["only document"])
 
     call = calls[0]
-    assert call["model"] == "voyage/rerank-2.5"
+    assert call["model"] == rerank_module.config.RERANK_MODEL
     assert call["query"] == "the query"
     assert call["documents"] == ["only document"]
     assert call["api_key"] == rerank_module.config.VOYAGE_API_KEY
-    assert call["timeout"] == 30
+    assert call["timeout"] == rerank_module.config.RERANK_TIMEOUT
     assert "num_retries" not in call
 
 
@@ -77,7 +90,7 @@ async def test_rerank_wraps_provider_error_without_leaking_provider_text(monkeyp
 )
 async def test_rerank_raises_on_a_response_that_is_not_a_permutation(monkeypatch, results):
     async def fake_arerank(**kwargs):
-        return SimpleNamespace(results=None) if results is None else _response(results)
+        return RerankResponse(results=results) if results is None else _response(results)
 
     monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
 
@@ -85,18 +98,28 @@ async def test_rerank_raises_on_a_response_that_is_not_a_permutation(monkeypatch
         await _rerank("q", ["a", "b"])
 
 
-def _result(chunk_id: int) -> SearchResult:
-    return SearchResult(
-        id=chunk_id,
-        celex="32015R0757",
-        topic="mrv",
-        citation=f"Article {chunk_id}",
-        title=None,
-        text=f"text of chunk {chunk_id}",
-        score=1.0 / chunk_id,
-        vector_rank=chunk_id,
-        text_rank=None,
-    )
+def _response_missing_a_score() -> RerankResponse:
+    return RerankResponse.model_construct(results=[{"index": 0}])
+
+
+async def test_a_response_item_missing_a_field_raises_from_rerank(monkeypatch):
+    async def fake_arerank(**kwargs):
+        return _response_missing_a_score()
+
+    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
+
+    with pytest.raises(LLMError):
+        await _rerank("q", ["a"])
+
+
+async def test_a_response_item_missing_a_field_degrades_to_the_fused_order(monkeypatch):
+    async def fake_arerank(**kwargs):
+        return _response_missing_a_score()
+
+    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
+    fused = (_result(1), _result(2))
+
+    assert await rerank_results("q", fused, limit=2) == fused
 
 
 async def test_rerank_results_reorders_and_cuts_to_the_limit(monkeypatch):

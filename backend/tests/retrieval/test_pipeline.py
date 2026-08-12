@@ -1,12 +1,14 @@
 import pytest
+from litellm.types.rerank import RerankResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import config
 from app.core.llm import LLMError
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.retrieval.constants import RERANK_POOL
-from app.retrieval.models import SearchFilters
+from app.retrieval.models import SearchFilters, SearchResult
 from app.retrieval.pipeline import search
+from app.retrieval.rerank import rerank_results
 
 pytestmark = pytest.mark.anyio
 
@@ -140,6 +142,29 @@ async def test_disabling_rerank_skips_the_step_and_keeps_the_narrow_pool(
 
     assert len(found) == 3
     assert calls == []
+
+
+async def test_the_real_rerank_path_reorders_the_pool(
+    db_session: AsyncSession, corpus: list[DocumentChunk], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[tuple[SearchResult, ...]] = []
+
+    async def spying_rerank_results(query, results, *, limit):
+        captured.append(results)
+        return await rerank_results(query, results, limit=limit)
+
+    async def fake_arerank(**kwargs):
+        count = len(kwargs["documents"])
+        return RerankResponse(
+            results=[{"index": i, "relevance_score": float(i)} for i in range(count)]
+        )
+
+    monkeypatch.setattr("app.retrieval.pipeline.rerank_results", spying_rerank_results)
+    monkeypatch.setattr("app.retrieval.rerank.litellm.arerank", fake_arerank)
+
+    found = await search(db_session, "greenhouse gas emissions", limit=5)
+
+    assert found == tuple(reversed(captured[0]))[:5]
 
 
 async def test_a_limit_above_the_rerank_pool_is_honoured(
