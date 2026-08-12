@@ -57,22 +57,30 @@ def expected_version(document: DiscoveredDocument) -> ResolvedVersion:
 
 
 @download_retry
+async def download_version(
+    client: httpx.AsyncClient, document: DiscoveredDocument, celex: str
+) -> bytes | None:
+    """The HTML EUR-Lex serves for one version, or None if it denies having that version."""
+    response = await client.get(html_url(celex))
+    if is_still_rendering(response):
+        raise DocumentStillRenderingError(
+            f"{document.topic}:{document.celex}: EUR-Lex is still rendering {celex}"
+        )
+    if is_missing(response):
+        return None
+    response.raise_for_status()
+    return response.content
+
+
 async def download_fetchable_version(
     client: httpx.AsyncClient, document: DiscoveredDocument
 ) -> tuple[ResolvedVersion, bytes]:
     """The newest version EUR-Lex will serve, and the HTML it served for it."""
     candidates = version_candidates(document)
     for candidate in candidates:
-        url = html_url(candidate)
-        response = await client.get(url)
-        if is_still_rendering(response):
-            raise DocumentStillRenderingError(
-                f"{document.topic}:{document.celex}: EUR-Lex is still rendering {candidate}"
-            )
-        if is_missing(response):
-            continue
-        response.raise_for_status()
-        return ResolvedVersion(resolved_celex=candidate, url=url), response.content
+        content = await download_version(client, document, candidate)
+        if content is not None:
+            return ResolvedVersion(resolved_celex=candidate, url=html_url(candidate)), content
     raise NoFetchableVersionError(
         f"{document.topic}:{document.celex}: no fetchable HTML, tried {candidates}"
     )

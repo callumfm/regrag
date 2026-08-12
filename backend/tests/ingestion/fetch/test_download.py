@@ -184,6 +184,17 @@ async def test_still_rendering_candidate_does_not_fall_back_to_the_original_act(
             )
 
 
+async def test_a_denied_candidate_is_not_requested_again_when_a_later_one_retries():
+    """The retry covers one request: restarting the loop re-asks for a version already denied."""
+    handler, calls = queued([missing_response(404), httpx.Response(503), doc_response()])
+    async with httpx.AsyncClient(transport=handler) as client:
+        resolution, _ = await download_fetchable_version(
+            client, discovered_document(celex="32023R2917", candidate="02023R2917-20231229")
+        )
+    assert resolution.resolved_celex == "32023R2917"
+    assert calls == ["02023R2917-20231229", "32023R2917", "32023R2917"]
+
+
 async def test_unexpected_error_status_raises():
     responses = {"32023R2449": httpx.Response(503, text="maintenance")}
     async with httpx.AsyncClient(transport=transport(responses)) as client:
