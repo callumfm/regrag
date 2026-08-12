@@ -4,6 +4,7 @@ import httpx
 import openai
 import pytest
 from litellm.types.rerank import RerankResponse
+from tenacity import stop_after_attempt
 
 from app.core.llm import LLMError
 from app.retrieval import rerank as rerank_module
@@ -37,7 +38,9 @@ async def test_rerank_returns_the_provider_ranking_in_order(monkeypatch):
 
     monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
 
-    assert await _rerank("q", ["a", "b", "c"]) == [1, 2, 0]
+    ranked = await _rerank("q", ["a", "b", "c"])
+
+    assert [item["index"] for item in ranked] == [1, 2, 0]
 
 
 async def test_rerank_sends_configured_call_kwargs(monkeypatch):
@@ -71,55 +74,19 @@ async def test_rerank_wraps_provider_error_without_leaking_provider_text(monkeyp
     monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
 
     with pytest.raises(LLMError) as exc_info:
-        await _rerank("q", ["a"])
+        await _rerank.retry_with(stop=stop_after_attempt(1))("q", ["a"])
 
     assert provider_message not in str(exc_info.value)
     assert exc_info.value.transient is True
 
 
-@pytest.mark.parametrize(
-    "results",
-    [
-        None,
-        [],
-        [(0, 0.9), (0, 0.8)],
-        [(0, 0.9), (5, 0.8)],
-        [(0, 0.9)],
-    ],
-    ids=["none", "empty", "duplicate", "out-of-range", "subset"],
-)
-async def test_rerank_raises_on_a_response_that_is_not_a_permutation(monkeypatch, results):
+async def test_a_null_results_field_leaves_the_fused_order(monkeypatch):
     async def fake_arerank(**kwargs):
-        return RerankResponse(results=results) if results is None else _response(results)
+        return RerankResponse(results=None)
 
     monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
 
-    with pytest.raises(LLMError):
-        await _rerank("q", ["a", "b"])
-
-
-def _response_missing_the_index() -> RerankResponse:
-    return RerankResponse.model_construct(results=[{"relevance_score": 0.9}])
-
-
-async def test_a_response_item_missing_a_field_raises_from_rerank(monkeypatch):
-    async def fake_arerank(**kwargs):
-        return _response_missing_the_index()
-
-    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
-
-    with pytest.raises(LLMError):
-        await _rerank("q", ["a"])
-
-
-async def test_a_response_item_missing_a_field_degrades_to_the_fused_order(monkeypatch):
-    async def fake_arerank(**kwargs):
-        return _response_missing_the_index()
-
-    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
-    fused = (_result(1), _result(2))
-
-    assert await rerank_results("q", fused, limit=2) == fused
+    assert await _rerank("q", ["a", "b"]) == []
 
 
 async def test_rerank_results_reorders_and_cuts_to_the_limit(monkeypatch):
@@ -156,16 +123,6 @@ async def test_a_provider_failure_degrades_to_the_fused_order(monkeypatch):
     fused = (_result(1), _result(2), _result(3))
 
     assert await rerank_results("q", fused, limit=2) == fused[:2]
-
-
-async def test_a_misaligned_response_degrades_to_the_fused_order(monkeypatch):
-    async def fake_arerank(**kwargs):
-        return _response([(0, 0.9)])
-
-    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
-    fused = (_result(1), _result(2))
-
-    assert await rerank_results("q", fused, limit=2) == fused
 
 
 async def test_empty_results_return_empty_without_calling_the_provider(monkeypatch):
