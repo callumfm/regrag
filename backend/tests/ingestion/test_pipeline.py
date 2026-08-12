@@ -67,6 +67,15 @@ async def test_prune_keeps_this_runs_corpus_and_the_other_topics_documents(
     assert {row.celex for row in await chunk_rows(db_session)} == {"32015R0757", "32023R1805"}
 
 
+async def test_prune_refuses_to_wipe_everything_when_nothing_is_kept(db_session, make_chunk_row):
+    other = IngestRun(status=IngestRunStatus.SUCCESS)
+    db_session.add(make_chunk_row(other, celex="32023R1805", topic="fueleu"))
+    await db_session.flush()
+
+    assert await _prune_dropped_chunks(db_session, discovered=[], topics=[]) == 0
+    assert len(await chunk_rows(db_session)) == 1
+
+
 async def test_sparql_failure_aborts_and_marks_run_aborted(db_session, local_store, corpus_client):
     client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
     with pytest.raises(httpx.HTTPStatusError):

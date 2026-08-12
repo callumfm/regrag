@@ -56,13 +56,14 @@ async def insert_chunks(
     await session.flush()
 
 
-async def delete_chunks(session: AsyncSession, chunk_ids: Collection[int]) -> None:
-    """Drop chunk rows by id."""
+async def delete_chunks(session: AsyncSession, chunk_ids: Collection[int]) -> int:
+    """Drop chunk rows by id, returning how many went."""
     if not chunk_ids:
-        return
+        return 0
     stmt = delete(DocumentChunk).where(DocumentChunk.id.in_(chunk_ids))
-    await session.execute(stmt)
+    result = await session.execute(stmt)
     await session.flush()
+    return cast(CursorResult, result).rowcount
 
 
 async def update_chunks(session: AsyncSession, updates: Sequence[dict[str, Any]]) -> None:
@@ -153,13 +154,3 @@ async def count_chunks(session: AsyncSession, *, has_embedding: bool | None = No
             else DocumentChunk.embedding.is_(None)
         )
     return await session.scalar(stmt) or 0
-
-
-async def delete_chunks_outside(session: AsyncSession, *, corpus_celexes: Collection[str]) -> int:
-    """Drop chunks of documents no topic holds; the corpus decides, not the topic tag."""
-    if not corpus_celexes:
-        return 0
-    stmt = delete(DocumentChunk).where(DocumentChunk.celex.notin_(corpus_celexes))
-    result = await session.execute(stmt)
-    await session.flush()
-    return cast(CursorResult, result).rowcount

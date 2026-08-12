@@ -5,11 +5,13 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
-from app.ingestion.chunk.service import delete_chunks_outside
+from app.ingestion.chunk.schemas import DocumentChunk
+from app.ingestion.chunk.service import delete_chunks
 from app.ingestion.chunk.stage import chunk_and_store_document
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.stage import discover_corpus
@@ -85,7 +87,11 @@ async def _prune_dropped_chunks(
     keep = {document.celex for document in discovered} | await get_other_topic_celexes(
         session, topics
     )
-    return await delete_chunks_outside(session, corpus_celexes=keep)
+    if not keep:
+        return 0
+    stmt = select(DocumentChunk.id).where(DocumentChunk.celex.notin_(keep))
+    dropped = (await session.scalars(stmt)).all()
+    return await delete_chunks(session, dropped)
 
 
 async def ingest(

@@ -10,7 +10,6 @@ from app.ingestion.chunk.service import (
     _key_stored_chunks,
     count_chunks,
     delete_chunks,
-    delete_chunks_outside,
     get_chunks,
     insert_chunks,
     sync_document_chunks,
@@ -189,46 +188,6 @@ async def seed_two_topics(session: AsyncSession, run: IngestRun) -> None:
     )
 
 
-async def test_delete_chunks_outside_removes_documents_off_the_keep_list(
-    db_session: AsyncSession, ingest_run: IngestRun
-):
-    await seed_two_topics(db_session, ingest_run)
-
-    removed = await delete_chunks_outside(db_session, corpus_celexes=["32015R0757"])
-
-    assert removed == 1
-    assert await chunk_rows(db_session, "32023R1805") == []
-
-
-async def test_delete_chunks_outside_keeps_documents_on_the_keep_list(
-    db_session: AsyncSession, ingest_run: IngestRun
-):
-    await seed_two_topics(db_session, ingest_run)
-
-    assert await delete_chunks_outside(db_session, corpus_celexes=["32023R1805", "32015R0757"]) == 0
-    assert len(await chunk_rows(db_session, "32023R1805")) == 1
-
-
-async def test_delete_chunks_outside_spares_a_celex_another_topic_still_holds(
-    db_session: AsyncSession, ingest_run: IngestRun
-):
-    """The corpus, not the topic tag, decides: a shared celex survives on any topic's say-so."""
-    await seed_two_topics(db_session, ingest_run)
-
-    await delete_chunks_outside(db_session, corpus_celexes=["32015R0757"])
-
-    assert len(await chunk_rows(db_session, "32015R0757")) == 1
-
-
-async def test_delete_chunks_outside_refuses_to_wipe_everything_on_an_empty_keep_list(
-    db_session: AsyncSession, ingest_run: IngestRun
-):
-    await seed_two_topics(db_session, ingest_run)
-
-    assert await delete_chunks_outside(db_session, corpus_celexes=[]) == 0
-    assert len(await chunk_rows(db_session, "32023R1805")) == 1
-
-
 def test_occurrence_counts_up_for_duplicates():
     keys = list(_key_incoming_chunks([chunk(), chunk(), chunk()]))
     assert [n for _, n in keys] == [0, 1, 2]
@@ -360,7 +319,7 @@ async def test_delete_chunks_removes_only_the_given_ids(
     )
     rows = await chunk_rows(db_session)
 
-    await delete_chunks(db_session, [rows[0].id])
+    assert await delete_chunks(db_session, [rows[0].id]) == 1
 
     assert [row.id for row in await chunk_rows(db_session)] == [rows[1].id]
 
@@ -371,7 +330,7 @@ async def test_delete_chunks_leaves_the_table_alone_when_given_nothing(
     await sync_document_chunks(
         db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
     )
-    await delete_chunks(db_session, [])
+    assert await delete_chunks(db_session, []) == 0
     assert len(await chunk_rows(db_session)) == 1
 
 
