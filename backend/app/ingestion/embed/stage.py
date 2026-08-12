@@ -63,7 +63,7 @@ async def _store_batch(
     """Commit one batch's vectors inside a savepoint, or record why the batch has none:
     a plain rollback would drag down earlier uncommitted work, like the prune stage's deletes."""
     if isinstance(vectors, LLMError):
-        result.fail(celex, vectors)
+        result.fail(celex, vectors, chunks=len(batch))
         return
     if isinstance(vectors, BaseException):
         raise vectors
@@ -73,7 +73,7 @@ async def _store_batch(
                 session, {chunk.id: vector for chunk, vector in zip(batch, vectors, strict=True)}
             )
     except SQLAlchemyError as exc:
-        result.fail(celex, exc)
+        result.fail(celex, exc, chunks=len(batch))
     else:
         await session.commit()
         result.embedded += len(batch)

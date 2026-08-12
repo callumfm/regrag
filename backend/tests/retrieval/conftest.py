@@ -20,6 +20,7 @@ from app.ingestion.chunk.service import upsert_document_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.schemas import IngestRun
+from app.retrieval.models import SearchResult
 from tests.conftest import rolled_back_session
 
 TOKEN = re.compile(r"\w+")
@@ -127,3 +128,15 @@ def query_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
         return [toy_embed(text) for text in texts]
 
     monkeypatch.setattr("app.retrieval.pipeline.embed", _embed)
+
+
+@pytest.fixture(autouse=True)
+def identity_rerank(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ordering tests assert on fused order, so the rerank stand-in must preserve it."""
+
+    async def _identity(
+        query: str, results: tuple[SearchResult, ...], *, limit: int
+    ) -> tuple[SearchResult, ...]:
+        return results[:limit]
+
+    monkeypatch.setattr("app.retrieval.pipeline.rerank_results", _identity)

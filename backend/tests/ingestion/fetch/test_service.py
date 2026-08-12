@@ -126,3 +126,41 @@ async def test_an_aborted_run_does_not_stand_for_the_corpus(
         "32015R0757",
         "32023R2449",
     }
+
+
+async def test_a_failed_run_does_not_stand_for_the_corpus(db_session: AsyncSession, make_document):
+    """A FAILED run holds a corpus with holes, so the fingerprint must look past it."""
+    complete = IngestRun(status=IngestRunStatus.SUCCESS)
+    failed = IngestRun(status=IngestRunStatus.FAILED)
+    db_session.add_all(
+        [
+            make_document(complete, "32015R0757", topic="mrv"),
+            make_document(complete, "32023R2449", topic="mrv"),
+            make_document(failed, "32015R0757", topic="mrv"),
+        ]
+    )
+    await db_session.flush()
+
+    assert {doc.celex for doc in await get_corpus_docs(db_session)} == {
+        "32015R0757",
+        "32023R2449",
+    }
+
+
+async def test_corpus_takes_the_newest_row_per_celex(db_session: AsyncSession, make_document):
+    complete = IngestRun(status=IngestRunStatus.SUCCESS)
+    failed = IngestRun(status=IngestRunStatus.FAILED)
+    db_session.add_all(
+        [
+            make_document(complete, "32015R0757", topic="mrv"),
+            make_document(complete, "32023R2449", topic="mrv"),
+            make_document(failed, "32015R0757", topic="mrv", resolved_celex="02015R0757-20250101"),
+        ]
+    )
+    await db_session.flush()
+
+    rows = await get_corpus_docs(db_session)
+    docs = {doc.celex: doc for doc in rows}
+    assert set(docs) == {"32015R0757", "32023R2449"}
+    assert len(rows) == len(docs)
+    assert docs["32015R0757"].resolved_celex == "02015R0757-20250101"

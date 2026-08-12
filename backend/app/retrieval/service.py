@@ -5,13 +5,13 @@ from collections.abc import Sequence
 from sqlalchemy import Integer, Select, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import config
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.retrieval.constants import CANDIDATES
 from app.retrieval.models import RetrievedChunk, SearchFilters, SearchResult
 
 ITERATIVE_SCAN = text(
     "SELECT set_config('hnsw.iterative_scan', 'strict_order', true),"
-    f" set_config('hnsw.ef_search', '{CANDIDATES * 4}', true)"
+    f" set_config('hnsw.ef_search', '{config.SEARCH_CANDIDATES * 4}', true)"
 )
 """Resume the HNSW walk past dead tuples so a limit is met, in the exact order fusion ranks on."""
 

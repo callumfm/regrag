@@ -6,7 +6,13 @@ from typing import Any, cast
 
 from app.core import logger as logger_module
 from app.core.config import Environment
-from app.core.logger import _AppFormatter, _build_formatter, _ContextFilter, request_id_var
+from app.core.logger import (
+    _AppFormatter,
+    _build_formatter,
+    _ContextFilter,
+    request_id_var,
+    setup_logging,
+)
 
 
 def _record(msg: str = "hello") -> logging.LogRecord:
@@ -63,3 +69,11 @@ def test_prod_formatter_emits_json(monkeypatch) -> None:
 
 def test_dev_formatter_selected_outside_prod() -> None:
     assert isinstance(_build_formatter(), _AppFormatter)
+
+
+def test_setup_logging_is_idempotent() -> None:
+    """Every entrypoint calls it, and a second call must not double every log line."""
+    setup_logging()
+    setup_logging()
+    assert len(logging.getLogger("app").handlers) == 1
+    assert len(logging.getLogger("uvicorn").handlers) == 1
