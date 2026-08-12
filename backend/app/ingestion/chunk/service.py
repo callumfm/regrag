@@ -2,9 +2,9 @@
 
 from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from typing import Any, NamedTuple, cast
+from typing import Any, cast
 
-from sqlalchemy import CursorResult, delete, func, select, tuple_, update
+from sqlalchemy import CursorResult, Row, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -16,40 +16,7 @@ ContentKey = tuple[str, int]
 """What identifies a chunk within its document: content hash, then occurrence."""
 
 
-class StoredChunk(NamedTuple):
-    """What reconciliation reads off a stored row: its id and its derived fields."""
-
-    id: int
-    topic: str
-    citation: str
-    references: list[dict]
-
-
-def derived_values(chunk: Chunk) -> dict[str, Any]:
-    """Columns code derives from hashed content, as the row would store them."""
-    return chunk.model_dump(mode="json", include=Chunk.NOT_IDENTITY)
-
-
-def stored_values(stored: StoredChunk) -> dict[str, Any]:
-    """A row's derived columns in the same shape, for comparison."""
-    return {key: value for key, value in stored._asdict().items() if key != "id"}
-
-
-def stale_updates(
-    matched: Collection[ContentKey],
-    incoming: Mapping[ContentKey, Chunk],
-    existing: Mapping[ContentKey, StoredChunk],
-) -> list[dict[str, Any]]:
-    """Updates for matched rows whose derived fields no longer match what the chunker produced."""
-    updates = []
-    for key in matched:
-        values = derived_values(incoming[key])
-        if values != stored_values(existing[key]):
-            updates.append({"id": existing[key].id, **values})
-    return updates
-
-
-def key_incoming_chunks(chunks: Iterable[Chunk]) -> dict[ContentKey, Chunk]:
+def _key_incoming_chunks(chunks: Iterable[Chunk]) -> dict[ContentKey, Chunk]:
     """Freshly chunked text keyed by content hash, occurrence separating identical siblings."""
     seen: Counter[str] = Counter()
     keyed: dict[ContentKey, Chunk] = {}
@@ -60,24 +27,17 @@ def key_incoming_chunks(chunks: Iterable[Chunk]) -> dict[ContentKey, Chunk]:
     return keyed
 
 
-async def key_stored_chunks(session: AsyncSession, celex: str) -> dict[ContentKey, StoredChunk]:
-    """A document's stored rows under the same keys the incoming chunks carry."""
+async def _key_stored_chunks(session: AsyncSession, celex: str) -> dict[ContentKey, Row[Any]]:
+    """A document's stored rows (id plus derived columns) under the same keys
+    incoming chunks carry."""
     stmt = select(
         DocumentChunk.content_hash,
         DocumentChunk.occurrence,
         DocumentChunk.id,
-        DocumentChunk.topic,
-        DocumentChunk.citation,
-        DocumentChunk.references,
+        *(getattr(DocumentChunk, column) for column in sorted(Chunk.NOT_IDENTITY)),
     ).where(DocumentChunk.celex == celex)
     rows = await session.execute(stmt)
-    chunks = {
-        (row.content_hash, row.occurrence): StoredChunk(
-            row.id, row.topic, row.citation, row.references
-        )
-        for row in rows
-    }
-    return chunks
+    return {(row.content_hash, row.occurrence): row for row in rows}
 
 
 async def insert_chunks(
@@ -114,30 +74,45 @@ async def update_chunks(session: AsyncSession, updates: Sequence[dict[str, Any]]
     await session.flush()
 
 
-async def upsert_document_chunks(
+def _stale_chunk_updates(
+    matched: Collection[ContentKey],
+    incoming: Mapping[ContentKey, Chunk],
+    existing: Mapping[ContentKey, Row[Any]],
+) -> list[dict[str, Any]]:
+    """Update payloads for matched rows whose derived columns drifted from the chunker's output."""
+    updates = []
+    for key in matched:
+        new = incoming[key].model_dump(mode="json", include=Chunk.NOT_IDENTITY)
+        old = {column: getattr(existing[key], column) for column in Chunk.NOT_IDENTITY}
+        if new != old:
+            updates.append({"id": existing[key].id, **new})
+    return updates
+
+
+async def sync_document_chunks(
     session: AsyncSession, *, celex: str, chunks: Sequence[Chunk], ingest_run_id: int
 ) -> ChunkCounts:
-    """Reconcile a document's chunks by content hash, refreshing derived fields on matches."""
-    incoming = key_incoming_chunks(chunks)
-    existing = await key_stored_chunks(session, celex)
+    """Make a document's stored chunks match this set: insert new, delete gone, update drifted."""
+    incoming = _key_incoming_chunks(chunks)
+    existing = await _key_stored_chunks(session, celex)
     if not incoming and existing:
         raise EmptyChunkSetError(f"{celex}: chunked to nothing over {len(existing)} stored chunks")
 
-    gone = [existing[key].id for key in existing.keys() - incoming.keys()]
-    await delete_chunks(session, gone)
+    deleted = [existing[key].id for key in existing.keys() - incoming.keys()]
+    await delete_chunks(session, deleted)
 
     added = {key: chunk for key, chunk in incoming.items() if key not in existing}
     await insert_chunks(session, added, ingest_run_id=ingest_run_id)
 
     matched = existing.keys() & incoming.keys()
-    stale = stale_updates(matched, incoming, existing)
-    await update_chunks(session, stale)
+    updates = _stale_chunk_updates(matched, incoming, existing)
+    await update_chunks(session, updates)
 
     return ChunkCounts(
         added=len(added),
-        deleted=len(gone),
-        kept=len(matched) - len(stale),
-        refreshed=len(stale),
+        deleted=len(deleted),
+        kept=len(matched) - len(updates),
+        refreshed=len(updates),
     )
 
 
