@@ -223,3 +223,10 @@ def test_a_numbered_instrument_with_two_year_shaped_halves_reads_number_first() 
 def test_an_unnumbered_two_digit_pair_reads_year_then_number() -> None:
     references = extract_references("equipment approved under Council Directive 96/98/EC")
     assert references == (Reference(raw="Council Directive 96/98/EC", instrument="31996L0098"),)
+
+
+def test_resolves_a_bare_commission_regulation() -> None:
+    references = extract_references("monitoring under Commission Regulation (EU) No 601/2012")
+    assert references == (
+        Reference(raw="Commission Regulation (EU) No 601/2012", instrument="32012R0601"),
+    )

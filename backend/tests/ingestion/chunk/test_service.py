@@ -4,8 +4,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import EMBED_DIMENSIONS
+from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.service import (
+    StoredChunk,
     count_embedded_chunks,
     delete_chunks,
     delete_chunks_outside,
@@ -229,6 +231,10 @@ async def test_delete_chunks_outside_refuses_to_wipe_everything_on_an_empty_keep
 
     assert await delete_chunks_outside(db_session, corpus_celexes=[]) == 0
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
+
+
+def test_stored_chunk_carries_every_non_identity_field():
+    assert set(StoredChunk._fields) - {"id"} == Chunk.NOT_IDENTITY
 
 
 def test_occurrence_counts_up_for_duplicates():

@@ -15,9 +15,6 @@ from app.ingestion.exceptions import EmptyChunkSetError
 ContentKey = tuple[str, int]
 """What identifies a chunk within its document: content hash, then occurrence."""
 
-DERIVED_FIELDS = ("topic", "citation", "references")
-"""Columns code derives from hashed content; a hash match must not freeze them."""
-
 
 class StoredChunk(NamedTuple):
     """What reconciliation reads off a stored row: its id and its derived fields."""
@@ -29,13 +26,13 @@ class StoredChunk(NamedTuple):
 
 
 def derived_values(chunk: Chunk) -> dict[str, Any]:
-    """A chunk's derived columns as the row would store them."""
-    return chunk.model_dump(mode="json", include=set(DERIVED_FIELDS))
+    """Columns code derives from hashed content, as the row would store them."""
+    return chunk.model_dump(mode="json", include=Chunk.NOT_IDENTITY)
 
 
 def stored_values(stored: StoredChunk) -> dict[str, Any]:
     """A row's derived columns in the same shape, for comparison."""
-    return {"topic": stored.topic, "citation": stored.citation, "references": stored.references}
+    return {key: value for key, value in stored._asdict().items() if key != "id"}
 
 
 def with_content_keys(chunks: Iterable[Chunk]) -> Iterator[tuple[Chunk, str, int]]:
@@ -93,7 +90,8 @@ async def refresh_chunks(session: AsyncSession, updates: Sequence[dict[str, Any]
     """Rewrite derived fields on matched rows, leaving text and embedding untouched."""
     if not updates:
         return
-    await session.execute(update(DocumentChunk), updates)
+    stmt = update(DocumentChunk)
+    await session.execute(stmt, updates)
     await session.flush()
 
 
@@ -108,19 +106,19 @@ async def upsert_document_chunks(
     gone = existing.keys() - incoming.keys()
     added = [key for key in incoming if key not in existing]
     matched = existing.keys() & incoming.keys()
-    stale = [
-        key for key in matched if derived_values(incoming[key]) != stored_values(existing[key])
+    refreshed = [
+        {"id": existing[key].id, **values}
+        for key in matched
+        if (values := derived_values(incoming[key])) != stored_values(existing[key])
     ]
     await delete_chunks(session, [existing[key].id for key in gone])
     await insert_chunks(session, {key: incoming[key] for key in added}, ingest_run_id=ingest_run_id)
-    await refresh_chunks(
-        session, [{"id": existing[key].id, **derived_values(incoming[key])} for key in stale]
-    )
+    await refresh_chunks(session, refreshed)
     return ChunkCounts(
         added=len(added),
         deleted=len(gone),
-        kept=len(matched) - len(stale),
-        refreshed=len(stale),
+        kept=len(matched) - len(refreshed),
+        refreshed=len(refreshed),
     )
 
 
