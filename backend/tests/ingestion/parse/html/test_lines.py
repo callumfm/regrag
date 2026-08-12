@@ -64,6 +64,44 @@ def test_the_level_one_line_is_not_collected_because_it_is_the_annex_title():
     ]
 
 
+def test_a_repeated_table_row_is_kept_because_the_repetition_is_the_data():
+    node = subdivision(
+        '<html><body><div id="anx_I"><table><tbody>'
+        "<tr><td>Vessel A</td><td>0</td></tr>"
+        "<tr><td>Vessel A</td><td>0</td></tr>"
+        "<tr><td>Vessel B</td><td>1</td></tr>"
+        "</tbody></table></div></body></html>",
+        "anx_I",
+    )
+    assert collect_lines(node) == ["Vessel A 0", "Vessel A 0", "Vessel B 1"]
+
+
+def test_a_container_carrying_a_level_class_is_recursed_into_not_read_as_a_heading():
+    node = subdivision(
+        '<html><body><div id="anx_I">'
+        '<p class="title-gr-seq-level-1">Monitoring methods</p>'
+        '<div class="eli-subdivision title-gr-seq-level-2">'
+        '<p class="title-gr-seq-level-2">A. First part</p>'
+        '<p class="norm">Prose under A.</p>'
+        "</div></div></body></html>",
+        "anx_I",
+    )
+    assert collect_lines(node, SUBHEADING_LEVEL_RE) == [
+        Subheading(2, "A. First part"),
+        "Prose under A.",
+    ]
+
+
+def test_a_node_holding_no_blocks_falls_back_to_its_own_text():
+    node = subdivision(
+        '<html><body><div id="anx_I">'
+        '<div class="oj-normal">Bare prose <span>with inline</span> markup.</div>'
+        "</div></body></html>",
+        "anx_I",
+    )
+    assert collect_lines(node) == ["Bare prose with inline markup."]
+
+
 def test_a_stream_with_no_subheadings_becomes_one_flat_paragraph():
     sections = nest_under_subheadings(["one", "two"])
     assert len(sections) == 1

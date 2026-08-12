@@ -49,20 +49,24 @@ def heading_texts(node: Node, *selectors: str) -> set[str]:
 
 
 def read_subheading(node: Node, level_pattern: re.Pattern[str] | None) -> Subheading | None:
-    """The sub-heading this block introduces, read from its own class, or None if it is prose."""
-    match = level_pattern.search(node.attributes.get("class") or "") if level_pattern else None
+    """The sub-heading this paragraph introduces; a container carrying the class opens one."""
+    if node.tag != "p" or level_pattern is None:
+        return None
+    match = level_pattern.search(node.attributes.get("class") or "")
     return Subheading(level=int(match.group(1)), title=clean_text(node.text())) if match else None
 
 
 def collect_lines(node: Node, level_pattern: re.Pattern[str] | None = None) -> list[Line]:
-    """Walk in document order, emitting one line per block and per flattened list row."""
+    """Walk in document order, one line per block, falling back to the node's own text."""
     lines: list[Line] = []
     _collect(node, lines, level_pattern)
+    if not lines and (text := clean_text(node.text())):
+        lines.append(text)
     return lines
 
 
 def _collect(node: Node, lines: list[Line], level_pattern: re.Pattern[str] | None) -> None:
-    """Recurse into containers, emitting one line per text block and skipping repeats."""
+    """Recurse into containers, emitting one line per text block."""
     for child in node.iter(include_text=False):
         subheading = read_subheading(child, level_pattern)
         if subheading is not None:
@@ -78,14 +82,13 @@ def _collect(node: Node, lines: list[Line], level_pattern: re.Pattern[str] | Non
         else:
             _collect(child, lines, level_pattern)
             continue
-        if line and (not lines or lines[-1] != line):
+        if line:
             lines.append(line)
 
 
 def block_text(node: Node) -> str:
     """Join a node's text block by block, so flattened list rows stay on separate lines."""
-    lines = collect_lines(node)
-    return "\n".join(line for line in lines if isinstance(line, str)) or clean_text(node.text())
+    return "\n".join(line for line in collect_lines(node) if isinstance(line, str))
 
 
 def prose_lines(node: Node, *headings: str) -> list[str]:
