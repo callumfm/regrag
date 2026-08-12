@@ -61,6 +61,55 @@ async def ingest_run(session: AsyncSession) -> AsyncIterator[tuple[IngestRun, In
     result.corpus_version = run.corpus_version
 
 
+async def _ingest_corpus(
+    session: AsyncSession,
+    run: IngestRun,
+    result: IngestRunResult,
+    *,
+    client: httpx.AsyncClient,
+    topics: Sequence[str],
+    store: ObjectStore,
+) -> None:
+    """Fill in the run's result: discover, then a document at a time, then prune and embed."""
+    previous = await get_previous_docs(session, topics)
+    discovered, result.dropped = await discover_corpus(
+        client, topics=topics, previous_celexes=previous
+    )
+    logger.info("%s", result.line(Stage.DISCOVER))
+
+    for document in discovered:
+        try:
+            async with session.begin_nested():
+                fetched, change = await fetch_document(
+                    session,
+                    client=client,
+                    discovered=document,
+                    previous=previous.get(document.celex),
+                    run=run,
+                    store=store,
+                )
+                parsed = parse_document(fetched)
+                chunks = await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
+        except DocumentFailed as failure:
+            result.fail(failure)
+        else:
+            await session.commit()
+            result.record(document.celex, change=change, chunks=chunks)
+
+    logger.info("%s", result.line(Stage.FETCH))
+    logger.info("%s", result.line(Stage.PARSE))
+
+    if result.corpus_complete:
+        result.pruned = await delete_chunks_outside(
+            session,
+            corpus_celexes=await celexes_to_keep(session, discovered=discovered, topics=topics),
+        )
+    logger.info("%s", result.line(Stage.CHUNK))
+
+    result.embed = await embed_chunks(session)
+    logger.info("%s", result.line(Stage.EMBED))
+
+
 async def ingest(
     session: AsyncSession,
     *,
@@ -70,42 +119,5 @@ async def ingest(
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run, each document landing whole or not at all."""
     async with ingest_run(session) as (run, result):
-        previous = await get_previous_docs(session, topics)
-        discovered, result.dropped = await discover_corpus(
-            client, topics=topics, previous_celexes=previous
-        )
-        logger.info("%s", result.line(Stage.DISCOVER))
-
-        for document in discovered:
-            try:
-                async with session.begin_nested():
-                    fetched, change = await fetch_document(
-                        session,
-                        client=client,
-                        discovered=document,
-                        previous=previous.get(document.celex),
-                        run=run,
-                        store=store,
-                    )
-                    parsed = parse_document(fetched)
-                    chunks = await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
-            except DocumentFailed as failure:
-                result.fail(failure)
-            else:
-                await session.commit()
-                result.record(document.celex, change=change, chunks=chunks)
-
-        logger.info("%s", result.line(Stage.FETCH))
-        logger.info("%s", result.line(Stage.PARSE))
-
-        if result.corpus_complete:
-            result.pruned = await delete_chunks_outside(
-                session,
-                corpus_celexes=await celexes_to_keep(session, discovered=discovered, topics=topics),
-            )
-        logger.info("%s", result.line(Stage.CHUNK))
-
-        result.embed = await embed_chunks(session)
-        logger.info("%s", result.line(Stage.EMBED))
-
+        await _ingest_corpus(session, run, result, client=client, topics=topics, store=store)
     return result
