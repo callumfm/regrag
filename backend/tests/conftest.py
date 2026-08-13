@@ -21,7 +21,7 @@ from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.discover.models import DiscoveredDocument
-from app.ingestion.discover.stage import discover_topic
+from app.ingestion.discover.sparql import run_topic_query
 from app.ingestion.embed.stage import _embed_batch
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch.download import download_version
@@ -32,7 +32,7 @@ from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import write_document
 from app.main import configure_app
 
-RETRIED = (discover_topic, download_version, _embed_batch)
+RETRIED = (run_topic_query, download_version, _embed_batch)
 
 PARSE_FIXTURES = Path(__file__).parent / "ingestion" / "parse" / "fixtures"
 FUELEU_HTML = (PARSE_FIXTURES / "32023R1805.html").read_text()

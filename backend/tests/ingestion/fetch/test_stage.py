@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.core.storage import StorageError
-from app.ingestion.discover.stage import discover_corpus
+from app.ingestion.discover.stage import discover_topics
 from app.ingestion.enums import DocChange, IngestRunStatus
 from app.ingestion.exceptions import DocumentFailed, ParseError
 from app.ingestion.fetch import stage
@@ -119,7 +119,7 @@ async def fetch(db_session, client, topics, store) -> Fetched:
     """Drive the fetch stage alone, with the run, discovery and savepoint the pipeline supplies."""
     run = await create_ingest_run(db_session)
     previous = await get_raw_documents(db_session, RawDocsQuery(include_topics=topics))
-    discovered, _ = await discover_corpus(client, topics=topics, previous_celexes=previous)
+    discovered = await discover_topics(client, topics)
     fetched: list[FetchedDocument] = []
     changes: dict[str, DocChange] = {}
     failed: dict[str, str] = {}

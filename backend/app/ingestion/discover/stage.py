@@ -6,26 +6,26 @@ from collections.abc import Iterable, Sequence
 import httpx
 
 from app.core.config import config
-from app.core.http import http_retry
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.select import select_topic_documents
-from app.ingestion.discover.sparql import SPARQL_ENDPOINT, collect_candidate_acts, topic_query
+from app.ingestion.discover.sparql import extract_acts, run_topic_query
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 
 
-@http_retry
+def _require_seed(documents: Sequence[DiscoveredDocument], topic: str, seed_celex: str) -> None:
+    """The query returns the seed act itself, so a result set without it is malformed."""
+    if not any(document.celex == seed_celex for document in documents):
+        raise MalformedDiscoveryError(f"{topic}: seed {seed_celex} missing from discovery results")
+
+
 async def discover_topic(
     client: httpx.AsyncClient, topic: str, seed_celex: str
 ) -> list[DiscoveredDocument]:
-    """Run the topic query and select from it; a result set without the seed act is an error."""
-    response = await client.get(
-        SPARQL_ENDPOINT,
-        params={"query": topic_query(seed_celex), "format": "application/sparql-results+json"},
-    )
-    response.raise_for_status()
-    documents = select_topic_documents(topic, collect_candidate_acts(response.json()))
-    if not any(document.celex == seed_celex for document in documents):
-        raise MalformedDiscoveryError(f"{topic}: seed {seed_celex} missing from discovery results")
+    """One topic's corpus: ask CELLAR, read its rows into acts, select the ones worth fetching."""
+    rows = await run_topic_query(client, seed_celex)
+    acts = extract_acts(rows)
+    documents = select_topic_documents(topic, acts)
+    _require_seed(documents, topic, seed_celex)
     return documents
 
 
@@ -61,11 +61,3 @@ def find_dropped_celexes(
             f"discovery lost {len(dropped)} of {len(previous)} documents: {', '.join(dropped)}"
         )
     return dropped
-
-
-async def discover_corpus(
-    client: httpx.AsyncClient, *, topics: Sequence[str], previous_celexes: Iterable[str]
-) -> tuple[list[DiscoveredDocument], list[str]]:
-    """Discover every topic's corpus, and the celexes the previous run held that it lost."""
-    documents = await discover_topics(client, topics)
-    return documents, find_dropped_celexes(documents, previous_celexes)

@@ -10,7 +10,7 @@ from pathlib import Path
 from app.core.config import config
 from app.core.http import http_client
 from app.ingestion.discover.select import select_topic_documents
-from app.ingestion.discover.sparql import SPARQL_ENDPOINT, collect_candidate_acts, topic_query
+from app.ingestion.discover.sparql import extract_acts, run_topic_query
 from app.ingestion.fetch.download import download_fetchable_version
 
 FIXTURES = Path(__file__).parent
@@ -21,14 +21,10 @@ async def record() -> None:
     missing: set[str] = set()
     async with http_client(timeout=120, delays=config.CRAWL_DELAYS) as client:
         for topic, seed in config.SEEDS.items():
-            response = await client.get(
-                SPARQL_ENDPOINT,
-                params={"query": topic_query(seed), "format": "application/sparql-results+json"},
-            )
-            response.raise_for_status()
-            payload = response.json()
+            rows = await run_topic_query(client, seed)
+            payload = {"results": {"bindings": rows}}
             (FIXTURES / f"sparql-{topic}.json").write_text(json.dumps(payload, indent=2) + "\n")
-            for spec in select_topic_documents(topic, collect_candidate_acts(payload)):
+            for spec in select_topic_documents(topic, extract_acts(rows)):
                 resolution, _ = await download_fetchable_version(client, spec)
                 if spec.candidate_celex and resolution.resolved_celex == spec.celex:
                     missing.add(spec.candidate_celex)

@@ -1,12 +1,20 @@
-"""The CELLAR SPARQL endpoint: the topic query, and the bindings it answers with."""
+"""Talking to CELLAR: build the topic query, send it, and read the rows it answers with."""
 
+from itertools import groupby
+
+import httpx
+
+from app.core.http import http_retry
 from app.ingestion import celex
 from app.ingestion.discover.models import CandidateAct
 
-SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
+_SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
+
+ResultRow = dict[str, dict[str, str]]
+"""One row of a result set, each variable name pointing at its value; a "binding" in SPARQL."""
 
 
-def topic_query(seed_celex: str) -> str:
+def _topic_query(seed_celex: str) -> str:
     """Acts citing the seed as legal basis (plus the seed), with in-force + consolidations."""
     seed_uri = f"http://publications.europa.eu/resource/celex/{seed_celex}"
     return f"""PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
@@ -23,22 +31,35 @@ SELECT DISTINCT ?c ?force ?cons WHERE {{
 }}"""
 
 
-def collect_candidate_acts(payload: dict) -> list[CandidateAct]:
-    """One act per celex, its bindings folded together; non-legislation sectors dropped."""
-    in_force: dict[str, str] = {}
-    consolidations: dict[str, set[str]] = {}
-    for binding in payload["results"]["bindings"]:
-        celex_id = binding["c"]["value"]
-        if not celex.is_legislation(celex_id):
-            continue
-        consolidations.setdefault(celex_id, set())
-        if "force" in binding:
-            in_force[celex_id] = binding["force"]["value"]
-        if "cons" in binding:
-            consolidations[celex_id].add(binding["cons"]["value"])
+@http_retry
+async def run_topic_query(client: httpx.AsyncClient, seed_celex: str) -> list[ResultRow]:
+    """Ask CELLAR for one topic's acts, and hand back the rows it answers with."""
+    response = await client.get(
+        _SPARQL_ENDPOINT,
+        params={"query": _topic_query(seed_celex), "format": "application/sparql-results+json"},
+    )
+    response.raise_for_status()
+    return response.json()["results"]["bindings"]
+
+
+def _row_celex(row: ResultRow) -> str:
+    return row["c"]["value"]
+
+
+def _act_from_rows(celex_id: str, rows: list[ResultRow]) -> CandidateAct:
+    """CELLAR repeats an act's celex and in-force flag on every row, one row per consolidation."""
+    return CandidateAct(
+        celex=celex_id,
+        in_force=next((row["force"]["value"] for row in rows if "force" in row), None),
+        consolidations=frozenset(row["cons"]["value"] for row in rows if "cons" in row),
+    )
+
+
+def extract_acts(rows: list[ResultRow]) -> list[CandidateAct]:
+    """One act per celex, its rows folded together; rows for non-legislation are dropped."""
+    legislation = [row for row in rows if celex.is_legislation(_row_celex(row))]
+    legislation.sort(key=_row_celex)
     return [
-        CandidateAct(
-            celex=celex_id, in_force=in_force.get(celex_id), consolidations=frozenset(cons)
-        )
-        for celex_id, cons in sorted(consolidations.items())
+        _act_from_rows(celex_id, list(act_rows))
+        for celex_id, act_rows in groupby(legislation, key=_row_celex)
     ]

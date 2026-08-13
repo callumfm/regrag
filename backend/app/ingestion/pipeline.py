@@ -12,7 +12,7 @@ from app.core.storage import ObjectStore
 from app.ingestion.chunk.service import prune_chunks
 from app.ingestion.chunk.stage import chunk_and_store_document
 from app.ingestion.discover.models import DiscoveredDocument
-from app.ingestion.discover.stage import discover_corpus
+from app.ingestion.discover.stage import discover_topics, find_dropped_celexes
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus, Stage
 from app.ingestion.exceptions import DocumentFailed
@@ -101,9 +101,8 @@ async def ingest(
     async with _recorded_run(session) as (run, result):
         query_in = RawDocsQuery(include_topics=list(topics))
         existing = await get_raw_documents(session, query=query_in)
-        discovered, result.dropped = await discover_corpus(
-            client, topics=topics, previous_celexes=existing
-        )
+        discovered = await discover_topics(client, topics)
+        result.dropped = find_dropped_celexes(discovered, existing)
         logger.info("%s", result.line(Stage.DISCOVER, total=len(discovered)))
 
         for document in discovered:
