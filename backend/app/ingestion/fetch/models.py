@@ -28,3 +28,10 @@ class FetchedDocument:
 
     document: RawDocument
     content: bytes
+
+
+class RawDocsQuery(FrozenModel):
+    """Filters for the standing corpus; None leaves a filter off, [] genuinely matches nothing."""
+
+    include_topics: list[str] | None = None
+    exclude_topics: list[str] | None = None

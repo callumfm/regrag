@@ -77,9 +77,18 @@ class Chunk(Locator):
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
+class ChunkQuery(FrozenModel):
+    """Which chunks to select: by vector presence, keyset-paged for the embed sweep."""
+
+    has_embedding: bool
+    after: tuple[str, int] | None = None
+    limit: int
+
+
 class ChunkCounts(FrozenModel):
     """What reconciling chunks changed, for one document or summed across a run."""
 
     added: int = 0
     deleted: int = 0
     kept: int = 0
+    updated: int = 0

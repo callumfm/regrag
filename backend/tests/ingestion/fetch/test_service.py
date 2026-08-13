@@ -1,21 +1,28 @@
-"""The previous-run query the fetch diff reads."""
+"""The standing-corpus query the fetch diff and the fingerprint read."""
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.enums import IngestRunStatus
-from app.ingestion.fetch.service import (
-    get_corpus_docs,
-    get_other_topic_celexes,
-    get_previous_docs,
-)
+from app.ingestion.fetch.models import RawDocsQuery
+from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.schemas import IngestRun
 
 pytestmark = pytest.mark.anyio
 
 
 async def test_baseline_empty_when_no_prior_runs(db_session: AsyncSession):
-    assert await get_previous_docs(db_session, ["mrv"]) == {}
+    assert await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"])) == {}
+
+
+async def test_an_empty_topic_filter_matches_nothing(db_session: AsyncSession, make_document):
+    """None leaves the filter off; an explicit empty list must not widen to the whole corpus."""
+    run = IngestRun(status=IngestRunStatus.SUCCESS)
+    db_session.add(make_document(run, "32015R0757", topic="mrv"))
+    await db_session.flush()
+
+    assert await get_raw_documents(db_session, RawDocsQuery(include_topics=[])) == {}
+    assert set(await get_raw_documents(db_session, RawDocsQuery())) == {"32015R0757"}
 
 
 async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
@@ -32,7 +39,7 @@ async def test_baseline_is_latest_run_with_rows_filtered_to_topics(
     )
     await db_session.flush()
 
-    previous = await get_previous_docs(db_session, ["mrv"])
+    previous = await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))
     assert set(previous) == {"32015R0757"}
     assert previous["32015R0757"].resolved_celex == "02015R0757-20250101"
 
@@ -49,7 +56,8 @@ async def test_baseline_survives_a_newer_run_of_another_topic(
     await db_session.flush()
 
     assert fueleu_run.id > mrv_run.id
-    assert set(await get_previous_docs(db_session, ["mrv"])) == {"32015R0757"}
+    previous = await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))
+    assert set(previous) == {"32015R0757"}
 
 
 async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, make_document):
@@ -58,7 +66,8 @@ async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, m
     db_session.add(IngestRun(status=IngestRunStatus.FAILED))
     await db_session.flush()
 
-    assert set(await get_previous_docs(db_session, ["mrv"])) == {"32015R0757"}
+    previous = await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))
+    assert set(previous) == {"32015R0757"}
 
 
 async def test_a_failed_run_does_not_retire_what_it_could_not_download(
@@ -77,16 +86,9 @@ async def test_a_failed_run_does_not_retire_what_it_could_not_download(
     )
     await db_session.flush()
 
-    assert set(await get_previous_docs(db_session, ["mrv"])) == {
-        "32015R0757",
-        "32023R2449",
-        "32014R0666",
-    }
-    assert set(await get_other_topic_celexes(db_session, ["fueleu"])) == {
-        "32015R0757",
-        "32023R2449",
-        "32014R0666",
-    }
+    held = {"32015R0757", "32023R2449", "32014R0666"}
+    assert set(await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))) == held
+    assert set(await get_raw_documents(db_session, RawDocsQuery(exclude_topics=["fueleu"]))) == held
 
 
 async def test_an_aborted_runs_rows_are_still_held(db_session: AsyncSession, make_document):
@@ -102,7 +104,7 @@ async def test_an_aborted_runs_rows_are_still_held(db_session: AsyncSession, mak
     )
     await db_session.flush()
 
-    previous = await get_previous_docs(db_session, ["mrv"])
+    previous = await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))
     assert set(previous) == {"32015R0757", "32023R2449"}
     assert previous["32015R0757"].resolved_celex == "02015R0757-20250101"
 
@@ -122,7 +124,7 @@ async def test_an_aborted_run_does_not_stand_for_the_corpus(
     )
     await db_session.flush()
 
-    assert {doc.celex for doc in await get_corpus_docs(db_session)} == {
+    assert set(await get_raw_documents(db_session, RawDocsQuery())) == {
         "32015R0757",
         "32023R2449",
     }
@@ -141,7 +143,7 @@ async def test_a_failed_run_does_not_stand_for_the_corpus(db_session: AsyncSessi
     )
     await db_session.flush()
 
-    assert {doc.celex for doc in await get_corpus_docs(db_session)} == {
+    assert set(await get_raw_documents(db_session, RawDocsQuery())) == {
         "32015R0757",
         "32023R2449",
     }
@@ -159,8 +161,6 @@ async def test_corpus_takes_the_newest_row_per_celex(db_session: AsyncSession, m
     )
     await db_session.flush()
 
-    rows = await get_corpus_docs(db_session)
-    docs = {doc.celex: doc for doc in rows}
+    docs = await get_raw_documents(db_session, RawDocsQuery())
     assert set(docs) == {"32015R0757", "32023R2449"}
-    assert len(rows) == len(docs)
     assert docs["32015R0757"].resolved_celex == "02015R0757-20250101"

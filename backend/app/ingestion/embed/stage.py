@@ -8,8 +8,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import EMBED_BATCH_SIZE, EmbedInput, LLMError, embed, llm_retry
+from app.ingestion.chunk.models import ChunkQuery
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.chunk.service import count_embedded_chunks, get_unembedded_chunks
+from app.ingestion.chunk.service import count_chunks, get_chunks
 from app.ingestion.constants import EMBED_PAGE_SIZE
 from app.ingestion.embed.models import EmbedOutcome
 
@@ -37,7 +38,9 @@ async def _embed_batch(session: AsyncSession, chunks: Sequence[DocumentChunk]) -
 async def _pages(session: AsyncSession) -> AsyncIterator[Sequence[DocumentChunk]]:
     """Vectorless chunks a page at a time, the cursor read before the page can be rolled back."""
     after: tuple[str, int] | None = None
-    while page := await get_unembedded_chunks(session, after=after, limit=EMBED_PAGE_SIZE):
+    while page := await get_chunks(
+        session, ChunkQuery(has_embedding=False, after=after, limit=EMBED_PAGE_SIZE)
+    ):
         after = (page[-1].celex, page[-1].id)
         yield page
 
@@ -48,7 +51,7 @@ async def embed_chunks(session: AsyncSession) -> EmbedOutcome:
     The savepoint is what a failed batch rolls back to: a plain rollback would expire the
     page's remaining rows, and embedding is the part that costs money to redo.
     """
-    result = EmbedOutcome(already_embedded=await count_embedded_chunks(session))
+    result = EmbedOutcome(already_embedded=await count_chunks(session, has_embedding=True))
     async for page in _pages(session):
         for celex, batch in _batches(page):
             try:
