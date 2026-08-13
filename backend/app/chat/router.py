@@ -32,27 +32,24 @@ def _sources_event(sources: tuple[SearchResult, ...]) -> ServerSentEvent:
 async def _chat_events(
     question: str, session: AsyncSession
 ) -> AsyncGenerator[ServerSentEvent, None]:
-    """Sources once, then tokens, then done; an error event ends a failed stream."""
+    """Sources once, then tokens, then done; an error event ends a failed stream.
+
+    astream's list-mode yields are untyped by langgraph, hence the ty ignores below.
+    """
     state = {"question": question, "sources": (), "answer": ""}
     run_config: RunnableConfig = {"configurable": {"session": session}}
     try:
-        # langgraph's v1 astream overload types each part as `dict[str, Any] | Any`; ty
-        # can't correlate that with the mode string, though a list stream_mode always
-        # yields (mode, data) tuples shaped to that mode (verified against the installed
-        # 1.2.11) — three suppressions below follow graph.py's precedent for that gap.
         async for mode, data in chat_graph.astream(
             state, config=run_config, stream_mode=["updates", "messages"]
         ):
             if mode == "updates" and "retrieve" in data:
-                yield _sources_event(data["retrieve"]["sources"])  # ty: ignore[invalid-argument-type]
+                sources = data["retrieve"]["sources"]  # ty: ignore[invalid-argument-type]
+                yield _sources_event(sources)
             elif mode == "messages":
                 chunk, metadata = data
                 text = chunk.content  # ty: ignore[unresolved-attribute]
-                if (
-                    isinstance(text, str)
-                    and text
-                    and metadata.get("langgraph_node") == "synthesize"  # ty: ignore[unresolved-attribute]
-                ):
+                node = metadata.get("langgraph_node")  # ty: ignore[unresolved-attribute]
+                if isinstance(text, str) and text and node == "synthesize":
                     yield ServerSentEvent(event="token", data=json.dumps({"text": text}))
     except DomainError as exc:
         logger.warning("chat stream failed: %s", exc.message)
