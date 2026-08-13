@@ -268,8 +268,8 @@ async def test_a_vanished_doc_gets_no_row_from_this_run(db_session, local_store,
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch(db_session, client, ["mrv"], local_store)
 
-    only_seed = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
-    client, _ = corpus_client({"mrv": only_seed}, docs)
+    only_base_act = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
+    client, _ = corpus_client({"mrv": only_base_act}, docs)
     changes, _, _ = await fetch(db_session, client, ["mrv"], local_store)
 
     assert celexes(changes, DocChange.REUSED) == ["32015R0757"]

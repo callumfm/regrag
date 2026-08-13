@@ -19,7 +19,7 @@ from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.html.parser import parse_eurlex_html
-from app.ingestion.pipeline import _get_celexes_to_keep, ingest
+from app.ingestion.pipeline import _find_dropped_celexes, _get_celexes_to_keep, ingest
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import document_key
 from tests.conftest import (
@@ -46,6 +46,16 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 def committed(report: IngestRunResult, change: DocChange) -> list[str]:
     """The celexes the run committed into one of fetch's buckets."""
     return sorted(doc.celex for doc in report.committed if doc.change is change)
+
+
+def test_dropped_celexes_are_the_previous_ones_discovery_no_longer_returns():
+    found = [discovered_document("32015R0757"), discovered_document("32016R1928")]
+    previous = ["32015R0757", "32016R1928", "32014R0666"]
+    assert _find_dropped_celexes(found, previous) == ["32014R0666"]
+
+
+def test_nothing_is_dropped_when_every_previous_celex_is_discovered():
+    assert _find_dropped_celexes([discovered_document("32015R0757")], ["32015R0757"]) == []
 
 
 async def test_keep_set_holds_this_runs_corpus_and_the_other_topics_documents(

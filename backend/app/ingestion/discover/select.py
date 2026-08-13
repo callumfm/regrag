@@ -1,11 +1,32 @@
-"""The policy over what the topic query returned: which acts to fetch, and at what version."""
+"""Reducing the query's answer to documents: which acts to fetch, and at what version."""
 
-from collections.abc import Iterable
+from itertools import groupby
 
 from app.ingestion import celex
-from app.ingestion.discover.models import CandidateAct, DiscoveredDocument
+from app.ingestion.discover.models import ActsQueryRow, CandidateAct, DiscoveredDocument
 
-IN_FORCE_FLAG = "1"
+
+def filter_legislative_acts(rows: list[ActsQueryRow]) -> list[ActsQueryRow]:
+    """Half of every answer is resolutions and communications: they cite a law but are not one."""
+    return [row for row in rows if celex.is_legislation(row.celex)]
+
+
+def _candidate_act(act_celex: str, rows: list[ActsQueryRow]) -> CandidateAct:
+    """Every row for an act repeats its in-force flag and carries one of its consolidations."""
+    return CandidateAct(
+        celex=act_celex,
+        in_force=rows[0].in_force,
+        consolidations=frozenset(row.consolidation for row in rows if row.consolidation),
+    )
+
+
+def extract_candidate_acts(rows: list[ActsQueryRow]) -> list[CandidateAct]:
+    """One act per celex, folded from the rows the query exploded it into."""
+    by_celex = sorted(rows, key=lambda row: row.celex)
+    return [
+        _candidate_act(act_celex, list(act_rows))
+        for act_celex, act_rows in groupby(by_celex, key=lambda row: row.celex)
+    ]
 
 
 def _extract_consolidations_of_this_act(act: CandidateAct) -> set[str]:
@@ -15,13 +36,18 @@ def _extract_consolidations_of_this_act(act: CandidateAct) -> set[str]:
 
 
 def _is_in_force(act: CandidateAct) -> bool:
-    """CELLAR flags a live act with '1'; repealed and unstated acts are not fetched."""
-    return act.in_force == IN_FORCE_FLAG
+    """Repealed acts are flagged false; anything that is not law carries no flag at all."""
+    return act.in_force is True
 
 
 def _is_folded_into_another_act(act: CandidateAct) -> bool:
     """Every consolidation of this act belongs to another act, which now supersedes it."""
     return bool(act.consolidations) and not _extract_consolidations_of_this_act(act)
+
+
+def filter_fetchable_acts(acts: list[CandidateAct]) -> list[CandidateAct]:
+    """A repealed act is not law; a folded one's text lives in the act that absorbed it."""
+    return [act for act in acts if _is_in_force(act) and not _is_folded_into_another_act(act)]
 
 
 def _latest_consolidation(act: CandidateAct) -> str | None:
@@ -30,8 +56,11 @@ def _latest_consolidation(act: CandidateAct) -> str | None:
     return max(own) if own else None
 
 
-def select_topic_documents(topic: str, acts: Iterable[CandidateAct]) -> list[DiscoveredDocument]:
-    """The acts worth fetching, each pointed at the version to try first."""
+def select_documents(topic: str, rows: list[ActsQueryRow]) -> list[DiscoveredDocument]:
+    """The query's rows, reduced to the documents this topic wants fetched."""
+    legislation = filter_legislative_acts(rows)
+    acts = extract_candidate_acts(legislation)
+    fetchable = filter_fetchable_acts(acts)
     return [
         DiscoveredDocument(
             topic=topic,
@@ -39,6 +68,5 @@ def select_topic_documents(topic: str, acts: Iterable[CandidateAct]) -> list[Dis
             celex=act.celex,
             candidate_celex=_latest_consolidation(act),
         )
-        for act in acts
-        if _is_in_force(act) and not _is_folded_into_another_act(act)
+        for act in fetchable
     ]

@@ -1,65 +1,51 @@
 """Talking to CELLAR: build the topic query, send it, and read the rows it answers with."""
 
-from itertools import groupby
+import json
+from string import Template
 
 import httpx
 
 from app.core.http import http_retry
-from app.ingestion import celex
-from app.ingestion.discover.models import CandidateAct
+from app.ingestion.discover.models import ActsQueryRow
+from app.ingestion.exceptions import MalformedDiscoveryError
 
 _SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
 
-ResultRow = dict[str, dict[str, str]]
-"""One row of a result set, each variable name pointing at its value; a "binding" in SPARQL."""
-
-
-def _topic_query(seed_celex: str) -> str:
-    """Acts citing the seed as legal basis (plus the seed), with in-force + consolidations."""
-    seed_uri = f"http://publications.europa.eu/resource/celex/{seed_celex}"
-    return f"""PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
+_ACTS_BY_TOPIC_QUERY = Template("""PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
-SELECT DISTINCT ?c ?force ?cons WHERE {{
-  {{ ?act cdm:resource_legal_based_on_resource_legal ?seed .
-    ?seed owl:sameAs <{seed_uri}> . }}
+SELECT DISTINCT ?c ?force ?cons WHERE {
+  { ?act cdm:resource_legal_based_on_resource_legal ?base .
+    ?base owl:sameAs <http://publications.europa.eu/resource/celex/$celex> . }
   UNION
-  {{ ?act owl:sameAs <{seed_uri}> . }}
+  { ?act owl:sameAs <http://publications.europa.eu/resource/celex/$celex> . }
   ?act cdm:resource_legal_id_celex ?c .
-  OPTIONAL {{ ?act cdm:resource_legal_in-force ?force }}
-  OPTIONAL {{ ?consact cdm:act_consolidated_consolidates_resource_legal ?act .
-    ?consact cdm:resource_legal_id_celex ?cons }}
-}}"""
+  OPTIONAL { ?act cdm:resource_legal_in-force ?force }
+  OPTIONAL { ?consact cdm:act_consolidated_consolidates_resource_legal ?act .
+    ?consact cdm:resource_legal_id_celex ?cons }
+}""")
 
 
 @http_retry
-async def run_topic_query(client: httpx.AsyncClient, seed_celex: str) -> list[ResultRow]:
-    """Ask CELLAR for one topic's acts, and hand back the rows it answers with."""
-    response = await client.get(
-        _SPARQL_ENDPOINT,
-        params={"query": _topic_query(seed_celex), "format": "application/sparql-results+json"},
-    )
+async def run_acts_by_topic_query(client: httpx.AsyncClient, celex: str) -> list[ActsQueryRow]:
+    """Ask CELLAR for one topic's acts; the query returns the base act too, so it must come back."""
+    query = _ACTS_BY_TOPIC_QUERY.substitute(celex=celex)
+    fmt = "application/sparql-results+json"
+    response = await client.get(_SPARQL_ENDPOINT, params={"query": query, "format": fmt})
     response.raise_for_status()
-    return response.json()["results"]["bindings"]
+    try:
+        bindings = response.json()["results"]["bindings"]
+    except (json.JSONDecodeError, KeyError) as exc:
+        raise MalformedDiscoveryError(f"malformed SPARQL response: {exc!r}") from exc
 
-
-def _row_celex(row: ResultRow) -> str:
-    return row["c"]["value"]
-
-
-def _act_from_rows(celex_id: str, rows: list[ResultRow]) -> CandidateAct:
-    """CELLAR repeats an act's celex and in-force flag on every row, one row per consolidation."""
-    return CandidateAct(
-        celex=celex_id,
-        in_force=next((row["force"]["value"] for row in rows if "force" in row), None),
-        consolidations=frozenset(row["cons"]["value"] for row in rows if "cons" in row),
-    )
-
-
-def extract_acts(rows: list[ResultRow]) -> list[CandidateAct]:
-    """One act per celex, its rows folded together; rows for non-legislation are dropped."""
-    legislation = [row for row in rows if celex.is_legislation(_row_celex(row))]
-    legislation.sort(key=_row_celex)
-    return [
-        _act_from_rows(celex_id, list(act_rows))
-        for celex_id, act_rows in groupby(legislation, key=_row_celex)
+    rows = [
+        ActsQueryRow(
+            celex=r["c"]["value"],
+            in_force=r.get("force", {}).get("value"),
+            consolidation=r.get("cons", {}).get("value"),
+        )
+        for r in bindings
     ]
+    if not any(row.celex == celex for row in rows):
+        raise MalformedDiscoveryError(f"base act {celex} missing from discovery results")
+
+    return rows

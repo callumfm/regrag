@@ -1,15 +1,16 @@
-"""The CELLAR topic query, and folding the rows it answers with into acts."""
+"""The CELLAR query, and the rows it answers with."""
 
 import httpx
 import pytest
 
-from app.ingestion.discover.sparql import extract_acts, run_topic_query
-from tests.conftest import binding, payload
+from app.ingestion.discover.sparql import run_acts_by_topic_query
+from app.ingestion.exceptions import MalformedDiscoveryError
+from tests.conftest import act_row, binding, payload
 
 pytestmark = pytest.mark.anyio
 
 
-async def test_topic_query_asks_for_the_seed_and_json_results():
+async def test_the_query_asks_for_the_base_act_and_json_results():
     def handler(request):
         query = request.url.params["query"]
         assert "resource/celex/32023R1805" in query
@@ -18,39 +19,60 @@ async def test_topic_query_asks_for_the_seed_and_json_results():
         return httpx.Response(200, json=payload(binding("32023R1805", force="1")))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        rows = await run_topic_query(client, "32023R1805")
+        rows = await run_acts_by_topic_query(client, "32023R1805")
 
-    assert rows == [binding("32023R1805", force="1")]
-
-
-def test_extract_acts_folds_every_row_for_one_celex():
-    rows = [
-        binding("32015R0757", force="1", cons="02015R0757-20240101"),
-        binding("32015R0757", force="1", cons="02015R0757-20250101"),
-    ]
-    acts = extract_acts(rows)
-    assert len(acts) == 1
-    assert acts[0].consolidations == frozenset({"02015R0757-20240101", "02015R0757-20250101"})
+    assert rows == [act_row("32023R1805", in_force=True)]
 
 
-def test_extract_acts_takes_in_force_from_whichever_row_carries_it():
-    rows = [
-        binding("32015R0757", cons="02015R0757-20240101"),
-        binding("32015R0757", force="1", cons="02015R0757-20250101"),
-    ]
-    assert extract_acts(rows)[0].in_force == "1"
+async def test_unbound_variables_come_back_as_none():
+    """SPARQL omits an OPTIONAL it could not bind, rather than sending it null."""
+
+    def handler(request):
+        return httpx.Response(200, json=payload(binding("32023R1805")))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        rows = await run_acts_by_topic_query(client, "32023R1805")
+
+    assert rows == [act_row("32023R1805", in_force=None, consolidation=None)]
 
 
-def test_extract_acts_groups_interleaved_rows_by_celex():
-    rows = [
-        binding("32023R2449", force="1"),
-        binding("32015R0757", force="1", cons="02015R0757-20240101"),
-        binding("32023R2449", force="1", cons="02023R2449-20250101"),
-    ]
-    acts = extract_acts(rows)
-    assert [act.celex for act in acts] == ["32015R0757", "32023R2449"]
-    assert acts[1].consolidations == frozenset({"02023R2449-20250101"})
+async def test_an_answer_without_the_base_act_is_malformed():
+    """The query's second UNION branch matches the base act itself, so it always comes back."""
+
+    def handler(request):
+        return httpx.Response(200, json=payload(binding("32023R2449", force="1")))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(MalformedDiscoveryError, match="32015R0757"):
+            await run_acts_by_topic_query(client, "32015R0757")
 
 
-def test_extract_acts_keeps_an_act_that_has_no_consolidations():
-    assert extract_acts([binding("32023R2449", force="1")])[0].consolidations == frozenset()
+async def test_a_body_that_is_not_a_result_set_is_malformed():
+    def handler(request):
+        return httpx.Response(200, json={"error": "service unavailable"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(MalformedDiscoveryError, match="malformed"):
+            await run_acts_by_topic_query(client, "32015R0757")
+
+
+async def test_a_body_that_is_not_json_is_malformed():
+    def handler(request):
+        return httpx.Response(200, text="<html>gateway timeout</html>")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(MalformedDiscoveryError, match="malformed"):
+            await run_acts_by_topic_query(client, "32015R0757")
+
+
+async def test_the_in_force_flag_is_read_as_a_bool():
+    def handler(request):
+        return httpx.Response(
+            200,
+            json=payload(binding("32016R1928", force="1"), binding("32016R1927", force="0")),
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        rows = await run_acts_by_topic_query(client, "32016R1928")
+
+    assert [row.in_force for row in rows] == [True, False]

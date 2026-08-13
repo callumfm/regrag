@@ -31,7 +31,7 @@ class DiscoveryError(IngestionError):
 
 
 class MalformedDiscoveryError(DiscoveryError):
-    """The SPARQL response was unreadable, or came back without its seed act."""
+    """The SPARQL response was unreadable, or came back without its base act."""
 
 
 class CorpusShrankError(DiscoveryError):

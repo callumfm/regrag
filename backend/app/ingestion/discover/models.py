@@ -7,13 +7,24 @@ legislation. Discovery reads acts out of CELLAR; the rest of the pipeline handle
 from app.core.models import FrozenModel
 
 
+class ActsQueryRow(FrozenModel):
+    """One line of CELLAR's answer: an act, and one consolidated text including it.
+
+    An act with no consolidations still gets a line, with the consolidation empty; anything that
+    is not law carries no in-force flag at all.
+    """
+
+    celex: str
+    in_force: bool | None = None
+    consolidation: str | None = None
+
+
 class CandidateAct(FrozenModel):
     """One act the topic query returned, before select.py decides whether it is worth fetching."""
 
     celex: str
-    in_force: str | None = None
+    in_force: bool | None = None
     consolidations: frozenset[str] = frozenset()
-    """Every consolidated text including this act: as its base act, or as an amendment folded in."""
 
 
 class DiscoveredDocument(FrozenModel):

@@ -1,21 +1,22 @@
 """The ingest pipeline: one run, discover -> fetch -> parse -> chunk -> embed."""
 
 import logging
-from collections.abc import AsyncIterator, Collection, Sequence
+from collections.abc import AsyncIterator, Collection, Iterable, Sequence
 from contextlib import asynccontextmanager
 
 import httpx
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import config
 from app.core.storage import ObjectStore
 from app.ingestion.chunk.service import prune_chunks
 from app.ingestion.chunk.stage import chunk_and_store_document
 from app.ingestion.discover.models import DiscoveredDocument
-from app.ingestion.discover.stage import discover_topics, find_dropped_celexes
+from app.ingestion.discover.stage import discover_topics
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus, Stage
-from app.ingestion.exceptions import DocumentFailed
+from app.ingestion.exceptions import CorpusShrankError, DocumentFailed
 from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_raw_documents
@@ -79,6 +80,25 @@ async def _ingest_document(
     return DocumentOutcome(celex=document.celex, change=change, chunks=chunks)
 
 
+def _find_dropped_celexes(
+    discovered: Sequence[DiscoveredDocument], previous_celexes: Iterable[str]
+) -> list[str]:
+    """Celexes the previous run held that discovery no longer returns.
+
+    Losing an implausible share is an error: a truncated result set is indistinguishable from a
+    mass repeal, so refuse to call it one.
+    """
+    discovered_celexes = {document.celex for document in discovered}
+    previous = set(previous_celexes)
+    dropped = sorted(previous - discovered_celexes)
+    suspicious = len(dropped) >= config.MIN_SUSPICIOUS_DROPS
+    if suspicious and len(dropped) > config.MAX_DROP_RATIO * len(previous):
+        raise CorpusShrankError(
+            f"discovery lost {len(dropped)} of {len(previous)} documents: {', '.join(dropped)}"
+        )
+    return dropped
+
+
 async def _get_celexes_to_keep(
     session: AsyncSession, *, discovered: Sequence[DiscoveredDocument], topics: Sequence[str]
 ) -> Collection[str]:
@@ -102,7 +122,7 @@ async def ingest(
         query_in = RawDocsQuery(include_topics=list(topics))
         existing = await get_raw_documents(session, query=query_in)
         discovered = await discover_topics(client, topics)
-        result.dropped = find_dropped_celexes(discovered, existing)
+        result.dropped = _find_dropped_celexes(discovered, existing)
         logger.info("%s", result.line(Stage.DISCOVER, total=len(discovered)))
 
         for document in discovered:

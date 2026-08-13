@@ -30,10 +30,10 @@ def fake_ingest(monkeypatch):
     return calls, report
 
 
-def test_no_topics_ingests_all_seeds(fake_ingest):
+def test_no_topics_ingests_every_topic(fake_ingest):
     calls, _ = fake_ingest
     assert main([]) == 0
-    assert calls == [sorted(config.SEEDS)]
+    assert calls == [sorted(config.TOPIC_BASE_ACTS)]
 
 
 def test_explicit_topics_passed_through(fake_ingest):

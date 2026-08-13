@@ -112,7 +112,7 @@ def test_the_env_file_is_absolute_so_the_working_directory_cannot_change_it(env,
 def test_ingest_defaults_match_the_shipped_tunables():
     ingest = IngestConfig()
 
-    assert ingest.SEEDS == {"fueleu": "32023R1805", "mrv": "32015R0757"}
+    assert ingest.TOPIC_BASE_ACTS == {"fueleu": "32023R1805", "mrv": "32015R0757"}
     assert ingest.CRAWL_DELAYS == {"eur-lex.europa.eu": 10.0, "publications.europa.eu": 1.0}
     assert ingest.MAX_DROP_RATIO == 0.2
     assert ingest.MIN_SUSPICIOUS_DROPS == 3
@@ -124,7 +124,7 @@ def test_ingest_defaults_match_the_shipped_tunables():
 
 def test_combined_config_carries_the_ingest_tunables():
     assert Config().EMBED_CONCURRENCY == 4
-    assert sorted(Config().SEEDS) == ["fueleu", "mrv"]
+    assert sorted(Config().TOPIC_BASE_ACTS) == ["fueleu", "mrv"]
 
 
 def test_retrieval_defaults_match_the_shipped_tunables():
