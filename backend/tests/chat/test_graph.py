@@ -7,7 +7,6 @@ import httpx
 import openai
 import pytest
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_core.runnables import RunnableConfig
 from langchain_litellm import ChatLiteLLM
 
 from app.chat.graph import chat_graph
@@ -17,11 +16,7 @@ from tests.chat.conftest import RecordingChatModel, fake_chat_model, make_result
 
 pytestmark = pytest.mark.anyio
 
-RUN_CONFIG: RunnableConfig = {"configurable": {"session": None}}
-
-
-def graph_input(question: str = "What is the GHG intensity limit?") -> dict:
-    return {"question": question, "sources": (), "answer": ""}
+QUESTION = "What is the GHG intensity limit?"
 
 
 async def test_graph_retrieves_then_answers(monkeypatch):
@@ -31,14 +26,15 @@ async def test_graph_retrieves_then_answers(monkeypatch):
         calls.append((query, kwargs["limit"]))
         return (make_result(),)
 
+    model = fake_chat_model("Yes, Article 4 [1].")
     monkeypatch.setattr("app.chat.graph.search", fake_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", fake_chat_model("Yes, Article 4 [1]."))
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
 
-    state = await chat_graph.ainvoke(graph_input(), config=RUN_CONFIG)
+    state = await chat_graph.ainvoke({"question": QUESTION})
 
     assert state["answer"] == "Yes, Article 4 [1]."
     assert state["sources"] == (make_result(),)
-    assert calls == [("What is the GHG intensity limit?", config.CHAT_CONTEXT_CHUNKS)]
+    assert calls == [(QUESTION, config.CHAT_CONTEXT_CHUNKS)]
 
 
 async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
@@ -47,9 +43,9 @@ async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
 
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.search", fake_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
 
-    await chat_graph.ainvoke(graph_input(), config=RUN_CONFIG)
+    await chat_graph.ainvoke({"question": QUESTION})
 
     (prompt,) = model.received
     assert isinstance(prompt[0], SystemMessage)
@@ -78,11 +74,12 @@ async def test_provider_failure_becomes_transient_llm_error(monkeypatch):
     async def fake_search(session, query, **kwargs):
         return (make_result(),)
 
+    model = FailingModel(messages=iter([]))
     monkeypatch.setattr("app.chat.graph.search", fake_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", FailingModel(messages=iter([])))
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
 
     with pytest.raises(LLMError) as exc_info:
-        await chat_graph.ainvoke(graph_input(), config=RUN_CONFIG)
+        await chat_graph.ainvoke({"question": QUESTION})
 
     assert exc_info.value.transient is True
 

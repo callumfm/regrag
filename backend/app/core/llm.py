@@ -2,6 +2,8 @@
 
 import logging
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from enum import StrEnum
 from operator import itemgetter
 
@@ -67,11 +69,23 @@ llm_retry = transient_retry(_is_transient)
 """Decorator retrying transient provider failures with exponential backoff."""
 
 
+@contextmanager
+def wrap_provider_errors(label: str) -> Iterator[None]:
+    """Translate a provider failure into LLMError, marking the retryable ones transient."""
+    try:
+        yield
+    except ProviderError as exc:
+        logger.warning("%s failed: %s", label, exc)
+        raise LLMError(
+            f"{label} failed", transient=isinstance(exc, TRANSIENT_PROVIDER_ERRORS)
+        ) from exc
+
+
 async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]]:
     """Embed texts in one provider call, in input order. Retries are the caller's."""
     if not texts:
         return []
-    try:
+    with wrap_provider_errors("embedding call"):
         response = await litellm.aembedding(
             model=config.EMBED_MODEL,
             input=texts,
@@ -80,11 +94,6 @@ async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]
             api_key=config.VOYAGE_API_KEY,
             timeout=config.EMBED_TIMEOUT,
         )
-    except ProviderError as exc:
-        logger.warning("embedding call failed: %s", exc)
-        raise LLMError(
-            "embedding call failed", transient=isinstance(exc, TRANSIENT_PROVIDER_ERRORS)
-        ) from exc
     if len(response.data) != len(texts):
         logger.warning(
             "embedding response misaligned: got %d items for %d inputs",

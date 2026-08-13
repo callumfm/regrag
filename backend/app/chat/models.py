@@ -12,6 +12,11 @@ class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
 
 
+def numbered(sources: tuple[SearchResult, ...]) -> tuple[tuple[int, SearchResult], ...]:
+    """Each source with its 1-based marker; prompt context and the sources event share this."""
+    return tuple(enumerate(sources, start=1))
+
+
 class ChatSource(FrozenModel):
     """One context block as the sources event reports it, binding marker to chunk."""
 
