@@ -55,6 +55,12 @@ async def _chat_events(
         logger.warning("chat stream failed: %s", exc.message)
         yield ServerSentEvent(event="error", data=json.dumps({"message": exc.message}))
         return
+    except Exception:
+        logger.exception("chat stream failed unexpectedly")
+        yield ServerSentEvent(
+            event="error", data=json.dumps({"message": "An unexpected error occurred"})
+        )
+        return
     yield ServerSentEvent(event="done", data="{}")
 
 

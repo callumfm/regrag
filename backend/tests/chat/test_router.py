@@ -72,6 +72,18 @@ def test_stream_failure_emits_an_error_event(client, monkeypatch):
     assert events == [("error", {"message": "embedding call failed"})]
 
 
+def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
+    async def exploding_search(session, query, **kwargs):
+        raise RuntimeError("secret internals")
+
+    monkeypatch.setattr("app.chat.graph.search", exploding_search)
+
+    with client.stream("POST", "/chat", json={"question": "q"}) as response:
+        events = read_events(response)
+
+    assert events == [("error", {"message": "An unexpected error occurred"})]
+
+
 def test_empty_question_is_rejected(client):
     response = client.post("/chat", json={"question": ""})
     assert response.status_code == 422

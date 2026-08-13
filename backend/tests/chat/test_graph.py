@@ -88,12 +88,16 @@ async def test_provider_failure_becomes_transient_llm_error(monkeypatch):
 
 
 @pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="needs a real Anthropic key")
-async def test_real_chat_model_answers():
+async def test_real_chat_model_streams_string_chunks():
     model = ChatLiteLLM(
         model=config.CHAT_MODEL,
         api_key=os.environ["ANTHROPIC_API_KEY"],
         max_tokens=32,
         request_timeout=30,
     )
-    response = await model.ainvoke([HumanMessage("Reply with the single word OK.")])
-    assert response.content
+    texts = [
+        chunk.content
+        async for chunk in model.astream([HumanMessage("Reply with the single word OK.")])
+    ]
+    assert all(isinstance(text, str) for text in texts)
+    assert "".join(texts)  # ty: ignore[no-matching-overload]
