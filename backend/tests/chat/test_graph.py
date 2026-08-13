@@ -1,12 +1,14 @@
 """Chat graph: state flow, search passthrough, prompt assembly, error wrapping."""
 
+import os
 from typing import Any
 
 import httpx
 import openai
 import pytest
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_litellm import ChatLiteLLM
 
 from app.chat.graph import chat_graph
 from app.core.config import config
@@ -83,3 +85,15 @@ async def test_provider_failure_becomes_transient_llm_error(monkeypatch):
         await chat_graph.ainvoke(graph_input(), config=RUN_CONFIG)
 
     assert exc_info.value.transient is True
+
+
+@pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="needs a real Anthropic key")
+async def test_real_chat_model_answers():
+    model = ChatLiteLLM(
+        model=config.CHAT_MODEL,
+        api_key=os.environ["ANTHROPIC_API_KEY"],
+        max_tokens=32,
+        request_timeout=30,
+    )
+    response = await model.ainvoke([HumanMessage("Reply with the single word OK.")])
+    assert response.content
