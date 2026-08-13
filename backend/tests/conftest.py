@@ -209,6 +209,7 @@ def make_chunk_row() -> Callable[..., DocumentChunk]:
             "heading_path": ["Chapter I", "Section 2"],
             "part": 1,
             "parts": 1,
+            "position": 0,
             "citation": "Article 4(1)",
             "text": "The greenhouse gas intensity of the energy used on board.",
             "references": [{"raw": "Annex I", "annex": "I"}],
