@@ -65,6 +65,7 @@ class IngestRunResult(BaseModel):
             added=sum(count.added for count in counts),
             deleted=sum(count.deleted for count in counts) + self.pruned,
             kept=sum(count.kept for count in counts),
+            updated=sum(count.updated for count in counts),
         )
 
     @property

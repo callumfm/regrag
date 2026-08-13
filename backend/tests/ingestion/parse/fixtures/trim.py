@@ -10,7 +10,8 @@ from selectolax.parser import HTMLParser, Node
 
 from app.core.db.session import get_session
 from app.core.storage import StorageError, get_object_store
-from app.ingestion.fetch.service import get_corpus_docs
+from app.ingestion.fetch.models import RawDocsQuery
+from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.storage import read_document
 
 FIXTURES = Path(__file__).parent
@@ -38,9 +39,9 @@ def shrink(node: Node) -> None:
 async def stored_html() -> dict[str, str]:
     """The documents KEEP names, read back out of object storage."""
     async with get_session(auto_commit=False) as session:
-        documents = await get_corpus_docs(session)
+        documents = await get_raw_documents(session, RawDocsQuery())
     store = get_object_store()
-    wanted = [doc for doc in documents if doc.celex in KEEP]
+    wanted = [doc for doc in documents.values() if doc.celex in KEEP]
     try:
         return {doc.celex: read_document(store, doc).decode("utf-8") for doc in wanted}
     except StorageError as exc:

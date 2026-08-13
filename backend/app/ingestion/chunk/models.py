@@ -83,3 +83,4 @@ class ChunkCounts(FrozenModel):
     added: int = 0
     deleted: int = 0
     kept: int = 0
+    updated: int = 0

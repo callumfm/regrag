@@ -11,13 +11,15 @@ from app.core.storage import StorageError
 from app.ingestion import pipeline
 from app.ingestion.celex import consolidated_stem
 from app.ingestion.chunk.chunker import chunk_document
+from app.ingestion.chunk.service import prune_chunks
 from app.ingestion.enums import DocChange, IngestRunStatus, SectionKind, Stage
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
+from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.fetch.service import get_previous_docs
+from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.html.parser import parse_eurlex_html
-from app.ingestion.pipeline import _prune_dropped_chunks, ingest
+from app.ingestion.pipeline import _get_celexes_to_keep, ingest
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import document_key
 from tests.conftest import (
@@ -46,10 +48,10 @@ def committed(report: IngestRunResult, change: DocChange) -> list[str]:
     return sorted(doc.celex for doc in report.committed if doc.change is change)
 
 
-async def test_prune_keeps_this_runs_corpus_and_the_other_topics_documents(
+async def test_keep_set_holds_this_runs_corpus_and_the_other_topics_documents(
     db_session, make_document, make_chunk_row
 ):
-    """The prune deletes only chunks no topic wants: not this run's, not another topic's."""
+    """The keep-set spares every chunk some topic wants: this run's and the other topics'."""
     other = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add(make_document(other, "32015R0757", topic="mrv"))
     db_session.add(make_chunk_row(other, celex="32015R0757", topic="mrv"))
@@ -57,13 +59,13 @@ async def test_prune_keeps_this_runs_corpus_and_the_other_topics_documents(
     db_session.add(make_chunk_row(other, celex="32009L0016", topic="fueleu"))
     await db_session.flush()
 
-    pruned = await _prune_dropped_chunks(
+    to_keep = await _get_celexes_to_keep(
         db_session,
         discovered=[discovered_document("32023R1805", topic="fueleu")],
         topics=["fueleu"],
     )
 
-    assert pruned == 1
+    assert await prune_chunks(db_session, to_keep) == 1
     assert {row.celex for row in await chunk_rows(db_session)} == {"32015R0757", "32023R1805"}
 
 
@@ -175,7 +177,7 @@ async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_zero(
         "discover": {"dropped": 0, "failed": {}},
         "fetch": {"new": 0, "updated": 0, "reused": 0, "failed": {}},
         "parse": {"parsed": 0, "failed": {}},
-        "chunk": {"added": 0, "deleted": 0, "kept": 0, "failed": {}},
+        "chunk": {"added": 0, "deleted": 0, "kept": 0, "updated": 0, "failed": {}},
         "embed": {"embedded": 0, "already_embedded": 0, "failed": {}},
     }
 
@@ -465,7 +467,7 @@ async def test_a_source_document_lost_from_the_store_is_downloaded_again(
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    rows = await get_previous_docs(db_session, ["mrv"])
+    rows = await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))
     row = rows["32015R0757"]
     assert local_store.exists(document_key(row.celex, row.resolved_celex, row.sha256))
     assert report.ok
@@ -692,7 +694,9 @@ async def test_a_document_that_fails_to_parse_leaves_no_row_behind(
 
     assert list(report.failures(Stage.PARSE)) == ["32023R2449"]
     assert committed(report, DocChange.NEW) == ["32015R0757"]
-    assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
+    assert "32023R2449" not in await get_raw_documents(
+        db_session, RawDocsQuery(include_topics=["mrv"])
+    )
 
 
 async def test_a_failed_document_leaves_the_rows_the_next_one_needs_readable(
@@ -770,7 +774,10 @@ async def test_a_run_that_dies_in_embed_keeps_its_documents_and_chunks(
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert await chunk_versions(db_session) != set()
-    assert set(await get_previous_docs(db_session, ["mrv"])) == {"32015R0757", "32023R2449"}
+    assert set(await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))) == {
+        "32015R0757",
+        "32023R2449",
+    }
 
     monkeypatch.setattr(pipeline, "embed_chunks", real_embed_chunks)
     stored = len(await chunk_rows(db_session))
@@ -797,5 +804,11 @@ async def test_a_run_where_every_document_fails_still_reports_the_later_stages(
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     assert report.report()["parse"] == {"parsed": 0, "failed": {}}
-    assert report.report()["chunk"] == {"added": 0, "deleted": 0, "kept": 0, "failed": {}}
+    assert report.report()["chunk"] == {
+        "added": 0,
+        "deleted": 0,
+        "kept": 0,
+        "updated": 0,
+        "failed": {},
+    }
     assert not report.ok

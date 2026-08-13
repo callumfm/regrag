@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
+import type { HealthResponse } from '@/lib/api'
 import { HomePage } from './home-page'
 
 function renderPage() {
@@ -14,11 +15,7 @@ function renderPage() {
 	)
 }
 
-function stubHealth(body: {
-	version: string
-	database: string
-	status: string
-}) {
+function stubHealth(body: HealthResponse) {
 	vi.stubGlobal(
 		'fetch',
 		vi.fn().mockResolvedValue({ ok: true, json: async () => body }),

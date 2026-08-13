@@ -16,7 +16,7 @@ from app.core.config import EMBED_DIMENSIONS
 from app.core.db.session import async_session_factory
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.chunk.service import upsert_document_chunks
+from app.ingestion.chunk.service import sync_document_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.schemas import IngestRun
@@ -75,7 +75,7 @@ async def store_corpus(
         session.add(run)
         await session.flush()
         for document in (fueleu, mrv):
-            await upsert_document_chunks(
+            await sync_document_chunks(
                 session,
                 celex=document.celex,
                 chunks=chunk_document(document),

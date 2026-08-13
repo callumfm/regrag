@@ -57,12 +57,33 @@ def test_resolves_numbered_instrument_as_number_before_year() -> None:
 
 def test_resolves_a_two_digit_year_to_the_twentieth_century() -> None:
     references = extract_references("as amended by Council Directive 92/43/EEC")
-    assert references == (Reference(raw="Directive 92/43/EEC", instrument="31992L0043"),)
+    assert references == (Reference(raw="Council Directive 92/43/EEC", instrument="31992L0043"),)
 
 
 def test_resolves_a_numbered_instrument_with_a_two_digit_year() -> None:
     references = extract_references("referred to in Regulation (EEC) No 2913/92")
     assert references == (Reference(raw="Regulation (EEC) No 2913/92", instrument="31992R2913"),)
+
+
+def test_reads_a_no_prefixed_modern_citation_as_year_first() -> None:
+    references = extract_references("as defined in Regulation (EU) No 2015/757")
+    assert references == (Reference(raw="Regulation (EU) No 2015/757", instrument="32015R0757"),)
+
+
+def test_reads_a_no_prefixed_year_shaped_pair_as_year_first() -> None:
+    references = extract_references("screening under Regulation (EU) No 2015/1998")
+    assert references == (Reference(raw="Regulation (EU) No 2015/1998", instrument="32015R1998"),)
+
+
+def test_attributes_article_across_a_no_prefixed_modern_citation() -> None:
+    references = extract_references("under Article 5 of Regulation (EU) No 2015/757")
+    assert references == (
+        Reference(
+            raw="Article 5 of Regulation (EU) No 2015/757",
+            instrument="32015R0757",
+            article="5",
+        ),
+    )
 
 
 def test_reads_the_year_as_the_year_even_when_the_no_is_dropped() -> None:
@@ -158,3 +179,75 @@ def test_an_instrument_a_division_claimed_is_not_cited_again_in_its_own_right() 
     divisions = find_division_mentions(text)
     assert unattributed_instruments(text, divisions, find_instrument_mentions(text)) == []
     assert unattributed_instruments(text, [], find_instrument_mentions(text)) != []
+
+
+def test_attributes_article_across_a_council_prefix() -> None:
+    references = extract_references("pursuant to Article 3 of Council Regulation (EEC) No 3577/92")
+    assert references == (
+        Reference(
+            raw="Article 3 of Council Regulation (EEC) No 3577/92",
+            instrument="31992R3577",
+            article="3",
+        ),
+    )
+
+
+def test_attributes_article_across_a_commission_implementing_prefix() -> None:
+    references = extract_references(
+        "in Article 2 of Commission Implementing Regulation (EU) 2016/1927"
+    )
+    assert references == (
+        Reference(
+            raw="Article 2 of Commission Implementing Regulation (EU) 2016/1927",
+            instrument="32016R1927",
+            article="2",
+        ),
+    )
+
+
+def test_attributes_article_across_a_commission_delegated_prefix() -> None:
+    references = extract_references(
+        "under Article 5 of Commission Delegated Regulation (EU) 2023/1640"
+    )
+    assert references == (
+        Reference(
+            raw="Article 5 of Commission Delegated Regulation (EU) 2023/1640",
+            instrument="32023R1640",
+            article="5",
+        ),
+    )
+
+
+def test_attributes_article_across_a_parliament_and_council_prefix() -> None:
+    references = extract_references(
+        "under Article 6 of European Parliament and Council Directive 95/46/EC"
+    )
+    assert references == (
+        Reference(
+            raw="Article 6 of European Parliament and Council Directive 95/46/EC",
+            instrument="31995L0046",
+            article="6",
+        ),
+    )
+
+
+def test_a_numbered_pre_2000_instrument_reads_number_then_year() -> None:
+    references = extract_references("slots allocated under Regulation (EEC) No 95/93")
+    assert references == (Reference(raw="Regulation (EEC) No 95/93", instrument="31993R0095"),)
+
+
+def test_a_numbered_instrument_with_two_year_shaped_halves_reads_number_first() -> None:
+    references = extract_references("fertilisers under Regulation (EC) No 2003/2003")
+    assert references == (Reference(raw="Regulation (EC) No 2003/2003", instrument="32003R2003"),)
+
+
+def test_an_unnumbered_two_digit_pair_reads_year_then_number() -> None:
+    references = extract_references("equipment approved under Council Directive 96/98/EC")
+    assert references == (Reference(raw="Council Directive 96/98/EC", instrument="31996L0098"),)
+
+
+def test_resolves_a_bare_commission_regulation() -> None:
+    references = extract_references("monitoring under Commission Regulation (EU) No 601/2012")
+    assert references == (
+        Reference(raw="Commission Regulation (EU) No 601/2012", instrument="32012R0601"),
+    )

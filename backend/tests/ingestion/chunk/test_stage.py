@@ -88,7 +88,7 @@ async def test_a_database_failure_is_reported_as_the_documents_own(
     async def fail(session, *, celex, chunks, ingest_run_id):
         raise IntegrityError("INSERT", {}, Exception("duplicate key"))
 
-    monkeypatch.setattr(stage, "upsert_document_chunks", fail)
+    monkeypatch.setattr(stage, "sync_document_chunks", fail)
 
     with pytest.raises(DocumentFailed) as excinfo:
         await chunk_and_store_document(db_session, parsed("broken"), ingest_run_id=ingest_run.id)
