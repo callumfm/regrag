@@ -47,7 +47,7 @@ class Locator(FrozenModel):
 class Chunk(Locator):
     """One retrievable unit of a regulation, with its citation and cross-references."""
 
-    NOT_IDENTITY: ClassVar[set[str]] = {"topic", "citation", "references", "position"}
+    NOT_IDENTITY: ClassVar[set[str]] = {"citation", "position", "references", "topic"}
     """Fields outside content_hash: topic is provenance, position is placement, the rest
     derive from what is hashed."""
 
