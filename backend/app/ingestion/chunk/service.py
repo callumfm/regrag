@@ -2,25 +2,18 @@
 
 from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from typing import Any, NamedTuple, cast
+from typing import Any, cast
 
-from sqlalchemy import CursorResult, Row, delete, func, select, tuple_, update
+from sqlalchemy import ColumnElement, CursorResult, Row, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
-from app.ingestion.chunk.models import Chunk, ChunkCounts
+from app.ingestion.chunk.models import Chunk, ChunkCounts, ChunkQuery
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.exceptions import EmptyChunkSetError
 
 ContentKey = tuple[str, int]
 """What identifies a chunk within its document: content hash, then occurrence."""
-
-
-class ChunkToEmbed(NamedTuple):
-    """One vectorless chunk: everything the embed stage needs to fill its vector in."""
-
-    id: int
-    celex: str
-    text: str
 
 
 def _key_incoming_chunks(chunks: Iterable[Chunk]) -> dict[ContentKey, Chunk]:
@@ -133,40 +126,27 @@ async def sync_document_chunks(
     )
 
 
-async def get_unembedded_chunks(
-    session: AsyncSession, *, after: tuple[str, int] | None = None, limit: int
-) -> Sequence[ChunkToEmbed]:
-    """One page of vectorless chunks, ordered so a batch can stay inside one document.
+def _has_embedding(present: bool) -> ColumnElement[bool]:
+    """Chunks that carry a vector, or those that do not."""
+    return DocumentChunk.embedding.is_not(None) if present else DocumentChunk.embedding.is_(None)
 
-    Keyset, not OFFSET: the sweep writes vectors as it reads, so rows leave this query's
-    predicate mid-run and an offset would skip past the ones that shifted under it.
-    """
+
+async def get_chunks(session: AsyncSession, query: ChunkQuery) -> Sequence[DocumentChunk]:
+    """Chunks ordered by (celex, id); `after` pages by keyset because the embed sweep
+    moves rows out of the filter mid-scan, which would shift an OFFSET under it."""
     stmt = (
-        select(DocumentChunk.id, DocumentChunk.celex, DocumentChunk.text)
-        .where(DocumentChunk.embedding.is_(None))
+        select(DocumentChunk)
+        .options(defer(DocumentChunk.search_vector))
+        .where(_has_embedding(query.has_embedding))
         .order_by(DocumentChunk.celex, DocumentChunk.id)
-        .limit(limit)
+        .limit(query.limit)
     )
-    if after is not None:
-        stmt = stmt.where(tuple_(DocumentChunk.celex, DocumentChunk.id) > after)
-    return [ChunkToEmbed(*row) for row in await session.execute(stmt)]
+    if query.after is not None:
+        stmt = stmt.where(tuple_(DocumentChunk.celex, DocumentChunk.id) > query.after)
+    return (await session.scalars(stmt)).all()
 
 
-async def set_chunk_embeddings(
-    session: AsyncSession, vectors: Mapping[int, Sequence[float]]
-) -> None:
-    """Write chunk vectors in one executemany UPDATE by primary key, fetching nothing back."""
-    if not vectors:
-        return
-    stmt = update(DocumentChunk)
-    await session.execute(
-        stmt, [{"id": chunk_id, "embedding": vector} for chunk_id, vector in vectors.items()]
-    )
-
-
-async def count_embedded_chunks(session: AsyncSession) -> int:
-    """How many chunks already carry a vector."""
-    stmt = (
-        select(func.count()).select_from(DocumentChunk).where(DocumentChunk.embedding.is_not(None))
-    )
+async def count_chunks(session: AsyncSession, *, has_embedding: bool) -> int:
+    """How many chunks carry a vector, or lack one."""
+    stmt = select(func.count()).select_from(DocumentChunk).where(_has_embedding(has_embedding))
     return await session.scalar(stmt) or 0

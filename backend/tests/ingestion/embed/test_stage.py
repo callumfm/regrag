@@ -8,10 +8,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import EMBED_DIMENSIONS, config
 from app.core.llm import LLMError
+from app.ingestion.chunk.models import ChunkQuery
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.chunk.service import ChunkToEmbed, get_unembedded_chunks
+from app.ingestion.chunk.service import get_chunks
 from app.ingestion.embed import stage
-from app.ingestion.embed.stage import _batches, embed_chunks
+from app.ingestion.embed.stage import ChunkToEmbed, _batch_by_document, embed_chunks
 
 pytestmark = pytest.mark.anyio
 
@@ -25,7 +26,7 @@ def rows(make_chunk_row, run, celex: str, count: int, start: int = 0):
 
 
 def test_batches_split_at_the_provider_ceiling():
-    produced = list(_batches([ChunkToEmbed(id=0, celex="32023R1805", text="")] * 129))
+    produced = list(_batch_by_document([ChunkToEmbed(id=0, celex="32023R1805", text="")] * 129))
 
     assert [len(batch) for _, batch in produced] == [128, 1]
 
@@ -34,7 +35,7 @@ def test_batches_never_span_two_documents():
     chunks = [ChunkToEmbed(id=0, celex="32015R0757", text="")] * 3 + [
         ChunkToEmbed(id=0, celex="32023R1805", text="")
     ] * 2
-    produced = list(_batches(chunks))
+    produced = list(_batch_by_document(chunks))
 
     assert [(celex, len(batch)) for celex, batch in produced] == [
         ("32015R0757", 3),
@@ -49,7 +50,7 @@ async def test_every_vectorless_chunk_gets_a_vector(db_session, ingest_run, make
     result = await embed_chunks(db_session)
 
     assert (result.embedded, result.already_embedded, result.failed) == (3, 0, {})
-    assert await get_unembedded_chunks(db_session, limit=100) == []
+    assert await get_chunks(db_session, ChunkQuery(has_embedding=False, limit=100)) == []
 
 
 async def test_vectors_land_on_the_rows_in_input_order(db_session, ingest_run, make_chunk_row):
@@ -163,7 +164,7 @@ async def test_a_later_batch_failing_keeps_the_earlier_batches_vectors(
     assert [len(batch) for batch in embeddings.calls] == [128, 72]
     assert result.embedded == 128
     assert list(result.failed) == ["32023R1805"]
-    assert len(await get_unembedded_chunks(db_session, limit=100)) == 72
+    assert len(await get_chunks(db_session, ChunkQuery(has_embedding=False, limit=100))) == 72
 
 
 async def test_an_empty_table_makes_no_provider_call(db_session, embeddings):
@@ -184,7 +185,7 @@ async def test_a_corpus_larger_than_one_page_ends_with_every_chunk_embedded(
     result = await embed_chunks(db_session)
 
     assert result.embedded == 7
-    assert await get_unembedded_chunks(db_session, limit=100) == []
+    assert await get_chunks(db_session, ChunkQuery(has_embedding=False, limit=100)) == []
 
 
 async def test_a_batch_that_keeps_failing_does_not_loop_the_sweep(
@@ -218,15 +219,15 @@ async def test_a_database_failure_in_one_batch_does_not_kill_the_sweep(
     await db_session.flush()
 
     calls: list[int] = []
-    real_write = stage.set_chunk_embeddings
+    real_write = stage.update_chunks
 
-    async def fail_once(session, vectors):
+    async def fail_once(session, updates):
         calls.append(1)
         if len(calls) == 1:
             raise SQLAlchemyError("connection lost")
-        await real_write(session, vectors)
+        await real_write(session, updates)
 
-    monkeypatch.setattr("app.ingestion.embed.stage.set_chunk_embeddings", fail_once)
+    monkeypatch.setattr("app.ingestion.embed.stage.update_chunks", fail_once)
 
     result = await embed_chunks(db_session)
 

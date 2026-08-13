@@ -1,22 +1,22 @@
 """Chunk persistence: reconciling a document's chunks by content hash."""
 
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import EMBED_DIMENSIONS
+from app.ingestion.chunk.models import ChunkQuery
 from app.ingestion.chunk.references import extract_references
-from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import (
     _key_incoming_chunks,
     _key_stored_chunks,
-    count_embedded_chunks,
+    count_chunks,
     create_chunks,
     delete_chunks,
-    get_unembedded_chunks,
+    get_chunks,
     prune_chunks,
-    set_chunk_embeddings,
     sync_document_chunks,
+    update_chunks,
 )
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import EmptyChunkSetError
@@ -210,29 +210,25 @@ def test_content_keys_hold_the_original_chunks_in_order():
 
 
 async def test_returns_only_the_chunks_without_a_vector(db_session, ingest_run, make_chunk_row):
-    db_session.add(make_chunk_row(ingest_run, content_hash="a" * 64, text="vectorless"))
-    db_session.add(
-        make_chunk_row(ingest_run, content_hash="b" * 64, embedding=VECTOR, text="vectored")
-    )
+    db_session.add(make_chunk_row(ingest_run, content_hash="a" * 64))
+    db_session.add(make_chunk_row(ingest_run, content_hash="b" * 64, embedding=VECTOR))
     await db_session.flush()
 
-    pending = await get_unembedded_chunks(db_session, limit=100)
+    pending = await get_chunks(db_session, ChunkQuery(has_embedding=False, limit=100))
 
-    assert [row.text for row in pending] == ["vectorless"]
+    assert [row.content_hash for row in pending] == ["a" * 64]
 
 
 async def test_orders_by_document_then_insertion(db_session, ingest_run, make_chunk_row):
     """groupby in the stage only groups adjacent rows, so this ordering is load-bearing."""
-    for celex, marker in [("32023R1805", "a"), ("32015R0757", "b"), ("32023R1805", "c")]:
-        db_session.add(
-            make_chunk_row(ingest_run, celex=celex, content_hash=marker * 64, text=marker)
-        )
+    for celex, digest in [("32023R1805", "a"), ("32015R0757", "b"), ("32023R1805", "c")]:
+        db_session.add(make_chunk_row(ingest_run, celex=celex, content_hash=digest * 64))
     await db_session.flush()
 
-    pending = await get_unembedded_chunks(db_session, limit=100)
+    pending = await get_chunks(db_session, ChunkQuery(has_embedding=False, limit=100))
 
     assert [row.celex for row in pending] == ["32015R0757", "32023R1805", "32023R1805"]
-    assert [row.text for row in pending] == ["b", "a", "c"]
+    assert [row.content_hash[0] for row in pending] == ["b", "a", "c"]
 
 
 async def test_counts_only_the_chunks_that_carry_a_vector(db_session, ingest_run, make_chunk_row):
@@ -241,11 +237,11 @@ async def test_counts_only_the_chunks_that_carry_a_vector(db_session, ingest_run
     db_session.add(make_chunk_row(ingest_run, content_hash="c" * 64, embedding=VECTOR))
     await db_session.flush()
 
-    assert await count_embedded_chunks(db_session) == 2
+    assert await count_chunks(db_session, has_embedding=True) == 2
 
 
 async def test_counts_zero_on_an_empty_table(db_session):
-    assert await count_embedded_chunks(db_session) == 0
+    assert await count_chunks(db_session, has_embedding=True) == 0
 
 
 async def test_key_stored_chunks_keys_every_row_by_hash_and_occurrence(
@@ -377,28 +373,7 @@ async def test_create_chunks_stores_each_chunk_under_its_content_key(
     assert {row.ingest_run_id for row in rows} == {ingest_run.id}
 
 
-async def test_set_chunk_embeddings_writes_every_vector(db_session, ingest_run, make_chunk_row):
-    created = [
-        make_chunk_row(ingest_run, content_hash=str(index).ljust(64, "a")) for index in range(3)
-    ]
-    db_session.add_all(created)
-    await db_session.flush()
-
-    await set_chunk_embeddings(
-        db_session,
-        {row.id: [float(index)] * EMBED_DIMENSIONS for index, row in enumerate(created)},
-    )
-
-    stored = await db_session.execute(
-        select(DocumentChunk.id, DocumentChunk.embedding).order_by(DocumentChunk.id)
-    )
-    assert [vector[0] for _, vector in stored] == [0.0, 1.0, 2.0]
-    assert await get_unembedded_chunks(db_session, limit=100) == []
-
-
-async def test_set_chunk_embeddings_is_one_round_trip(
-    db_engine, db_session, ingest_run, make_chunk_row
-):
+async def test_update_chunks_is_one_round_trip(db_engine, db_session, ingest_run, make_chunk_row):
     """One executemany UPDATE for the whole batch, not a RETURNING round trip per row."""
     created = [
         make_chunk_row(ingest_run, content_hash=str(index).ljust(64, "b")) for index in range(3)
@@ -413,14 +388,10 @@ async def test_set_chunk_embeddings_is_one_round_trip(
 
     event.listen(db_engine.sync_engine, "before_cursor_execute", record)
     try:
-        await set_chunk_embeddings(
-            db_session, {row.id: [0.5] * EMBED_DIMENSIONS for row in created}
+        await update_chunks(
+            db_session, [{"id": row.id, "embedding": [0.5] * EMBED_DIMENSIONS} for row in created]
         )
     finally:
         event.remove(db_engine.sync_engine, "before_cursor_execute", record)
 
     assert updates == [True]
-
-
-async def test_set_chunk_embeddings_with_nothing_issues_nothing(db_session):
-    await set_chunk_embeddings(db_session, {})
