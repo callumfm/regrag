@@ -88,21 +88,26 @@ async def _store_batch(
         )
 
 
+async def _embed_page(
+    session: AsyncSession, page: Sequence[ChunkToEmbed], result: EmbedOutcome
+) -> None:
+    """Embed one page's batches concurrently, committing or recording each batch as it lands."""
+    batches = list(_batch_by_document(page))
+    async with _run_concurrently(batches, _embed_batch, limit=config.EMBED_CONCURRENCY) as pending:
+        for (celex, chunks), vectors in pending:
+            try:
+                await _store_batch(session, chunks, await vectors)
+            except (LLMError, SQLAlchemyError) as exc:
+                result.fail(celex, exc, chunks=len(chunks))
+            else:
+                await session.commit()
+                result.embedded += len(chunks)
+
+
 async def embed_chunks(session: AsyncSession) -> EmbedOutcome:
     """Fill in every missing chunk vector: provider calls overlap within a page while writes
     serialize on the one session, and each batch commits as it lands, capping a failure's cost."""
     result = EmbedOutcome(already_embedded=await count_chunks(session, has_embedding=True))
     async for page in _unembedded_pages(session):
-        batches = list(_batch_by_document(page))
-        async with _run_concurrently(
-            batches, _embed_batch, limit=config.EMBED_CONCURRENCY
-        ) as pending:
-            for (celex, chunks), vectors in pending:
-                try:
-                    await _store_batch(session, chunks, await vectors)
-                except (LLMError, SQLAlchemyError) as exc:
-                    result.fail(celex, exc, chunks=len(chunks))
-                else:
-                    await session.commit()
-                    result.embedded += len(chunks)
+        await _embed_page(session, page, result)
     return result
