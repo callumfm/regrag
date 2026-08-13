@@ -34,7 +34,6 @@ def _reuse_stored_version(
         return None
     version = FetchedVersion(
         resolved_celex=previous.resolved_celex,
-        url=previous.url,
         sha256=previous.sha256,
         size_bytes=previous.size_bytes,
         fetched_at=previous.fetched_at,
@@ -46,10 +45,13 @@ async def _download_new_version(
     client: httpx.AsyncClient, store: ObjectStore, discovered: DiscoveredDocument
 ) -> Fetched:
     """Download the version EUR-Lex will serve, store its bytes, and stamp the fetch time."""
-    resolution, content = await download_fetchable_version(client, discovered)
-    sha256, size_bytes = write_document(store, discovered.celex, resolution.resolved_celex, content)
+    resolved_celex, content = await download_fetchable_version(client, discovered)
+    sha256, size_bytes = write_document(store, discovered.celex, resolved_celex, content)
     version = FetchedVersion(
-        **resolution.model_dump(), sha256=sha256, size_bytes=size_bytes, fetched_at=utc_now()
+        resolved_celex=resolved_celex,
+        sha256=sha256,
+        size_bytes=size_bytes,
+        fetched_at=utc_now(),
     )
     return version, content
 

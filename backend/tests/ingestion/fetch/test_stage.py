@@ -48,7 +48,7 @@ def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store,
 def test_reuse_carries_the_version_that_was_served_not_the_one_that_was_asked_for(
     local_store, store_document
 ):
-    """The fallback case: the row keeps pointing at the act EUR-Lex served, and its URL."""
+    """The fallback case: reuse keeps pointing at the act EUR-Lex served, not at the candidate."""
     prev = store_document(
         IngestRun(status=IngestRunStatus.SUCCESS),
         celex="32023R1805",

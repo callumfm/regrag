@@ -24,7 +24,7 @@ from app.ingestion.discover.models import ActsQueryRow, DiscoveredDocument
 from app.ingestion.discover.sparql import run_acts_by_topic_query
 from app.ingestion.embed.stage import _embed_batch
 from app.ingestion.enums import IngestRunStatus, SectionKind
-from app.ingestion.fetch.download import download_version
+from app.ingestion.fetch.download import _download_version_html
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.parse.html.parser import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
@@ -32,7 +32,7 @@ from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import write_document
 from app.main import configure_app
 
-RETRIED = (run_acts_by_topic_query, download_version, _embed_batch)
+RETRIED = (run_acts_by_topic_query, _download_version_html, _embed_batch)
 
 PARSE_FIXTURES = Path(__file__).parent / "ingestion" / "parse" / "fixtures"
 FUELEU_HTML = (PARSE_FIXTURES / "32023R1805.html").read_text()
@@ -118,7 +118,6 @@ def make_document() -> Callable[..., RawDocument]:
             "candidates": [],
             "resolved_celex": celex,
             "topic": "fueleu",
-            "url": f"https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}",
             "sha256": "a" * 64,
             "size_bytes": 758462,
             "fetched_at": utc_now(),

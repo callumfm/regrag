@@ -22,7 +22,6 @@ class RawDocument(BaseSchema):
     candidates: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     resolved_celex: Mapped[str]
     topic: Mapped[str]
-    url: Mapped[str]
     sha256: Mapped[str]
     size_bytes: Mapped[int]
     fetched_at: Mapped[datetime]
