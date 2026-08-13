@@ -26,7 +26,7 @@ def rows(make_chunk_row, run, celex: str, count: int, start: int = 0):
 
 
 def test_batches_split_at_the_provider_ceiling():
-    produced = list(_batch_by_document([ChunkToEmbed(id=0, celex="32023R1805", text="")] * 129))
+    produced = _batch_by_document([ChunkToEmbed(id=0, celex="32023R1805", text="")] * 129)
 
     assert [len(batch) for _, batch in produced] == [128, 1]
 
@@ -35,7 +35,7 @@ def test_batches_never_span_two_documents():
     chunks = [ChunkToEmbed(id=0, celex="32015R0757", text="")] * 3 + [
         ChunkToEmbed(id=0, celex="32023R1805", text="")
     ] * 2
-    produced = list(_batch_by_document(chunks))
+    produced = _batch_by_document(chunks)
 
     assert [(celex, len(batch)) for celex, batch in produced] == [
         ("32015R0757", 3),

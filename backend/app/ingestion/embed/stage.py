@@ -61,11 +61,11 @@ async def _get_unembedded_chunks_paginated(
         yield [ChunkToEmbed(chunk.id, chunk.celex, chunk.text) for chunk in page]
 
 
-def _batch_by_document(chunks: Sequence[ChunkToEmbed]) -> list[Batch]:
+def _batch_by_document(page_chunks: Sequence[ChunkToEmbed]) -> list[Batch]:
     """Provider-sized batches that never span documents, each labelled with its document."""
     return [
         (celex, batch)
-        for celex, group in groupby(chunks, attrgetter("celex"))
+        for celex, group in groupby(page_chunks, attrgetter("celex"))
         for batch in batched(group, EMBED_BATCH_SIZE)
     ]
 
