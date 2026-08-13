@@ -10,8 +10,8 @@ from app.ingestion.discover.stage import discover_corpus
 from app.ingestion.enums import DocChange, IngestRunStatus
 from app.ingestion.exceptions import DocumentFailed, ParseError
 from app.ingestion.fetch import stage
-from app.ingestion.fetch.models import FetchedDocument
-from app.ingestion.fetch.service import get_previous_docs
+from app.ingestion.fetch.models import FetchedDocument, RawDocsQuery
+from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.fetch.stage import _reuse_stored_version, fetch_document
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run
@@ -118,7 +118,7 @@ Fetched = tuple[dict[str, DocChange], dict[str, str], list[FetchedDocument]]
 async def fetch(db_session, client, topics, store) -> Fetched:
     """Drive the fetch stage alone, with the run, discovery and savepoint the pipeline supplies."""
     run = await create_ingest_run(db_session)
-    previous = await get_previous_docs(db_session, topics)
+    previous = await get_raw_documents(db_session, RawDocsQuery(include_topics=topics))
     discovered, _ = await discover_corpus(client, topics=topics, previous_celexes=previous)
     fetched: list[FetchedDocument] = []
     changes: dict[str, DocChange] = {}
@@ -155,7 +155,7 @@ async def test_first_run_ingests_all_as_new(db_session, local_store, corpus_clie
     assert celexes(changes, DocChange.NEW) == ["32015R0757", "32023R2449"]
     assert failed == {}
     assert html_of(documents, "32015R0757", local_store) == b"<html>mrv</html>"
-    rows = await get_previous_docs(db_session, ["mrv"])
+    rows = await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))
     assert rows["32023R2449"].celex == "32023R2449"
     assert rows["32023R2449"].resolved_celex == "32023R2449"
 
@@ -173,7 +173,12 @@ async def test_unchanged_run_makes_no_html_requests_and_carries_sha(
 
     assert celexes(changes, DocChange.REUSED) == ["32015R0757", "32023R2449"]
     assert calls == []
-    firsts = {r.celex: r.sha256 for r in (await get_previous_docs(db_session, ["mrv"])).values()}
+    firsts = {
+        r.celex: r.sha256
+        for r in (
+            await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))
+        ).values()
+    }
     assert firsts["32015R0757"] == hashlib.sha256(b"<html>mrv</html>").hexdigest()
 
 
@@ -227,7 +232,7 @@ async def test_new_consolidation_is_updated_and_redownloaded(
     assert celexes(changes, DocChange.UPDATED) == ["32015R0757"]
     assert calls == ["02015R0757-20250101"]
     assert html_of(documents, "32015R0757", local_store) == b"<html>v2</html>"
-    rows = await get_previous_docs(db_session, ["mrv"])
+    rows = await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))
     assert rows["32015R0757"].resolved_celex == "02015R0757-20250101"
 
 
@@ -268,7 +273,9 @@ async def test_a_vanished_doc_gets_no_row_from_this_run(db_session, local_store,
     changes, _, _ = await fetch(db_session, client, ["mrv"], local_store)
 
     assert celexes(changes, DocChange.REUSED) == ["32015R0757"]
-    assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
+    assert "32023R2449" not in await get_raw_documents(
+        db_session, RawDocsQuery(include_topics=["mrv"])
+    )
 
 
 async def test_a_store_outage_fails_the_run_rather_than_refetching_the_corpus(
@@ -297,7 +304,9 @@ async def test_per_doc_failure_continues_and_is_recorded(db_session, local_store
 
     assert celexes(changes, DocChange.NEW) == ["32015R0757"]
     assert "32023R2449" in failed
-    assert "32023R2449" not in await get_previous_docs(db_session, ["mrv"])
+    assert "32023R2449" not in await get_raw_documents(
+        db_session, RawDocsQuery(include_topics=["mrv"])
+    )
 
 
 async def test_any_ingestion_error_is_recorded_per_document(
@@ -350,5 +359,5 @@ async def test_duplicate_celex_across_topics_ingested_once(db_session, local_sto
     _, failed, _ = await fetch(db_session, client, ["fueleu", "mrv"], local_store)
 
     assert failed == {}
-    rows = await get_previous_docs(db_session, ["fueleu", "mrv"])
+    rows = await get_raw_documents(db_session, RawDocsQuery(include_topics=["fueleu", "mrv"]))
     assert rows["32015R0757"].topic == "fueleu"

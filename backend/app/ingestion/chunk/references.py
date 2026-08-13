@@ -23,6 +23,7 @@ INSTRUMENT_REF = re.compile(
     re.IGNORECASE,
 )
 QUALIFIER = re.compile(r"^\s+(?:of|to|in)\s+(?:that\s+|the\s+)?$")
+YEAR_FIRST_SCHEME = 2015
 
 
 class Mention(FrozenModel):
@@ -49,8 +50,15 @@ class InstrumentMention(Mention):
 
 
 def order_number_and_year(numbered: bool, first: str, second: str) -> tuple[str, str]:
-    """A '765/2008' pair as (number, year); the 'No NN/MM' form is always number-first."""
+    """A '765/2008' pair as (number, year); the 'No NN/MM' form is number-first.
+
+    Acts numbered under the 2015 year-first scheme never carried a 'No', so a leading
+    four-digit year from that scheme marks a sloppy citation to read year-first anyway.
+    """
     if numbered:
+        year = celex.as_year(first)
+        if len(first) == 4 and year is not None and year >= YEAR_FIRST_SCHEME:
+            return second, first
         return first, second
     if len(first) == 2 and len(second) == 2:
         return second, first

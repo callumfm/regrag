@@ -1,53 +1,42 @@
 """Queries over raw_documents: the corpus as it stands, and what the previous run recorded."""
 
-from collections.abc import Sequence
-
-from sqlalchemy import ColumnElement, ScalarSelect, Select, func, select
+from sqlalchemy import ScalarSelect, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.ingestion.enums import IngestRunStatus
+from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
 
 
-def _latest_run_id(*predicates: ColumnElement[bool]) -> ScalarSelect[int]:
-    """The highest run id holding rows for the outer row's own topic, or 0 if none qualifies."""
+def _latest_success_run_id() -> ScalarSelect[int]:
+    """The highest complete run id holding rows for the outer row's own topic, or 0 if none."""
     other = aliased(RawDocument)
     stmt = (
         select(func.coalesce(func.max(other.ingest_run_id), 0))
         .join(IngestRun, IngestRun.id == other.ingest_run_id)
-        .where(other.topic == RawDocument.topic, *predicates)
+        .where(other.topic == RawDocument.topic, IngestRun.status == IngestRunStatus.SUCCESS)
     )
     return stmt.scalar_subquery()
 
 
-def standing_docs() -> Select[tuple[RawDocument]]:
-    """Documents held from each topic's latest complete run on, incomplete runs included.
+async def get_raw_documents(session: AsyncSession, query: RawDocsQuery) -> dict[str, RawDocument]:
+    """The newest standing row per celex, keyed by celex.
 
-    A run that died mid-loop or failed a download still downloaded what it committed; only a
-    run that got through its whole topic can retire the rows before it.
+    Rows are held from each topic's latest complete run on, incomplete runs included: a run
+    that died mid-loop still committed what it downloaded, and only a run that got through
+    its whole topic can retire the rows before it.
     """
-    floor = _latest_run_id(IngestRun.status == IngestRunStatus.SUCCESS)
-    return select(RawDocument).where(RawDocument.ingest_run_id >= floor)
-
-
-async def get_corpus_docs(session: AsyncSession) -> Sequence[RawDocument]:
-    """The newest row per celex the corpus still holds, across all topics."""
-    stmt = standing_docs().order_by(RawDocument.ingest_run_id)
-    rows = await session.scalars(stmt)
-    return list({row.celex: row for row in rows}.values())
-
-
-async def get_other_topic_celexes(session: AsyncSession, topics: Sequence[str]) -> set[str]:
-    """Celexes still held by the topics this run is not ingesting."""
-    stmt = standing_docs().where(RawDocument.topic.notin_(topics))
-    rows = await session.scalars(stmt)
-    return {row.celex for row in rows}
-
-
-async def get_previous_docs(session: AsyncSession, topics: Sequence[str]) -> dict[str, RawDocument]:
-    """The newest row per celex these topics still hold, keyed by celex."""
-    stmt = standing_docs().where(RawDocument.topic.in_(topics)).order_by(RawDocument.ingest_run_id)
+    stmt = (
+        select(RawDocument)
+        .distinct(RawDocument.celex)
+        .where(RawDocument.ingest_run_id >= _latest_success_run_id())
+        .order_by(RawDocument.celex, RawDocument.ingest_run_id.desc())
+    )
+    if query.include_topics is not None:
+        stmt = stmt.where(RawDocument.topic.in_(query.include_topics))
+    if query.exclude_topics is not None:
+        stmt = stmt.where(RawDocument.topic.notin_(query.exclude_topics))
     rows = await session.scalars(stmt)
     return {row.celex: row for row in rows}

@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import EMBED_DIMENSIONS
+from app.ingestion.chunk.models import ChunkQuery
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.service import (
     _key_incoming_chunks,
@@ -12,6 +13,7 @@ from app.ingestion.chunk.service import (
     create_chunks,
     delete_chunks,
     get_chunks,
+    prune_chunks,
     sync_document_chunks,
 )
 from app.ingestion.enums import SectionKind
@@ -210,7 +212,7 @@ async def test_returns_only_the_chunks_without_a_vector(db_session, ingest_run, 
     db_session.add(make_chunk_row(ingest_run, content_hash="b" * 64, embedding=VECTOR))
     await db_session.flush()
 
-    pending = await get_chunks(db_session, has_embedding=False, limit=100)
+    pending = await get_chunks(db_session, ChunkQuery(has_embedding=False, limit=100))
 
     assert [row.content_hash for row in pending] == ["a" * 64]
 
@@ -221,7 +223,7 @@ async def test_orders_by_document_then_insertion(db_session, ingest_run, make_ch
         db_session.add(make_chunk_row(ingest_run, celex=celex, content_hash=digest * 64))
     await db_session.flush()
 
-    pending = await get_chunks(db_session, has_embedding=False, limit=100)
+    pending = await get_chunks(db_session, ChunkQuery(has_embedding=False, limit=100))
 
     assert [row.celex for row in pending] == ["32015R0757", "32023R1805", "32023R1805"]
     assert [row.content_hash[0] for row in pending] == ["b", "a", "c"]
@@ -331,6 +333,29 @@ async def test_delete_chunks_leaves_the_table_alone_when_given_nothing(
         db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
     )
     assert await delete_chunks(db_session, []) == 0
+    assert len(await chunk_rows(db_session)) == 1
+
+
+async def test_prune_chunks_drops_only_the_celexes_not_kept(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    for celex in ("32023R1805", "32015R0757"):
+        await sync_document_chunks(
+            db_session, celex=celex, chunks=[chunk(celex=celex)], ingest_run_id=ingest_run.id
+        )
+
+    assert await prune_chunks(db_session, ["32023R1805"]) == 1
+
+    assert {row.celex for row in await chunk_rows(db_session)} == {"32023R1805"}
+
+
+async def test_prune_chunks_refuses_to_wipe_everything_when_nothing_is_kept(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    await sync_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+    assert await prune_chunks(db_session, []) == 0
     assert len(await chunk_rows(db_session)) == 1
 
 

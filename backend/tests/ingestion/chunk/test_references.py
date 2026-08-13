@@ -65,6 +65,27 @@ def test_resolves_a_numbered_instrument_with_a_two_digit_year() -> None:
     assert references == (Reference(raw="Regulation (EEC) No 2913/92", instrument="31992R2913"),)
 
 
+def test_reads_a_no_prefixed_modern_citation_as_year_first() -> None:
+    references = extract_references("as defined in Regulation (EU) No 2015/757")
+    assert references == (Reference(raw="Regulation (EU) No 2015/757", instrument="32015R0757"),)
+
+
+def test_reads_a_no_prefixed_year_shaped_pair_as_year_first() -> None:
+    references = extract_references("screening under Regulation (EU) No 2015/1998")
+    assert references == (Reference(raw="Regulation (EU) No 2015/1998", instrument="32015R1998"),)
+
+
+def test_attributes_article_across_a_no_prefixed_modern_citation() -> None:
+    references = extract_references("under Article 5 of Regulation (EU) No 2015/757")
+    assert references == (
+        Reference(
+            raw="Article 5 of Regulation (EU) No 2015/757",
+            instrument="32015R0757",
+            article="5",
+        ),
+    )
+
+
 def test_reads_the_year_as_the_year_even_when_the_no_is_dropped() -> None:
     references = extract_references("registered under Regulation (EC) 1907/2006")
     assert references == (Reference(raw="Regulation (EC) 1907/2006", instrument="32006R1907"),)

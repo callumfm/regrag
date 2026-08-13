@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import utc_now, utc_today
 from app.core.db.crud import create_record, update_record
 from app.ingestion.enums import IngestRunStatus
+from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.fetch.service import get_corpus_docs
+from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.models import IngestRunUpdate
 from app.ingestion.schemas import IngestRun
 
@@ -45,7 +46,8 @@ async def next_corpus_version(session: AsyncSession) -> str:
     Fingerprints the whole corpus, not just the topics fetched, so a single-topic run
     cannot mint a version that describes only part of it.
     """
-    fingerprint = corpus_fingerprint(await get_corpus_docs(session))
+    corpus_docs = await get_raw_documents(session, query=RawDocsQuery())
+    fingerprint = corpus_fingerprint(list(corpus_docs.values()))
     previous = await get_latest_corpus_version(session)
     if previous is not None and previous.endswith(f"-{fingerprint}"):
         return previous
@@ -61,10 +63,7 @@ async def complete_ingest_run(
 ) -> IngestRun:
     """Close out a run, minting a corpus version for it only if every stage succeeded."""
     version = await next_corpus_version(session) if status is IngestRunStatus.SUCCESS else None
-    return await update_record(
-        session,
-        run,
-        IngestRunUpdate(
-            status=status, completed_at=utc_now(), corpus_version=version, result=result
-        ),
+    update_in = IngestRunUpdate(
+        status=status, completed_at=utc_now(), corpus_version=version, result=result
     )
+    return await update_record(session, run, update_in)

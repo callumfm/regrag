@@ -4,11 +4,11 @@ from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import Any, cast
 
-from sqlalchemy import CursorResult, Row, delete, func, select, tuple_, update
+from sqlalchemy import ColumnElement, CursorResult, Row, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
-from app.ingestion.chunk.models import Chunk, ChunkCounts
+from app.ingestion.chunk.models import Chunk, ChunkCounts, ChunkQuery
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.exceptions import EmptyChunkSetError
 
@@ -17,7 +17,7 @@ ContentKey = tuple[str, int]
 
 
 def _key_incoming_chunks(chunks: Iterable[Chunk]) -> dict[ContentKey, Chunk]:
-    """Freshly chunked text keyed by content hash, occurrence separating identical siblings."""
+    """Freshly chunked text keyed by content hash and occurrence separating identical siblings."""
     seen: Counter[str] = Counter()
     keyed: dict[ContentKey, Chunk] = {}
     for chunk in chunks:
@@ -28,8 +28,7 @@ def _key_incoming_chunks(chunks: Iterable[Chunk]) -> dict[ContentKey, Chunk]:
 
 
 async def _key_stored_chunks(session: AsyncSession, celex: str) -> dict[ContentKey, Row[Any]]:
-    """A document's stored rows (id plus derived columns) under the same keys
-    incoming chunks carry."""
+    """Existing chunked text keyed by content hash and occurrence separating identical siblings."""
     stmt = select(
         DocumentChunk.content_hash,
         DocumentChunk.occurrence,
@@ -60,9 +59,19 @@ async def delete_chunks(session: AsyncSession, chunk_ids: Collection[int]) -> in
     """Drop chunk rows by id, returning how many went."""
     if not chunk_ids:
         return 0
+
     stmt = delete(DocumentChunk).where(DocumentChunk.id.in_(chunk_ids))
     result = await session.execute(stmt)
-    await session.flush()
+    return cast(CursorResult, result).rowcount
+
+
+async def prune_chunks(session: AsyncSession, celexes_to_keep: Collection[str]) -> int:
+    """Drop the chunks no topic wants anymore."""
+    if not celexes_to_keep:
+        return 0
+
+    stmt = delete(DocumentChunk).where(DocumentChunk.celex.notin_(celexes_to_keep))
+    result = await session.execute(stmt)
     return cast(CursorResult, result).rowcount
 
 
@@ -72,7 +81,6 @@ async def update_chunks(session: AsyncSession, updates: Sequence[dict[str, Any]]
         return
     stmt = update(DocumentChunk)
     await session.execute(stmt, updates)
-    await session.flush()
 
 
 def _updates_for_changed_chunks(
@@ -83,10 +91,11 @@ def _updates_for_changed_chunks(
     """Update payloads for matched rows whose derived columns drifted from the chunker's output."""
     updates = []
     for key in matched:
+        row = existing[key]
         new = incoming[key].model_dump(mode="json", include=Chunk.NOT_IDENTITY)
-        old = {column: getattr(existing[key], column) for column in Chunk.NOT_IDENTITY}
+        old = {column: getattr(row, column) for column in Chunk.NOT_IDENTITY}
         if new != old:
-            updates.append({"id": existing[key].id, **new})
+            updates.append({"id": row.id, **new})
     return updates
 
 
@@ -117,40 +126,27 @@ async def sync_document_chunks(
     )
 
 
-async def get_chunks(
-    session: AsyncSession,
-    *,
-    has_embedding: bool | None = None,
-    after: tuple[str, int] | None = None,
-    limit: int | None = None,
-) -> Sequence[DocumentChunk]:
+def _has_embedding(present: bool) -> ColumnElement[bool]:
+    """Chunks that carry a vector, or those that do not."""
+    return DocumentChunk.embedding.is_not(None) if present else DocumentChunk.embedding.is_(None)
+
+
+async def get_chunks(session: AsyncSession, query: ChunkQuery) -> Sequence[DocumentChunk]:
     """Chunks ordered by (celex, id); `after` pages by keyset because the embed sweep
     moves rows out of the filter mid-scan, which would shift an OFFSET under it."""
     stmt = (
         select(DocumentChunk)
         .options(defer(DocumentChunk.search_vector))
+        .where(_has_embedding(query.has_embedding))
         .order_by(DocumentChunk.celex, DocumentChunk.id)
+        .limit(query.limit)
     )
-    if has_embedding is not None:
-        stmt = stmt.where(
-            DocumentChunk.embedding.is_not(None)
-            if has_embedding
-            else DocumentChunk.embedding.is_(None)
-        )
-    if after is not None:
-        stmt = stmt.where(tuple_(DocumentChunk.celex, DocumentChunk.id) > after)
-    if limit is not None:
-        stmt = stmt.limit(limit)
+    if query.after is not None:
+        stmt = stmt.where(tuple_(DocumentChunk.celex, DocumentChunk.id) > query.after)
     return (await session.scalars(stmt)).all()
 
 
-async def count_chunks(session: AsyncSession, *, has_embedding: bool | None = None) -> int:
-    """How many chunks there are, optionally filtered by whether they carry a vector."""
-    stmt = select(func.count()).select_from(DocumentChunk)
-    if has_embedding is not None:
-        stmt = stmt.where(
-            DocumentChunk.embedding.is_not(None)
-            if has_embedding
-            else DocumentChunk.embedding.is_(None)
-        )
+async def count_chunks(session: AsyncSession, *, has_embedding: bool) -> int:
+    """How many chunks carry a vector, or lack one."""
+    stmt = select(func.count()).select_from(DocumentChunk).where(_has_embedding(has_embedding))
     return await session.scalar(stmt) or 0
