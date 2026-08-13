@@ -1,6 +1,12 @@
 """Chat test fakes shared across the chat test modules."""
 
+from collections.abc import Iterator
 from typing import Any
+
+from langchain_core.language_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
+from pydantic import Field
 
 from app.retrieval.models import SearchResult
 
@@ -19,3 +25,24 @@ def make_result(**overrides: Any) -> SearchResult:
         "text_rank": 1,
     }
     return SearchResult(**{**defaults, **overrides})
+
+
+class RecordingChatModel(GenericFakeChatModel):
+    """Streams a canned answer with real message chunks, recording each prompt."""
+
+    received: list[list[BaseMessage]] = Field(default_factory=list)
+
+    def _stream(
+        self, messages: list[BaseMessage], *args: Any, **kwargs: Any
+    ) -> Iterator[ChatGenerationChunk]:
+        self.received.append(list(messages))
+        yield from super()._stream(messages, *args, **kwargs)
+
+    def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> ChatResult:
+        self.received.append(list(messages))
+        return super()._generate(messages, *args, **kwargs)
+
+
+def fake_chat_model(answer: str = "Ships must comply [1].") -> RecordingChatModel:
+    """A chat model that streams one canned answer."""
+    return RecordingChatModel(messages=iter([AIMessage(content=answer)]))
