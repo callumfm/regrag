@@ -31,7 +31,8 @@ def two_results(monkeypatch):
 
 
 def test_stream_orders_sources_then_tokens_then_done(client, two_results, monkeypatch):
-    monkeypatch.setattr("app.chat.graph.chat_model", fake_chat_model("Two words [1]."))
+    model = fake_chat_model("Two words [1].")
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
 
     with client.stream("POST", "/chat", json={"question": "What is FuelEU?"}) as response:
         assert response.status_code == 200
@@ -47,7 +48,8 @@ def test_stream_orders_sources_then_tokens_then_done(client, two_results, monkey
 
 
 def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch):
-    monkeypatch.setattr("app.chat.graph.chat_model", fake_chat_model())
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
@@ -69,7 +71,10 @@ def test_stream_failure_emits_an_error_event(client, monkeypatch):
         assert response.status_code == 200
         events = read_events(response)
 
-    assert events == [("error", {"message": "embedding call failed"})]
+    [(name, payload)] = events
+    assert name == "error"
+    assert payload["error"] == "LLMError"
+    assert payload["message"] == "embedding call failed"
 
 
 def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
@@ -81,7 +86,11 @@ def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
 
-    assert events == [("error", {"message": "An unexpected error occurred"})]
+    [(name, payload)] = events
+    assert name == "error"
+    assert payload["error"] == "InternalError"
+    assert payload["message"] == "An unexpected error occurred"
+    assert "secret internals" not in json.dumps(payload)
 
 
 def test_empty_question_is_rejected(client):

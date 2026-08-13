@@ -1,0 +1,69 @@
+"""Chat stream orchestration: graph output translated into SSE events."""
+
+import json
+import logging
+from collections.abc import AsyncGenerator
+from typing import Any
+
+from sse_starlette.sse import ServerSentEvent
+
+from app.chat.graph import chat_graph
+from app.chat.models import ChatSource, numbered
+from app.core.exceptions import DomainError
+from app.core.logger import request_id_var
+from app.core.models import ErrorResponse
+from app.retrieval.models import SearchResult
+
+logger = logging.getLogger(__name__)
+
+
+def _event(name: str, payload: Any) -> ServerSentEvent:
+    """One SSE event carrying a JSON payload."""
+    return ServerSentEvent(event=name, data=json.dumps(payload))
+
+
+def _sources_event(sources: tuple[SearchResult, ...]) -> ServerSentEvent:
+    """The sources event binding [n] markers to the retrieved chunks."""
+    payload = [
+        ChatSource.from_result(marker, result).model_dump() for marker, result in numbered(sources)
+    ]
+    return _event("sources", payload)
+
+
+def _error_event(exc: Exception) -> ServerSentEvent:
+    """The error event in the app's one error shape, logged like the JSON handlers."""
+    if isinstance(exc, DomainError):
+        logger.warning("chat stream failed: %s", exc.message)
+        name, message = type(exc).__name__, exc.message
+    else:
+        logger.exception("chat stream failed unexpectedly")
+        name, message = "InternalError", "An unexpected error occurred"
+    body = ErrorResponse(error=name, message=message, request_id=request_id_var.get())
+    return _event("error", body.model_dump(exclude_none=True))
+
+
+def _event_for(mode: str, data: Any) -> ServerSentEvent | None:
+    """The SSE event one stream item maps to, if any: sources from the retrieve
+    update, a token from each non-empty message chunk. data is untyped because
+    langgraph does not type astream's list-mode yields."""
+    if mode == "updates" and "retrieve" in data:
+        return _sources_event(data["retrieve"]["sources"])
+    if mode == "messages":
+        chunk, _ = data
+        if isinstance(chunk.content, str) and chunk.content:
+            return _event("token", {"text": chunk.content})
+    return None
+
+
+async def chat_events(question: str) -> AsyncGenerator[ServerSentEvent, None]:
+    """Sources once, then tokens, then done; an error event ends a failed stream."""
+    try:
+        async for mode, data in chat_graph.astream(
+            {"question": question}, stream_mode=["updates", "messages"]
+        ):
+            if event := _event_for(mode, data):
+                yield event
+    except Exception as exc:
+        yield _error_event(exc)
+        return
+    yield _event("done", {})
