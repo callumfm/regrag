@@ -1,7 +1,7 @@
 """Embed stage: fill in the vector of every chunk that has none."""
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from itertools import batched, groupby
 from operator import attrgetter
@@ -49,7 +49,9 @@ async def _run_concurrently[T, R](
             task.cancel()
 
 
-async def _unembedded_pages(session: AsyncSession) -> AsyncIterator[list[ChunkToEmbed]]:
+async def _get_unembedded_chunks_paginated(
+    session: AsyncSession,
+) -> AsyncIterator[list[ChunkToEmbed]]:
     """Vectorless chunks a page at a time, the cursor read before the page can be rolled back."""
     after: tuple[str, int] | None = None
     while page := await get_chunks(
@@ -59,11 +61,13 @@ async def _unembedded_pages(session: AsyncSession) -> AsyncIterator[list[ChunkTo
         yield [ChunkToEmbed(chunk.id, chunk.celex, chunk.text) for chunk in page]
 
 
-def _batch_by_document(chunks: Sequence[ChunkToEmbed]) -> Iterator[Batch]:
+def _batch_by_document(chunks: Sequence[ChunkToEmbed]) -> list[Batch]:
     """Provider-sized batches that never span documents, each labelled with its document."""
-    for celex, group in groupby(chunks, attrgetter("celex")):
-        for batch in batched(group, EMBED_BATCH_SIZE):
-            yield celex, batch
+    return [
+        (celex, batch)
+        for celex, group in groupby(chunks, attrgetter("celex"))
+        for batch in batched(group, EMBED_BATCH_SIZE)
+    ]
 
 
 @llm_retry
@@ -79,20 +83,18 @@ async def _store_batch(
     """Write one batch's vectors inside a savepoint: a plain rollback on failure would drag
     down earlier uncommitted work, like the prune stage's deletes."""
     async with session.begin_nested():
-        await update_chunks(
-            session,
-            [
-                {"id": chunk.id, "embedding": vector}
-                for chunk, vector in zip(chunks, vectors, strict=True)
-            ],
-        )
+        updates = [
+            {"id": chunk.id, "embedding": vector}
+            for chunk, vector in zip(chunks, vectors, strict=True)
+        ]
+        await update_chunks(session, updates)
 
 
 async def _embed_page(
     session: AsyncSession, page: Sequence[ChunkToEmbed], result: EmbedOutcome
 ) -> None:
     """Embed one page's batches concurrently, committing or recording each batch as it lands."""
-    batches = list(_batch_by_document(page))
+    batches = _batch_by_document(page)
     async with _run_concurrently(batches, _embed_batch, limit=config.EMBED_CONCURRENCY) as pending:
         for (celex, chunks), vectors in pending:
             try:
@@ -107,7 +109,8 @@ async def _embed_page(
 async def embed_chunks(session: AsyncSession) -> EmbedOutcome:
     """Fill in every missing chunk vector: provider calls overlap within a page while writes
     serialize on the one session, and each batch commits as it lands, capping a failure's cost."""
-    result = EmbedOutcome(already_embedded=await count_chunks(session, has_embedding=True))
-    async for page in _unembedded_pages(session):
+    already_embedded_count = await count_chunks(session, has_embedding=True)
+    result = EmbedOutcome(already_embedded=already_embedded_count)
+    async for page in _get_unembedded_chunks_paginated(session):
         await _embed_page(session, page, result)
     return result
