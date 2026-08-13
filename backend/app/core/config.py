@@ -138,9 +138,42 @@ class EmbeddingConfig(BaseConfig):
     EMBED_TIMEOUT: int = 30
 
 
+class IngestConfig(BaseConfig):
+    """Ingestion tunables.
+
+    SEEDS: each topic's seed act, where corpus discovery starts.
+    CRAWL_DELAYS: seconds between requests per host; eur-lex publishes 10 in robots.txt,
+        the rest is courtesy.
+    MAX_DROP_RATIO: fraction of the previous corpus that may vanish before discovery aborts.
+    MIN_SUSPICIOUS_DROPS: dropped documents below this never abort, however small the corpus.
+    MAX_CHARS: longest chunk the chunker will emit.
+    EMBED_PAGE_SIZE: chunks the embed sweep reads per page.
+    EMBED_CONCURRENCY: provider calls in flight at once; llm_retry absorbs the rate limits.
+    MAX_FAILURE_CHARS: cut for a stored failure message, so one talkative provider cannot
+        bloat the run row.
+    """
+
+    SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
+    CRAWL_DELAYS: dict[str, float] = {"eur-lex.europa.eu": 10.0, "publications.europa.eu": 1.0}
+    MAX_DROP_RATIO: float = 0.2
+    MIN_SUSPICIOUS_DROPS: int = 3
+    MAX_CHARS: int = 2000
+    EMBED_PAGE_SIZE: int = 500
+    EMBED_CONCURRENCY: int = 4
+    MAX_FAILURE_CHARS: int = 500
+
+
 class RetrievalConfig(BaseConfig):
-    """Search tunables: the per-leg candidate pools feeding Reciprocal Rank Fusion, whose RRF_K
-    damping scores a rank 1/(k + rank), then the cross-encoder's pool and its off switch."""
+    """Search tunables.
+
+    SEARCH_CANDIDATES: per-leg candidate pool feeding Reciprocal Rank Fusion.
+    SEARCH_DEFAULT_LIMIT: results returned when the caller does not say how many.
+    RRF_K: fusion damping; a result at some rank scores 1 / (RRF_K + rank).
+    RERANK_ENABLED: the cross-encoder's off switch.
+    RERANK_MODEL: which cross-encoder rescores the fused results.
+    RERANK_TIMEOUT: seconds to wait for the cross-encoder.
+    RERANK_POOL: fused results the cross-encoder rescores.
+    """
 
     SEARCH_CANDIDATES: int = 50
     SEARCH_DEFAULT_LIMIT: int = 10
@@ -152,7 +185,9 @@ class RetrievalConfig(BaseConfig):
     RERANK_POOL: int = 30
 
 
-class Config(AppConfig, PostgresConfig, EmbeddingConfig, RetrievalConfig, StorageConfig):
+class Config(
+    AppConfig, PostgresConfig, EmbeddingConfig, IngestConfig, RetrievalConfig, StorageConfig
+):
     """Combined configuration class for core app functionality."""
 
 

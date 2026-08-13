@@ -186,7 +186,7 @@ A document that chunks to nothing is refused rather than reconciled. Parsing suc
 ## 5 Embed
 Embedding turns each chunk into a vector, so that retrieval can find a provision (a piece of law) by what it means rather than by the words it happens to use.
 
-Embedding sweeps whatever has no vector yet, rather than only what this run chunked. That is what lets an interrupted run, a provider outage or a single failed batch repair itself on the next run with no resumption state to track. The sweep reads through a cursor rather than loading every vectorless chunk at once, so its memory is bounded by page size however large the backlog is.
+Embedding sweeps whatever has no vector yet, rather than only what this run chunked. That is what lets an interrupted run, a provider outage or a single failed batch repair itself on the next run with no resumption state to track. The sweep reads through a cursor rather than loading every vectorless chunk at once, so its memory is bounded by page size however large the backlog is. Within a page, batches embed concurrently up to a small in-flight cap, and each batch's vectors are committed in a single statement as they arrive, so an interruption costs at most the current page's uncommitted batches.
 
 ### 5.1 Hybrid search
 In the most basic RAG approach, we search for semantically similar chunks to the user query using a distance metric to compare vectors. If, however, the user explicitly references an article, year or term, we want to be able to deterministically retrieve that chunk too.

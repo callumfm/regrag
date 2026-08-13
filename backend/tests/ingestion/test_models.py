@@ -2,8 +2,8 @@
 
 import pytest
 
+from app.core.config import config
 from app.ingestion.chunk.models import ChunkCounts
-from app.ingestion.constants import MAX_FAILURE_CHARS
 from app.ingestion.enums import DocChange, IngestRunStatus, Stage
 from app.ingestion.exceptions import ParseError
 from app.ingestion.models import DocumentOutcome, IngestRunResult
@@ -97,15 +97,15 @@ def test_report_leaves_out_the_run_s_own_columns(run: IngestRunResult) -> None:
 
 def test_report_caps_a_failure_message_a_provider_made_too_long() -> None:
     result = IngestRunResult(run_id=1)
-    result.embed.fail("c", ParseError("x" * (MAX_FAILURE_CHARS + 100)), chunks=1)
+    result.embed.fail("c", ParseError("x" * (config.MAX_FAILURE_CHARS + 100)), chunks=1)
     stored = result.report()["embed"]["failed"]["c"]
-    assert len(stored) == MAX_FAILURE_CHARS
+    assert len(stored) == config.MAX_FAILURE_CHARS
     assert stored.startswith("1 chunk: ParseError: xxx")
 
 
 def test_report_leaves_the_recorded_failure_message_whole() -> None:
     """Capping is a storage concern: the summary still prints the message in full."""
-    message = "x" * (MAX_FAILURE_CHARS + 100)
+    message = "x" * (config.MAX_FAILURE_CHARS + 100)
     result = IngestRunResult(run_id=1)
     result.embed.fail("c", ParseError(message), chunks=1)
     result.report()

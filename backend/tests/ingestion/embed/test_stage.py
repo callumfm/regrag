@@ -1,14 +1,18 @@
 """The embed stage: how it batches, what it retries, and what a failure costs."""
 
+import asyncio
+
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.config import EMBED_DIMENSIONS
+from app.core.config import EMBED_DIMENSIONS, config
 from app.core.llm import LLMError
 from app.ingestion.chunk.models import ChunkQuery
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import get_chunks
-from app.ingestion.embed.stage import _batches, embed_chunks
+from app.ingestion.embed import stage
+from app.ingestion.embed.stage import ChunkToEmbed, _batch_by_document, embed_chunks
 
 pytestmark = pytest.mark.anyio
 
@@ -22,14 +26,16 @@ def rows(make_chunk_row, run, celex: str, count: int, start: int = 0):
 
 
 def test_batches_split_at_the_provider_ceiling():
-    produced = list(_batches([DocumentChunk(celex="32023R1805")] * 129))
+    produced = _batch_by_document([ChunkToEmbed(id=0, celex="32023R1805", text="")] * 129)
 
     assert [len(batch) for _, batch in produced] == [128, 1]
 
 
 def test_batches_never_span_two_documents():
-    chunks = [DocumentChunk(celex="32015R0757")] * 3 + [DocumentChunk(celex="32023R1805")] * 2
-    produced = list(_batches(chunks))
+    chunks = [ChunkToEmbed(id=0, celex="32015R0757", text="")] * 3 + [
+        ChunkToEmbed(id=0, celex="32023R1805", text="")
+    ] * 2
+    produced = _batch_by_document(chunks)
 
     assert [(celex, len(batch)) for celex, batch in produced] == [
         ("32015R0757", 3),
@@ -49,13 +55,13 @@ async def test_every_vectorless_chunk_gets_a_vector(db_session, ingest_run, make
 
 async def test_vectors_land_on_the_rows_in_input_order(db_session, ingest_run, make_chunk_row):
     """The stub numbers vectors 0..n within a batch, so a mis-zip shows up as a shuffle."""
-    created = rows(make_chunk_row, ingest_run, "32023R1805", 3)
-    db_session.add_all(created)
+    db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 3))
     await db_session.flush()
 
     await embed_chunks(db_session)
 
-    assert [row.embedding[0] for row in created] == [0.0, 1.0, 2.0]
+    stored = await db_session.scalars(select(DocumentChunk.embedding).order_by(DocumentChunk.id))
+    assert [vector[0] for vector in stored.all()] == [0.0, 1.0, 2.0]
 
 
 async def test_already_embedded_chunks_are_reported_not_re_embedded(
@@ -148,7 +154,7 @@ async def test_a_permanent_failure_is_not_retried(
 async def test_a_later_batch_failing_keeps_the_earlier_batches_vectors(
     db_session, ingest_run, make_chunk_row, embeddings
 ):
-    """The savepoint is per batch, so work already done survives a failure further in."""
+    """Each batch commits alone, so work already done survives a failure further in."""
     embeddings.errors[2] = LLMError("embedding call failed")
     db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 200))
     await db_session.flush()
@@ -172,7 +178,7 @@ async def test_a_corpus_larger_than_one_page_ends_with_every_chunk_embedded(
     db_session, ingest_run, make_chunk_row, monkeypatch
 ):
     """The sweep writes vectors as it reads, so the cursor must not skip rows beneath it."""
-    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_PAGE_SIZE", 2)
+    monkeypatch.setattr(config, "EMBED_PAGE_SIZE", 2)
     db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 7))
     await db_session.flush()
 
@@ -193,7 +199,7 @@ async def test_a_batch_that_keeps_failing_does_not_loop_the_sweep(
         raise LLMError("provider down")
 
     monkeypatch.setattr("app.ingestion.embed.stage.embed", always_fails)
-    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_PAGE_SIZE", 2)
+    monkeypatch.setattr(config, "EMBED_PAGE_SIZE", 2)
     db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 5))
     await db_session.flush()
 
@@ -204,26 +210,72 @@ async def test_a_batch_that_keeps_failing_does_not_loop_the_sweep(
     assert list(result.failed) == ["32023R1805"]
 
 
-async def test_a_database_failure_in_the_last_batch_does_not_kill_the_sweep(
+async def test_a_database_failure_in_one_batch_does_not_kill_the_sweep(
     db_session, ingest_run, make_chunk_row, monkeypatch
 ):
-    """A savepoint rollback expires the page's rows, so the cursor must be read before the yield."""
-    monkeypatch.setattr("app.ingestion.embed.stage.EMBED_PAGE_SIZE", 2)
+    """A failed write rolls back alone: the cursor was read before it, later batches commit."""
+    monkeypatch.setattr(config, "EMBED_PAGE_SIZE", 2)
     db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 4))
     await db_session.flush()
 
     calls: list[int] = []
-    real_flush = db_session.flush
+    real_write = stage.update_chunks
 
-    async def fail_once(*args, **kwargs):
+    async def fail_once(session, updates):
         calls.append(1)
         if len(calls) == 1:
             raise SQLAlchemyError("connection lost")
-        return await real_flush(*args, **kwargs)
+        await real_write(session, updates)
 
-    monkeypatch.setattr(db_session, "flush", fail_once)
+    monkeypatch.setattr("app.ingestion.embed.stage.update_chunks", fail_once)
 
     result = await embed_chunks(db_session)
 
     assert list(result.failed) == ["32023R1805"]
     assert result.embedded == 2
+
+
+def overlap_tracker(peaks: list[int]):
+    """An embed stub that records how many calls are in flight when each call runs."""
+    active = 0
+
+    async def tracking(texts, *, input_type):
+        nonlocal active
+        active += 1
+        await asyncio.sleep(0)
+        peaks.append(active)
+        active -= 1
+        return [[0.0] * EMBED_DIMENSIONS] * len(texts)
+
+    return tracking
+
+
+async def test_provider_calls_overlap_within_a_page(
+    db_session, ingest_run, make_chunk_row, monkeypatch
+):
+    peaks: list[int] = []
+    monkeypatch.setattr("app.ingestion.embed.stage.embed", overlap_tracker(peaks))
+    db_session.add_all(rows(make_chunk_row, ingest_run, "32015R0757", 1))
+    db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 1))
+    await db_session.flush()
+
+    result = await embed_chunks(db_session)
+
+    assert max(peaks) == 2
+    assert (result.embedded, result.failed) == (2, {})
+
+
+async def test_in_flight_provider_calls_are_capped(
+    db_session, ingest_run, make_chunk_row, monkeypatch
+):
+    peaks: list[int] = []
+    monkeypatch.setattr("app.ingestion.embed.stage.embed", overlap_tracker(peaks))
+    monkeypatch.setattr(config, "EMBED_CONCURRENCY", 2)
+    for celex in ["32015R0757", "32023R1805", "32024R0001"]:
+        db_session.add_all(rows(make_chunk_row, ingest_run, celex, 1))
+    await db_session.flush()
+
+    result = await embed_chunks(db_session)
+
+    assert max(peaks) == 2
+    assert result.embedded == 3

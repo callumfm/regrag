@@ -7,8 +7,8 @@ import asyncio
 import json
 from pathlib import Path
 
+from app.core.config import config
 from app.core.http import http_client
-from app.ingestion.constants import CRAWL_DELAYS, SEEDS
 from app.ingestion.discover.select import select_topic_documents
 from app.ingestion.discover.sparql import SPARQL_ENDPOINT, collect_candidate_acts, topic_query
 from app.ingestion.fetch.download import download_fetchable_version
@@ -19,8 +19,8 @@ FIXTURES = Path(__file__).parent
 async def record() -> None:
     expected: dict[str, str] = {}
     missing: set[str] = set()
-    async with http_client(timeout=120, delays=CRAWL_DELAYS) as client:
-        for topic, seed in SEEDS.items():
+    async with http_client(timeout=120, delays=config.CRAWL_DELAYS) as client:
+        for topic, seed in config.SEEDS.items():
             response = await client.get(
                 SPARQL_ENDPOINT,
                 params={"query": topic_query(seed), "format": "application/sparql-results+json"},

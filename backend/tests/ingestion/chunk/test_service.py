@@ -1,6 +1,7 @@
 """Chunk persistence: reconciling a document's chunks by content hash."""
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import EMBED_DIMENSIONS
@@ -15,6 +16,7 @@ from app.ingestion.chunk.service import (
     get_chunks,
     prune_chunks,
     sync_document_chunks,
+    update_chunks,
 )
 from app.ingestion.enums import SectionKind
 from app.ingestion.exceptions import EmptyChunkSetError
@@ -369,3 +371,27 @@ async def test_create_chunks_stores_each_chunk_under_its_content_key(
     rows = await chunk_rows(db_session)
     assert {(row.content_hash, row.occurrence) for row in rows} == set(incoming)
     assert {row.ingest_run_id for row in rows} == {ingest_run.id}
+
+
+async def test_update_chunks_is_one_round_trip(db_engine, db_session, ingest_run, make_chunk_row):
+    """One executemany UPDATE for the whole batch, not a RETURNING round trip per row."""
+    created = [
+        make_chunk_row(ingest_run, content_hash=str(index).ljust(64, "b")) for index in range(3)
+    ]
+    db_session.add_all(created)
+    await db_session.flush()
+    updates: list[bool] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("UPDATE"):
+            updates.append(executemany)
+
+    event.listen(db_engine.sync_engine, "before_cursor_execute", record)
+    try:
+        await update_chunks(
+            db_session, [{"id": row.id, "embedding": [0.5] * EMBED_DIMENSIONS} for row in created]
+        )
+    finally:
+        event.remove(db_engine.sync_engine, "before_cursor_execute", record)
+
+    assert updates == [True]

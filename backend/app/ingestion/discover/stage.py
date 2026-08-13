@@ -5,8 +5,8 @@ from collections.abc import Iterable, Sequence
 
 import httpx
 
+from app.core.config import config
 from app.core.http import http_retry
-from app.ingestion.constants import MAX_DROP_RATIO, MIN_SUSPICIOUS_DROPS, SEEDS
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.select import select_topic_documents
 from app.ingestion.discover.sparql import SPARQL_ENDPOINT, collect_candidate_acts, topic_query
@@ -36,7 +36,7 @@ async def discover_topics(
     by_celex: dict[str, DiscoveredDocument] = {}
     for topic in topics:
         try:
-            documents = await discover_topic(client, topic, SEEDS[topic])
+            documents = await discover_topic(client, topic, config.SEEDS[topic])
         except (KeyError, json.JSONDecodeError) as exc:
             raise MalformedDiscoveryError(f"{topic}: malformed SPARQL response: {exc!r}") from exc
         for document in documents:
@@ -55,7 +55,8 @@ def find_dropped_celexes(
     discovered = {document.celex for document in documents}
     previous = set(previous_celexes)
     dropped = sorted(previous - discovered)
-    if len(dropped) >= MIN_SUSPICIOUS_DROPS and len(dropped) > MAX_DROP_RATIO * len(previous):
+    suspicious = len(dropped) >= config.MIN_SUSPICIOUS_DROPS
+    if suspicious and len(dropped) > config.MAX_DROP_RATIO * len(previous):
         raise CorpusShrankError(
             f"discovery lost {len(dropped)} of {len(previous)} documents: {', '.join(dropped)}"
         )

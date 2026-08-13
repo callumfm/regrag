@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.ingestion.constants import SEEDS
+from app.core.config import config
 from app.ingestion.discover.stage import discover_topic
 from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
 from app.ingestion.fetch.download import (
@@ -218,7 +218,7 @@ def corpus_sparql() -> dict[str, httpx.Response]:
     """The recorded SPARQL response for every topic seed."""
     return {
         topic: httpx.Response(200, text=(FIXTURES / f"sparql-{topic}.json").read_text())
-        for topic in SEEDS
+        for topic in config.SEEDS
     }
 
 
@@ -229,13 +229,13 @@ def corpus_docs() -> dict[str, httpx.Response]:
     }
 
 
-@pytest.mark.parametrize("topic", sorted(SEEDS))
+@pytest.mark.parametrize("topic", sorted(config.SEEDS))
 async def test_every_discovered_document_resolves_to_the_version_eurlex_serves(
     topic, corpus_client
 ):
     """The handshake between the two packages: what discovery points at is what download gets."""
     client, _ = corpus_client(corpus_sparql(), corpus_docs())
-    discovered = await discover_topic(client, topic, SEEDS[topic])
+    discovered = await discover_topic(client, topic, config.SEEDS[topic])
     resolved = {
         f"{topic}:{d.celex}": (await download_fetchable_version(client, d))[0].resolved_celex
         for d in discovered
