@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings
 from app.core.config import (
     BACKEND_ROOT,
     BaseConfig,
+    ChatConfig,
     Config,
     EmbeddingConfig,
     Environment,
@@ -142,3 +143,16 @@ def test_retrieval_defaults_match_the_shipped_tunables():
 def test_combined_config_carries_the_retrieval_tunables():
     assert Config().RERANK_POOL == 30
     assert Config().RERANK_ENABLED is True
+
+
+def test_chat_defaults():
+    chat = ChatConfig()
+    assert chat.CHAT_MODEL == "anthropic/claude-sonnet-5"
+    assert chat.CHAT_TIMEOUT == 60
+    assert chat.CHAT_MAX_TOKENS == 2048
+    assert chat.CHAT_CONTEXT_CHUNKS == 10
+    assert chat.ANTHROPIC_API_KEY == ""
+
+
+def test_config_includes_chat_settings():
+    assert "CHAT_MODEL" in Config.model_fields
