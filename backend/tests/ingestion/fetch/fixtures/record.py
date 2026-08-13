@@ -37,8 +37,8 @@ async def record() -> None:
             (FIXTURES / f"sparql-{topic}.json").write_text(json.dumps(payload, indent=2) + "\n")
             for spec in select_documents(topic, rows):
                 resolution, _ = await download_fetchable_version(client, spec)
-                if spec.candidate_celex and resolution.resolved_celex == spec.celex:
-                    missing.add(spec.candidate_celex)
+                denied = spec.versions[: spec.versions.index(resolution.resolved_celex)]
+                missing.update(denied)
                 expected[f"{topic}:{spec.celex}"] = resolution.resolved_celex
     for key, value in sorted(expected.items()):
         print(f'    "{key}": "{value}",')

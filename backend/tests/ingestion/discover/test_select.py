@@ -74,10 +74,10 @@ def test_folded_amendment_filtered():
         ],
     )
     assert [s.celex for s in selected] == ["32015R0757"]
-    assert selected[0].candidate_celex == "02015R0757-20240101"
+    assert selected[0].candidates == ("02015R0757-20240101",)
 
 
-def test_candidate_is_max_own_stem_consolidation():
+def test_candidates_are_every_own_stem_consolidation_newest_first():
     selected = select_documents(
         "mrv",
         [
@@ -86,10 +86,14 @@ def test_candidate_is_max_own_stem_consolidation():
             act_row("32015R0757", in_force=True, consolidation="02015R0757-20161216"),
         ],
     )
-    assert selected[0].candidate_celex == "02015R0757-20250101"
+    assert selected[0].candidates == (
+        "02015R0757-20250101",
+        "02015R0757-20240101",
+        "02015R0757-20161216",
+    )
 
 
-def test_candidate_ignores_another_acts_consolidations_even_when_they_sort_higher():
+def test_candidates_ignore_another_acts_consolidations_even_when_they_sort_higher():
     selected = select_documents(
         "mrv",
         [
@@ -97,18 +101,18 @@ def test_candidate_ignores_another_acts_consolidations_even_when_they_sort_highe
             act_row("32015R0757", in_force=True, consolidation="02023R1805-20260101"),
         ],
     )
-    assert selected[0].candidate_celex == "02015R0757-20250101"
+    assert selected[0].candidates == ("02015R0757-20250101",)
 
 
-def test_no_consolidations_gives_none_candidate():
+def test_no_consolidations_gives_no_candidates():
     """An act nothing has consolidated is not folded into anything, so it is still fetched."""
     selected = select_documents("mrv", [act_row("32023R2449", in_force=True)])
     assert [s.celex for s in selected] == ["32023R2449"]
-    assert selected[0].candidate_celex is None
+    assert selected[0].candidates == ()
 
 
 def test_documents_carry_topic_and_source():
     document = select_documents("fueleu", [act_row("32023R1805", in_force=True)])[0]
     assert document == DiscoveredDocument(
-        topic="fueleu", source="eurlex", celex="32023R1805", candidate_celex=None
+        topic="fueleu", source="eurlex", celex="32023R1805", candidates=()
     )

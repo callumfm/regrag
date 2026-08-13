@@ -10,12 +10,12 @@ from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.enums import DocChange, Stage
 from app.ingestion.exceptions import DocumentFailed, IngestionError
 from app.ingestion.fetch.download import download_fetchable_version
-from app.ingestion.fetch.models import FetchedDocument, ResolvedVersion, StoredBytes
+from app.ingestion.fetch.models import FetchedDocument, FetchedVersion
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import StoredBytesMismatchError, read_document, write_document
 
-Fetched = tuple[ResolvedVersion, StoredBytes, bytes]
+Fetched = tuple[FetchedVersion, bytes]
 
 
 def _reuse_stored_version(
@@ -23,20 +23,23 @@ def _reuse_stored_version(
 ) -> Fetched | None:
     """The version and bytes the previous run stored, if the download would land on that version.
 
-    Discovery pointing at the same candidate is what settles that: the version EUR-Lex served
-    for it is the one it will serve again, whether that was the candidate or the original act.
+    Discovery offering the same candidates is what settles that: the version EUR-Lex served
+    for them is the one it will serve again, whether that was a candidate or the original act.
     """
-    if previous is None or previous.candidate_celex != discovered.candidate_celex:
+    if previous is None or tuple(previous.candidates) != discovered.candidates:
         return None
     try:
         content = read_document(store, previous)
     except (ObjectNotFoundError, StoredBytesMismatchError):
         return None
-    resolution = ResolvedVersion(resolved_celex=previous.resolved_celex, url=previous.url)
-    stored = StoredBytes(
-        sha256=previous.sha256, size_bytes=previous.size_bytes, fetched_at=previous.fetched_at
+    version = FetchedVersion(
+        resolved_celex=previous.resolved_celex,
+        url=previous.url,
+        sha256=previous.sha256,
+        size_bytes=previous.size_bytes,
+        fetched_at=previous.fetched_at,
     )
-    return resolution, stored, content
+    return version, content
 
 
 async def _download_new_version(
@@ -45,31 +48,10 @@ async def _download_new_version(
     """Download the version EUR-Lex will serve, store its bytes, and stamp the fetch time."""
     resolution, content = await download_fetchable_version(client, discovered)
     sha256, size_bytes = write_document(store, discovered.celex, resolution.resolved_celex, content)
-    stored = StoredBytes(sha256=sha256, size_bytes=size_bytes, fetched_at=utc_now())
-    return resolution, stored, content
-
-
-async def _reuse_or_download(
-    client: httpx.AsyncClient,
-    discovered: DiscoveredDocument,
-    *,
-    previous: RawDocument | None,
-    run: IngestRun,
-    store: ObjectStore,
-) -> tuple[FetchedDocument, DocChange]:
-    """Reuse the version the last run stored, or download the one discovery now points at."""
-    reused = _reuse_stored_version(store, discovered, previous)
-    resolution, stored, content = reused or await _download_new_version(client, store, discovered)
-    change = DocChange.between(
-        previous.resolved_celex if previous else None, resolution.resolved_celex
+    version = FetchedVersion(
+        **resolution.model_dump(), sha256=sha256, size_bytes=size_bytes, fetched_at=utc_now()
     )
-    document = RawDocument(
-        **discovered.model_dump(),
-        **resolution.model_dump(),
-        **stored.model_dump(),
-        run=run,
-    )
-    return FetchedDocument(document=document, content=content), change
+    return version, content
 
 
 async def fetch_document(
@@ -83,11 +65,14 @@ async def fetch_document(
 ) -> tuple[FetchedDocument, DocChange]:
     """Download one discovered document and record its row, or say why it would not download."""
     try:
-        fetched, change = await _reuse_or_download(
-            client, discovered, previous=previous, run=run, store=store
+        reused = _reuse_stored_version(store, discovered, previous)
+        version, content = reused or await _download_new_version(client, store, discovered)
+        change = DocChange.between(
+            previous.resolved_celex if previous else None, version.resolved_celex
         )
-        session.add(fetched.document)
+        document = RawDocument(**discovered.model_dump(), **version.model_dump(), run=run)
+        session.add(document)
         await session.flush()
     except (IngestionError, StorageError, httpx.HTTPError, SQLAlchemyError) as exc:
         raise DocumentFailed(Stage.FETCH, discovered.celex, exc) from exc
-    return fetched, change
+    return FetchedDocument(document=document, content=content), change

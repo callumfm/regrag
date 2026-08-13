@@ -115,6 +115,7 @@ def make_document() -> Callable[..., RawDocument]:
             "run": run,
             "source": "eurlex",
             "celex": celex,
+            "candidates": [],
             "resolved_celex": celex,
             "topic": "fueleu",
             "url": f"https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}",
@@ -305,10 +306,10 @@ MRV_SPARQL = httpx.Response(
 
 
 def discovered_document(
-    celex: str = "32015R0757", topic: str = "mrv", candidate: str | None = None
+    celex: str = "32015R0757", topic: str = "mrv", candidates: tuple[str, ...] = ()
 ) -> DiscoveredDocument:
     """What discovery would hand fetch for one act, overridable per field."""
-    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidate_celex=candidate)
+    return DiscoveredDocument(topic=topic, source="eurlex", celex=celex, candidates=candidates)
 
 
 async def chunk_versions(session: AsyncSession, celex: str | None = None) -> set[str | None]:

@@ -35,10 +35,10 @@ def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store,
     prev = stored(store_document)
     reused = _reuse_stored_version(local_store, discovered_document("32023R1805"), prev)
     assert reused is not None
-    resolution, bytes_, content = reused
-    assert resolution.resolved_celex == prev.resolved_celex
+    version, content = reused
+    assert version.resolved_celex == prev.resolved_celex
     assert content == b"<html>act</html>"
-    assert (bytes_.sha256, bytes_.size_bytes, bytes_.fetched_at) == (
+    assert (version.sha256, version.size_bytes, version.fetched_at) == (
         prev.sha256,
         prev.size_bytes,
         prev.fetched_at,
@@ -52,9 +52,9 @@ def test_reuse_carries_the_version_that_was_served_not_the_one_that_was_asked_fo
     prev = store_document(
         IngestRun(status=IngestRunStatus.SUCCESS),
         celex="32023R1805",
-        candidate_celex="02023R1805-20250101",
+        candidates=["02023R1805-20250101"],
     )
-    asked_again = discovered_document("32023R1805", candidate="02023R1805-20250101")
+    asked_again = discovered_document("32023R1805", candidates=("02023R1805-20250101",))
 
     reused = _reuse_stored_version(local_store, asked_again, prev)
 
@@ -66,7 +66,7 @@ def test_reuse_carries_the_version_that_was_served_not_the_one_that_was_asked_fo
 def test_a_newly_discovered_consolidation_is_not_reused(local_store, store_document):
     """Discovery pointing somewhere new is exactly the case that has to hit the network."""
     prev = stored(store_document)
-    newer = discovered_document("32023R1805", candidate="02023R1805-20250101")
+    newer = discovered_document("32023R1805", candidates=("02023R1805-20250101",))
     assert _reuse_stored_version(local_store, newer, prev) is None
 
 
@@ -318,7 +318,7 @@ async def test_any_ingestion_error_is_recorded_per_document(
     def unparseable(*args, **kwargs):
         raise ParseError("unrecognised EUR-Lex dialect")
 
-    monkeypatch.setattr(stage, "_reuse_or_download", unparseable)
+    monkeypatch.setattr(stage, "_reuse_stored_version", unparseable)
     _, failed, _ = await fetch(db_session, client, ["mrv"], local_store)
 
     assert sorted(failed) == ["32015R0757", "32023R2449"]
@@ -329,15 +329,15 @@ async def test_a_row_that_will_not_flush_fails_only_its_own_document(
     db_session, local_store, corpus_client, monkeypatch
 ):
     """A database error on one row must skip that document, not poison the run's transaction."""
-    real = stage._reuse_or_download
+    real = stage._download_new_version
 
-    async def unstorable(client, discovered, **kwargs):
-        fetched, change = await real(client, discovered, **kwargs)
+    async def unstorable(client, store, discovered):
+        version, content = await real(client, store, discovered)
         if discovered.celex == "32015R0757":
-            fetched.document.topic = None  # ty: ignore[invalid-assignment]
-        return fetched, change
+            version = version.model_copy(update={"size_bytes": 2**40})
+        return version, content
 
-    monkeypatch.setattr(stage, "_reuse_or_download", unstorable)
+    monkeypatch.setattr(stage, "_download_new_version", unstorable)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     changes, failed, _ = await fetch(db_session, client, ["mrv"], local_store)
 

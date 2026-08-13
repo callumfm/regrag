@@ -122,7 +122,7 @@ async def ingest(
         query_in = RawDocsQuery(include_topics=list(topics))
         existing = await get_raw_documents(session, query=query_in)
         discovered = await discover_topics(client, topics)
-        result.dropped = _find_dropped_celexes(discovered, existing)
+        result.dropped = _find_dropped_celexes(discovered, existing.keys())
         logger.info("%s", result.line(Stage.DISCOVER, total=len(discovered)))
 
         for document in discovered:

@@ -50,10 +50,9 @@ def filter_fetchable_acts(acts: list[CandidateAct]) -> list[CandidateAct]:
     return [act for act in acts if _is_in_force(act) and not _is_folded_into_another_act(act)]
 
 
-def _latest_consolidation(act: CandidateAct) -> str | None:
-    """The newest consolidated text of this act, or None if it has never been consolidated."""
-    own = _extract_consolidations_of_this_act(act)
-    return max(own) if own else None
+def _consolidations_newest_first(act: CandidateAct) -> tuple[str, ...]:
+    """Every consolidated text of this act, newest first; the date suffix makes that a sort."""
+    return tuple(sorted(_extract_consolidations_of_this_act(act), reverse=True))
 
 
 def select_documents(topic: str, rows: list[ActsQueryRow]) -> list[DiscoveredDocument]:
@@ -66,7 +65,7 @@ def select_documents(topic: str, rows: list[ActsQueryRow]) -> list[DiscoveredDoc
             topic=topic,
             source="eurlex",
             celex=act.celex,
-            candidate_celex=_latest_consolidation(act),
+            candidates=_consolidations_newest_first(act),
         )
         for act in fetchable
     ]

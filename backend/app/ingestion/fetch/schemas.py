@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, UniqueConstraint
+from sqlalchemy import ARRAY, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db.schema import BaseSchema
@@ -19,7 +19,7 @@ class RawDocument(BaseSchema):
     ingest_run_id: Mapped[int] = mapped_column(ForeignKey("ingest_runs.id", ondelete="CASCADE"))
     source: Mapped[str]
     celex: Mapped[str]
-    candidate_celex: Mapped[str | None]
+    candidates: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     resolved_celex: Mapped[str]
     topic: Mapped[str]
     url: Mapped[str]

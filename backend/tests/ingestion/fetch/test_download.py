@@ -8,13 +8,7 @@ import pytest
 from app.core.config import config
 from app.ingestion.discover.stage import discover_topics
 from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
-from app.ingestion.fetch.download import (
-    MISSING_MARKER,
-    download_fetchable_version,
-    is_missing,
-    is_missing_document_page,
-    version_candidates,
-)
+from app.ingestion.fetch.download import download_fetchable_version, is_version_missing
 from app.ingestion.fetch.models import ResolvedVersion
 from tests.conftest import discovered_document
 
@@ -57,32 +51,24 @@ def queued(responses):
     return httpx.MockTransport(handler), calls
 
 
-def test_missing_document_page_detected():
-    assert is_missing_document_page(f"<html><body>{MISSING_MARKER}</body></html>")
-
-
-def test_real_document_not_flagged_missing():
-    assert not is_missing_document_page("<html><body>Article 1</body></html>")
-
-
 def test_hard_404_is_missing():
-    assert is_missing(missing_response(404))
+    assert is_version_missing(missing_response(404))
 
 
 def test_soft_404_is_missing():
     """A success status is not enough: EUR-Lex serves its 'does not exist' page with one."""
-    assert is_missing(missing_response(200))
+    assert is_version_missing(missing_response(200))
 
 
 def test_served_document_is_not_missing():
-    assert not is_missing(doc_response())
+    assert not is_version_missing(doc_response())
 
 
 async def test_downloads_candidate_when_html_exists():
     responses = {"02015R0757-20250101": doc_response()}
     async with httpx.AsyncClient(transport=transport(responses)) as client:
         resolution, content = await download_fetchable_version(
-            client, discovered_document(candidate="02015R0757-20250101")
+            client, discovered_document(candidates=("02015R0757-20250101",))
         )
     assert resolution == ResolvedVersion(
         resolved_celex="02015R0757-20250101",
@@ -110,7 +96,7 @@ async def test_falls_back_to_celex_on_hard_404():
     responses = {"02023R2917-20231229": missing_response(404), "32023R2917": doc_response()}
     async with httpx.AsyncClient(transport=transport(responses)) as client:
         resolution, _ = await download_fetchable_version(
-            client, discovered_document(celex="32023R2917", candidate="02023R2917-20231229")
+            client, discovered_document(celex="32023R2917", candidates=("02023R2917-20231229",))
         )
     assert resolution.resolved_celex == "32023R2917"
 
@@ -119,7 +105,7 @@ async def test_falls_back_to_celex_on_soft_404():
     responses = {"02023R2917-20231229": missing_response(200), "32023R2917": doc_response()}
     async with httpx.AsyncClient(transport=transport(responses)) as client:
         resolution, _ = await download_fetchable_version(
-            client, discovered_document(celex="32023R2917", candidate="02023R2917-20231229")
+            client, discovered_document(celex="32023R2917", candidates=("02023R2917-20231229",))
         )
     assert resolution.resolved_celex == "32023R2917"
 
@@ -137,7 +123,7 @@ async def test_raises_when_all_candidates_missing():
     async with httpx.AsyncClient(transport=transport(responses)) as client:
         with pytest.raises(NoFetchableVersionError, match="32023R2917"):
             await download_fetchable_version(
-                client, discovered_document(celex="32023R2917", candidate="02023R2917-20231229")
+                client, discovered_document(celex="32023R2917", candidates=("02023R2917-20231229",))
             )
 
 
@@ -166,7 +152,7 @@ async def test_still_rendering_candidate_does_not_fall_back_to_the_original_act(
     async with httpx.AsyncClient(transport=transport(responses)) as client:
         with pytest.raises(DocumentStillRenderingError):
             await download_fetchable_version(
-                client, discovered_document(celex="32023R2917", candidate="02023R2917-20231229")
+                client, discovered_document(celex="32023R2917", candidates=("02023R2917-20231229",))
             )
 
 
@@ -175,7 +161,7 @@ async def test_a_denied_candidate_is_not_requested_again_when_a_later_one_retrie
     handler, calls = queued([missing_response(404), httpx.Response(503), doc_response()])
     async with httpx.AsyncClient(transport=handler) as client:
         resolution, _ = await download_fetchable_version(
-            client, discovered_document(celex="32023R2917", candidate="02023R2917-20231229")
+            client, discovered_document(celex="32023R2917", candidates=("02023R2917-20231229",))
         )
     assert resolution.resolved_celex == "32023R2917"
     assert calls == ["02023R2917-20231229", "32023R2917", "32023R2917"]
@@ -186,15 +172,6 @@ async def test_unexpected_error_status_raises():
     async with httpx.AsyncClient(transport=transport(responses)) as client:
         with pytest.raises(httpx.HTTPStatusError):
             await download_fetchable_version(client, discovered_document(celex="32023R2449"))
-
-
-def test_version_candidates_try_the_consolidation_before_the_original_act():
-    consolidated = discovered_document(candidate="02015R0757-20250101")
-    assert version_candidates(consolidated) == ["02015R0757-20250101", "32015R0757"]
-
-
-def test_version_candidates_without_a_consolidation_is_the_act_alone():
-    assert version_candidates(discovered_document("32023R2449")) == ["32023R2449"]
 
 
 EXPECTED_RESOLVED = {

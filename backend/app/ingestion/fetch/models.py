@@ -14,8 +14,13 @@ class ResolvedVersion(FrozenModel):
     url: str
 
 
-class StoredBytes(FrozenModel):
-    """What a run records about a document's stored bytes."""
+class FetchedVersion(ResolvedVersion):
+    """A resolved version, plus what the run records about the bytes it holds for it.
+
+    sha256: their fingerprint, which also keys them in the store.
+    size_bytes: their length.
+    fetched_at: when they were downloaded, carried over unchanged when bytes are reused.
+    """
 
     sha256: str
     size_bytes: int

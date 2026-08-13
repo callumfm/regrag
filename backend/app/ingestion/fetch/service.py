@@ -22,12 +22,7 @@ def _latest_success_run_id() -> ScalarSelect[int]:
 
 
 async def get_raw_documents(session: AsyncSession, query: RawDocsQuery) -> dict[str, RawDocument]:
-    """The newest standing row per celex, keyed by celex.
-
-    Rows are held from each topic's latest complete run on, incomplete runs included: a run
-    that died mid-loop still committed what it downloaded, and only a run that got through
-    its whole topic can retire the rows before it.
-    """
+    """The newest standing row per celex, keyed by celex."""
     stmt = (
         select(RawDocument)
         .distinct(RawDocument.celex)
