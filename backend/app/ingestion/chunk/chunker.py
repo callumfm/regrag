@@ -35,9 +35,12 @@ def iter_section_chunks(
 def chunk_document(
     document: ParsedDocument, max_chars: int = config.MAX_CHARS
 ) -> tuple[Chunk, ...]:
-    """Every text-bearing section of the parsed tree as a chunk, in document order."""
-    return tuple(
+    """Every text-bearing section of the parsed tree as a chunk, numbered in document order."""
+    chunks = (
         chunk
         for section in document.sections
         for chunk in iter_section_chunks(section, document, Locator(), max_chars)
+    )
+    return tuple(
+        chunk.model_copy(update={"position": position}) for position, chunk in enumerate(chunks)
     )

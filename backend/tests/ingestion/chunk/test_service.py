@@ -168,6 +168,55 @@ async def test_chunk_fields_are_mapped_onto_the_row(
     assert row.kind is SectionKind.PARAGRAPH
 
 
+async def test_inserting_a_chunk_renumbers_the_ones_after_it(
+    db_session: AsyncSession, ingest_run: IngestRun, later_run: IngestRun
+):
+    await sync_document_chunks(
+        db_session,
+        celex="32023R1805",
+        chunks=[chunk(position=0), chunk(paragraph="2", text="Second.", position=1)],
+        ingest_run_id=ingest_run.id,
+    )
+
+    result = await sync_document_chunks(
+        db_session,
+        celex="32023R1805",
+        chunks=[
+            chunk(position=0),
+            chunk(paragraph="1a", text="Inserted.", position=1),
+            chunk(paragraph="2", text="Second.", position=2),
+        ],
+        ingest_run_id=later_run.id,
+    )
+
+    rows = await chunk_rows(db_session)
+    assert {row.paragraph: row.position for row in rows} == {"1": 0, "1a": 1, "2": 2}
+    assert (result.added, result.updated, result.kept) == (1, 1, 1)
+
+
+async def test_position_holds_document_order_once_ids_no_longer_do(
+    db_session: AsyncSession, ingest_run: IngestRun, later_run: IngestRun
+):
+    """An annex has no (paragraph, part) to sort by, and a re-ingest moves the changed chunk's
+    id to the end of the sequence."""
+    annex = [
+        chunk(article=None, annex="I", paragraph=None, text=text, position=index)
+        for index, text in enumerate(["First.", "Second.", "Third."])
+    ]
+    await sync_document_chunks(
+        db_session, celex="32023R1805", chunks=annex, ingest_run_id=ingest_run.id
+    )
+
+    amended = [annex[0], annex[1].model_copy(update={"text": "Second, amended."}), annex[2]]
+    await sync_document_chunks(
+        db_session, celex="32023R1805", chunks=amended, ingest_run_id=later_run.id
+    )
+
+    rows = sorted(await chunk_rows(db_session), key=lambda row: row.position)
+    assert [row.text for row in rows] == ["First.", "Second, amended.", "Third."]
+    assert [row.id for row in rows] != sorted(row.id for row in rows)
+
+
 async def test_references_are_stored_as_json(db_session: AsyncSession, ingest_run: IngestRun):
     text = "As set out in Annex I to this Regulation."
     await sync_document_chunks(

@@ -74,6 +74,30 @@ def test_records_nested_heading_path_within_an_annex() -> None:
     assert chunk.annex == "I"
 
 
+def test_numbers_chunks_by_their_place_in_the_document() -> None:
+    doc = document(
+        article("4", "Limits", paragraph("1", "First."), paragraph("2", "Second.")),
+        Section(
+            kind=SectionKind.ANNEX,
+            number="I",
+            title="Methods",
+            children=(paragraph(None, "Body."),),
+        ),
+    )
+    assert [c.position for c in chunk_document(doc)] == [0, 1, 2]
+
+
+def test_identical_annex_chunks_differ_only_by_position() -> None:
+    """The MRV Annex I case: byte-identical tables with nothing else to tell them apart."""
+    table = Section(kind=SectionKind.TABLE, rows=(("Fuel", "Factor"),))
+    doc = document(
+        Section(kind=SectionKind.ANNEX, number="I", title="Methods", children=(table, table))
+    )
+    first, second = chunk_document(doc)
+    assert first.model_dump(exclude={"position"}) == second.model_dump(exclude={"position"})
+    assert (first.position, second.position) == (0, 1)
+
+
 def test_attaches_references_found_in_the_chunk_text() -> None:
     doc = document(article("4", "Limits", paragraph("1", "as set out in Annex I")))
     assert chunk_document(doc)[0].references == (Reference(raw="Annex I", annex="I"),)

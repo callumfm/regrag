@@ -54,3 +54,10 @@ def test_topic_does_not_affect_the_hash():
 
 def test_heading_path_affects_the_hash():
     assert chunk().content_hash != chunk(heading_path=("Chapter I",)).content_hash
+
+
+def test_position_does_not_affect_the_hash():
+    """An inserted paragraph shifts every position after it; none of those chunks may churn."""
+    shifted = chunk(position=7)
+    assert shifted.position == 7
+    assert shifted.content_hash == chunk().content_hash

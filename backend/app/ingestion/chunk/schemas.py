@@ -59,6 +59,9 @@ class DocumentChunk(BaseSchema):
     part: Mapped[int]
     parts: Mapped[int]
 
+    # Placement: the chunk's ordinal in the document, the only sort key an annex has.
+    position: Mapped[int]
+
     # Search: the text, the acts it cites, and the two indexes queried over it.
     text: Mapped[str]
     references: Mapped[list[dict]] = mapped_column(JSONB)

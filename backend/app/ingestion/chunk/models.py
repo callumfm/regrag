@@ -47,8 +47,9 @@ class Locator(FrozenModel):
 class Chunk(Locator):
     """One retrievable unit of a regulation, with its citation and cross-references."""
 
-    NOT_IDENTITY: ClassVar[set[str]] = {"topic", "citation", "references"}
-    """Fields outside content_hash: topic is provenance, the rest derive from what is hashed."""
+    NOT_IDENTITY: ClassVar[set[str]] = {"citation", "position", "references", "topic"}
+    """Fields outside content_hash: topic is provenance, position is placement, the rest
+    derive from what is hashed."""
 
     celex: str
     topic: str
@@ -57,6 +58,7 @@ class Chunk(Locator):
     paragraph: str | None = None
     part: int = 1
     parts: int = 1
+    position: int = 0
     references: tuple[Reference, ...] = ()
 
     @computed_field
