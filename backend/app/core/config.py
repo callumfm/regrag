@@ -141,7 +141,7 @@ class EmbeddingConfig(BaseConfig):
 class IngestConfig(BaseConfig):
     """Ingestion tunables.
 
-    SEEDS: each topic's seed act, where corpus discovery starts.
+    TOPIC_BASE_ACTS: the act each topic is built from; its corpus is everything based on it.
     CRAWL_DELAYS: seconds between requests per host; eur-lex publishes 10 in robots.txt,
         the rest is courtesy.
     MAX_DROP_RATIO: fraction of the previous corpus that may vanish before discovery aborts.
@@ -153,7 +153,7 @@ class IngestConfig(BaseConfig):
         bloat the run row.
     """
 
-    SEEDS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
+    TOPIC_BASE_ACTS: dict[str, str] = {"fueleu": "32023R1805", "mrv": "32015R0757"}
     CRAWL_DELAYS: dict[str, float] = {"eur-lex.europa.eu": 10.0, "publications.europa.eu": 1.0}
     MAX_DROP_RATIO: float = 0.2
     MIN_SUSPICIOUS_DROPS: int = 3

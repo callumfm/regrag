@@ -23,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
         "topics",
         nargs="*",
         metavar="topic",
-        help=f"topics to ingest (default: {', '.join(sorted(config.SEEDS))})",
+        help=f"topics to ingest (default: {', '.join(sorted(config.TOPIC_BASE_ACTS))})",
     )
     return parser
 
@@ -38,10 +38,10 @@ async def _ingest(topics: list[str]) -> IngestRunResult:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    topics = args.topics or sorted(config.SEEDS)
-    unknown = sorted(set(topics) - config.SEEDS.keys())
+    topics = args.topics or sorted(config.TOPIC_BASE_ACTS)
+    unknown = sorted(set(topics) - config.TOPIC_BASE_ACTS.keys())
     if unknown:
-        known = ", ".join(sorted(config.SEEDS))
+        known = ", ".join(sorted(config.TOPIC_BASE_ACTS))
         parser.error(f"unknown topics: {', '.join(unknown)} (known: {known})")
     setup_logging()
     try:

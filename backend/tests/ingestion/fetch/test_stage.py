@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.core.storage import StorageError
-from app.ingestion.discover.stage import discover_corpus
+from app.ingestion.discover.stage import discover_topics
 from app.ingestion.enums import DocChange, IngestRunStatus
 from app.ingestion.exceptions import DocumentFailed, ParseError
 from app.ingestion.fetch import stage
@@ -119,7 +119,7 @@ async def fetch(db_session, client, topics, store) -> Fetched:
     """Drive the fetch stage alone, with the run, discovery and savepoint the pipeline supplies."""
     run = await create_ingest_run(db_session)
     previous = await get_raw_documents(db_session, RawDocsQuery(include_topics=topics))
-    discovered, _ = await discover_corpus(client, topics=topics, previous_celexes=previous)
+    discovered = await discover_topics(client, topics)
     fetched: list[FetchedDocument] = []
     changes: dict[str, DocChange] = {}
     failed: dict[str, str] = {}
@@ -268,8 +268,8 @@ async def test_a_vanished_doc_gets_no_row_from_this_run(db_session, local_store,
     client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
     await fetch(db_session, client, ["mrv"], local_store)
 
-    only_seed = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
-    client, _ = corpus_client({"mrv": only_seed}, docs)
+    only_base_act = httpx.Response(200, json=payload(binding("32015R0757", force="1")))
+    client, _ = corpus_client({"mrv": only_base_act}, docs)
     changes, _, _ = await fetch(db_session, client, ["mrv"], local_store)
 
     assert celexes(changes, DocChange.REUSED) == ["32015R0757"]

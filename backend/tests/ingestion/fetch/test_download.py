@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.core.config import config
-from app.ingestion.discover.stage import discover_topic
+from app.ingestion.discover.stage import discover_topics
 from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
 from app.ingestion.fetch.download import (
     MISSING_MARKER,
@@ -215,10 +215,10 @@ MISSING_HTML = {"02023R1805-20230922", "02023R2917-20231229", "02024R2027-202407
 
 
 def corpus_sparql() -> dict[str, httpx.Response]:
-    """The recorded SPARQL response for every topic seed."""
+    """The recorded SPARQL response for every topic."""
     return {
         topic: httpx.Response(200, text=(FIXTURES / f"sparql-{topic}.json").read_text())
-        for topic in config.SEEDS
+        for topic in config.TOPIC_BASE_ACTS
     }
 
 
@@ -229,13 +229,13 @@ def corpus_docs() -> dict[str, httpx.Response]:
     }
 
 
-@pytest.mark.parametrize("topic", sorted(config.SEEDS))
+@pytest.mark.parametrize("topic", sorted(config.TOPIC_BASE_ACTS))
 async def test_every_discovered_document_resolves_to_the_version_eurlex_serves(
     topic, corpus_client
 ):
     """The handshake between the two packages: what discovery points at is what download gets."""
     client, _ = corpus_client(corpus_sparql(), corpus_docs())
-    discovered = await discover_topic(client, topic, config.SEEDS[topic])
+    discovered = await discover_topics(client, [topic])
     resolved = {
         f"{topic}:{d.celex}": (await download_fetchable_version(client, d))[0].resolved_celex
         for d in discovered

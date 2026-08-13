@@ -1,94 +1,114 @@
-"""The policy over what the topic query returned: which acts are fetched, and at what version."""
+"""Which acts belong in the corpus, and at what version."""
 
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.select import (
-    is_folded_into_another_act,
-    is_in_force,
-    latest_own_consolidation,
-    select_topic_documents,
+    extract_candidate_acts,
+    filter_legislative_acts,
+    select_documents,
 )
-from app.ingestion.discover.sparql import collect_candidate_acts
-from tests.conftest import binding, payload
+from tests.conftest import act_row
 
 
-def documents(topic, p):
-    return select_topic_documents(topic, collect_candidate_acts(p))
+def test_filter_legislative_acts_drops_resolutions_and_communications():
+    rows = [
+        act_row("32015R0757", in_force=True),
+        act_row("52024XC07469", in_force=True),
+        act_row("52024IP0025", in_force=True),
+        act_row("E2021X0415(01)", in_force=True),
+    ]
+    assert [row.celex for row in filter_legislative_acts(rows)] == ["32015R0757"]
 
 
-def act(celex, force=None, cons=()):
-    bindings = [binding(celex, force=force)] + [binding(celex, force=force, cons=c) for c in cons]
-    return collect_candidate_acts(payload(*bindings))[0]
+def test_extract_candidate_acts_folds_every_row_for_one_celex():
+    rows = [
+        act_row("32015R0757", in_force=True, consolidation="02015R0757-20240101"),
+        act_row("32015R0757", in_force=True, consolidation="02015R0757-20250101"),
+    ]
+    acts = extract_candidate_acts(rows)
+    assert len(acts) == 1
+    assert acts[0].consolidations == frozenset({"02015R0757-20240101", "02015R0757-20250101"})
+    assert acts[0].in_force is True
 
 
-def test_non_legislation_sectors_filtered():
-    p = payload(
-        binding("32015R0757", force="1"),
-        binding("52024XC07469"),
-        binding("52024IP0025"),
-        binding("E2021X0415(01)"),
+def test_extract_candidate_acts_groups_interleaved_rows_by_celex():
+    rows = [
+        act_row("32023R2449", in_force=True),
+        act_row("32015R0757", in_force=True, consolidation="02015R0757-20240101"),
+        act_row("32023R2449", in_force=True, consolidation="02023R2449-20250101"),
+    ]
+    acts = extract_candidate_acts(rows)
+    assert [act.celex for act in acts] == ["32015R0757", "32023R2449"]
+    assert acts[1].consolidations == frozenset({"02023R2449-20250101"})
+
+
+def test_extract_candidate_acts_keeps_an_act_that_has_no_consolidations():
+    acts = extract_candidate_acts([act_row("32023R2449", in_force=True)])
+    assert acts[0].consolidations == frozenset()
+
+
+def test_extract_candidate_acts_keeps_a_missing_flag_distinct_from_a_false_one():
+    acts = extract_candidate_acts([act_row("32016R1927", in_force=False), act_row("52024IP0025")])
+    assert [act.in_force for act in acts] == [False, None]
+
+
+def test_only_acts_flagged_in_force_are_fetched():
+    """Repealed (flagged false) and unstated (the flag never bound) are both left out."""
+    selected = select_documents(
+        "mrv",
+        [
+            act_row("32016R1927", in_force=False),
+            act_row("32016R1926"),
+            act_row("32016R1928", in_force=True),
+        ],
     )
-    assert [s.celex for s in documents("mrv", p)] == ["32015R0757"]
-
-
-def test_not_in_force_filtered():
-    p = payload(binding("32016R1927", force="0"), binding("32016R1928", force="1"))
-    assert [s.celex for s in documents("mrv", p)] == ["32016R1928"]
+    assert [s.celex for s in selected] == ["32016R1928"]
 
 
 def test_folded_amendment_filtered():
-    p = payload(
-        binding("32023R2776", force="1", cons="02015R0757-20240101"),
-        binding("32015R0757", force="1", cons="02015R0757-20240101"),
+    """32023R2776 consolidates only into another act, so its text already lives in 32015R0757."""
+    selected = select_documents(
+        "mrv",
+        [
+            act_row("32023R2776", in_force=True, consolidation="02015R0757-20240101"),
+            act_row("32015R0757", in_force=True, consolidation="02015R0757-20240101"),
+        ],
     )
-    specs = documents("mrv", p)
-    assert [s.celex for s in specs] == ["32015R0757"]
-    assert specs[0].candidate_celex == "02015R0757-20240101"
+    assert [s.celex for s in selected] == ["32015R0757"]
+    assert selected[0].candidate_celex == "02015R0757-20240101"
 
 
 def test_candidate_is_max_own_stem_consolidation():
-    p = payload(
-        binding("32015R0757", force="1", cons="02015R0757-20240101"),
-        binding("32015R0757", force="1", cons="02015R0757-20250101"),
-        binding("32015R0757", force="1", cons="02015R0757-20161216"),
+    selected = select_documents(
+        "mrv",
+        [
+            act_row("32015R0757", in_force=True, consolidation="02015R0757-20240101"),
+            act_row("32015R0757", in_force=True, consolidation="02015R0757-20250101"),
+            act_row("32015R0757", in_force=True, consolidation="02015R0757-20161216"),
+        ],
     )
-    assert documents("mrv", p)[0].candidate_celex == "02015R0757-20250101"
+    assert selected[0].candidate_celex == "02015R0757-20250101"
+
+
+def test_candidate_ignores_another_acts_consolidations_even_when_they_sort_higher():
+    selected = select_documents(
+        "mrv",
+        [
+            act_row("32015R0757", in_force=True, consolidation="02015R0757-20250101"),
+            act_row("32015R0757", in_force=True, consolidation="02023R1805-20260101"),
+        ],
+    )
+    assert selected[0].candidate_celex == "02015R0757-20250101"
 
 
 def test_no_consolidations_gives_none_candidate():
-    p = payload(binding("32023R2449", force="1"))
-    assert documents("mrv", p)[0].candidate_celex is None
+    """An act nothing has consolidated is not folded into anything, so it is still fetched."""
+    selected = select_documents("mrv", [act_row("32023R2449", in_force=True)])
+    assert [s.celex for s in selected] == ["32023R2449"]
+    assert selected[0].candidate_celex is None
 
 
-def test_specs_carry_topic_and_source():
-    p = payload(binding("32023R1805", force="1"))
-    spec = documents("fueleu", p)[0]
-    assert spec == DiscoveredDocument(
+def test_documents_carry_topic_and_source():
+    document = select_documents("fueleu", [act_row("32023R1805", in_force=True)])[0]
+    assert document == DiscoveredDocument(
         topic="fueleu", source="eurlex", celex="32023R1805", candidate_celex=None
-    )
-
-
-def test_is_in_force_only_accepts_the_live_flag():
-    assert is_in_force(act("32016R1928", force="1"))
-    assert not is_in_force(act("32016R1927", force="0"))
-    assert not is_in_force(act("32016R1926"))
-
-
-def test_an_act_consolidated_only_into_another_act_is_folded():
-    assert is_folded_into_another_act(act("32023R2776", force="1", cons=["02015R0757-20240101"]))
-
-
-def test_an_act_with_its_own_consolidation_is_not_folded():
-    assert not is_folded_into_another_act(
-        act("32015R0757", force="1", cons=["02015R0757-20240101"])
-    )
-
-
-def test_an_act_with_no_consolidations_is_not_folded():
-    assert not is_folded_into_another_act(act("32023R2449", force="1"))
-
-
-def test_latest_own_consolidation_ignores_another_acts_versions():
-    versions = ["02015R0757-20240101", "02015R0757-20250101", "02023R1805-20260101"]
-    assert latest_own_consolidation(act("32015R0757", force="1", cons=versions)) == (
-        "02015R0757-20250101"
     )

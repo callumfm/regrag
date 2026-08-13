@@ -1,71 +1,22 @@
-"""Discover stage: one SPARQL query per topic seed, deduped, diffed against the last run."""
+"""Discover stage: one SPARQL query per topic's base act, deduped into a single corpus."""
 
-import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 
 import httpx
 
 from app.core.config import config
-from app.core.http import http_retry
 from app.ingestion.discover.models import DiscoveredDocument
-from app.ingestion.discover.select import select_topic_documents
-from app.ingestion.discover.sparql import SPARQL_ENDPOINT, collect_candidate_acts, topic_query
-from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
-
-
-@http_retry
-async def discover_topic(
-    client: httpx.AsyncClient, topic: str, seed_celex: str
-) -> list[DiscoveredDocument]:
-    """Run the topic query and select from it; a result set without the seed act is an error."""
-    response = await client.get(
-        SPARQL_ENDPOINT,
-        params={"query": topic_query(seed_celex), "format": "application/sparql-results+json"},
-    )
-    response.raise_for_status()
-    documents = select_topic_documents(topic, collect_candidate_acts(response.json()))
-    if not any(document.celex == seed_celex for document in documents):
-        raise MalformedDiscoveryError(f"{topic}: seed {seed_celex} missing from discovery results")
-    return documents
+from app.ingestion.discover.select import select_documents
+from app.ingestion.discover.sparql import run_acts_by_topic_query
 
 
 async def discover_topics(
     client: httpx.AsyncClient, topics: Sequence[str]
 ) -> list[DiscoveredDocument]:
-    """Discover all topics, deduped by celex (first topic wins), wrapping parse errors."""
+    """Every topic's corpus, deduped by celex — the first topic to claim an act keeps it."""
     by_celex: dict[str, DiscoveredDocument] = {}
     for topic in topics:
-        try:
-            documents = await discover_topic(client, topic, config.SEEDS[topic])
-        except (KeyError, json.JSONDecodeError) as exc:
-            raise MalformedDiscoveryError(f"{topic}: malformed SPARQL response: {exc!r}") from exc
-        for document in documents:
+        rows = await run_acts_by_topic_query(client, config.TOPIC_BASE_ACTS[topic])
+        for document in select_documents(topic, rows):
             by_celex.setdefault(document.celex, document)
     return list(by_celex.values())
-
-
-def find_dropped_celexes(
-    documents: Sequence[DiscoveredDocument], previous_celexes: Iterable[str]
-) -> list[str]:
-    """Celexes the previous run held that discovery no longer returns.
-
-    Losing an implausible share is an error: a truncated result set is indistinguishable from a
-    mass repeal, so refuse to call it one.
-    """
-    discovered = {document.celex for document in documents}
-    previous = set(previous_celexes)
-    dropped = sorted(previous - discovered)
-    suspicious = len(dropped) >= config.MIN_SUSPICIOUS_DROPS
-    if suspicious and len(dropped) > config.MAX_DROP_RATIO * len(previous):
-        raise CorpusShrankError(
-            f"discovery lost {len(dropped)} of {len(previous)} documents: {', '.join(dropped)}"
-        )
-    return dropped
-
-
-async def discover_corpus(
-    client: httpx.AsyncClient, *, topics: Sequence[str], previous_celexes: Iterable[str]
-) -> tuple[list[DiscoveredDocument], list[str]]:
-    """Discover every topic's corpus, and the celexes the previous run held that it lost."""
-    documents = await discover_topics(client, topics)
-    return documents, find_dropped_celexes(documents, previous_celexes)

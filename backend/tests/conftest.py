@@ -20,8 +20,8 @@ from app.core.db.session import async_session_factory
 from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.discover.models import DiscoveredDocument
-from app.ingestion.discover.stage import discover_topic
+from app.ingestion.discover.models import ActsQueryRow, DiscoveredDocument
+from app.ingestion.discover.sparql import run_acts_by_topic_query
 from app.ingestion.embed.stage import _embed_batch
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch.download import download_version
@@ -32,7 +32,7 @@ from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import write_document
 from app.main import configure_app
 
-RETRIED = (discover_topic, download_version, _embed_batch)
+RETRIED = (run_acts_by_topic_query, download_version, _embed_batch)
 
 PARSE_FIXTURES = Path(__file__).parent / "ingestion" / "parse" / "fixtures"
 FUELEU_HTML = (PARSE_FIXTURES / "32023R1805.html").read_text()
@@ -266,10 +266,10 @@ def corpus_client() -> Callable[..., tuple[httpx.AsyncClient, list[str]]]:
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "publications.europa.eu":
                 query = request.url.params["query"]
-                for topic, seed in config.SEEDS.items():
-                    if seed in query:
+                for topic, base_celex in config.TOPIC_BASE_ACTS.items():
+                    if base_celex in query:
                         return sparql[topic]
-                raise AssertionError(f"no seed in query: {query[:80]}")
+                raise AssertionError(f"no base act in query: {query[:80]}")
             celex = request.url.params["uri"].removeprefix("CELEX:")
             calls.append(celex)
             return docs[celex]
@@ -292,6 +292,11 @@ def binding(celex: str, force: str | None = None, cons: str | None = None) -> di
 def payload(*bindings: dict) -> dict:
     """A SPARQL JSON response body wrapping the given result rows."""
     return {"results": {"bindings": list(bindings)}}
+
+
+def act_row(celex: str, in_force: bool | None = None, consolidation: str | None = None):
+    """One row as run_acts_by_topic_query hands it back, past the SPARQL envelope."""
+    return ActsQueryRow(celex=celex, in_force=in_force, consolidation=consolidation)
 
 
 MRV_SPARQL = httpx.Response(
