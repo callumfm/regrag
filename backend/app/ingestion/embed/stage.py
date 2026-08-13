@@ -1,7 +1,7 @@
 """Embed stage: fill in the vector of every chunk that has none."""
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from contextlib import asynccontextmanager
 from itertools import batched, groupby
 from operator import attrgetter
@@ -26,7 +26,27 @@ class ChunkToEmbed(NamedTuple):
 
 
 Batch = tuple[str, Sequence[ChunkToEmbed]]
-PendingVectors = asyncio.Task[list[list[float]]]
+Vectors = list[list[float]]
+
+
+@asynccontextmanager
+async def _run_concurrently[T, R](
+    items: Sequence[T], fn: Callable[[T], Awaitable[R]], *, limit: int
+) -> AsyncIterator[list[tuple[T, asyncio.Task[R]]]]:
+    """Every item's `fn` call in flight, at most `limit` at once, each task paired with its
+    item; leaving the block cancels whatever an abort left running."""
+    semaphore = asyncio.Semaphore(limit)
+
+    async def paced(item: T) -> R:
+        async with semaphore:
+            return await fn(item)
+
+    pairs = [(item, asyncio.create_task(paced(item))) for item in items]
+    try:
+        yield pairs
+    finally:
+        for _, task in pairs:
+            task.cancel()
 
 
 async def _unembedded_pages(session: AsyncSession) -> AsyncIterator[list[ChunkToEmbed]]:
@@ -47,65 +67,42 @@ def _batch_by_document(chunks: Sequence[ChunkToEmbed]) -> Iterator[Batch]:
 
 
 @llm_retry
-async def _embed_batch(batch: Sequence[ChunkToEmbed]) -> list[list[float]]:
+async def _embed_batch(batch: Batch) -> Vectors:
     """One provider call embedding one batch's texts, retrying transient failures."""
-    return await embed([chunk.text for chunk in batch], input_type=EmbedInput.DOCUMENT)
-
-
-@asynccontextmanager
-async def _embed_batches_concurrently(
-    batches: Sequence[Batch],
-) -> AsyncIterator[list[PendingVectors]]:
-    """Every batch's provider call in flight, at most EMBED_CONCURRENCY at once; leaving
-    the block cancels whatever an abort left running."""
-    semaphore = asyncio.Semaphore(config.EMBED_CONCURRENCY)
-
-    async def paced(batch: Sequence[ChunkToEmbed]) -> list[list[float]]:
-        async with semaphore:
-            return await _embed_batch(batch)
-
-    tasks = [asyncio.create_task(paced(batch)) for _, batch in batches]
-    try:
-        yield tasks
-    finally:
-        for task in tasks:
-            task.cancel()
+    _, chunks = batch
+    return await embed([chunk.text for chunk in chunks], input_type=EmbedInput.DOCUMENT)
 
 
 async def _store_batch(
-    session: AsyncSession,
-    celex: str,
-    batch: Sequence[ChunkToEmbed],
-    vectors: PendingVectors,
-    result: EmbedOutcome,
+    session: AsyncSession, chunks: Sequence[ChunkToEmbed], vectors: Vectors
 ) -> None:
-    """Write one batch's vectors once embedded, commit, count — or record the failure against
-    its document. The savepoint keeps a failed write from dragging down earlier uncommitted
-    work, like the prune stage's deletes; anything but a provider or database error aborts."""
-    try:
-        embedded = await vectors
-        async with session.begin_nested():
-            await update_chunks(
-                session,
-                [
-                    {"id": chunk.id, "embedding": vector}
-                    for chunk, vector in zip(batch, embedded, strict=True)
-                ],
-            )
-    except (LLMError, SQLAlchemyError) as exc:
-        result.fail(celex, exc, chunks=len(batch))
-    else:
-        await session.commit()
-        result.embedded += len(batch)
+    """Write one batch's vectors inside a savepoint: a plain rollback on failure would drag
+    down earlier uncommitted work, like the prune stage's deletes."""
+    async with session.begin_nested():
+        await update_chunks(
+            session,
+            [
+                {"id": chunk.id, "embedding": vector}
+                for chunk, vector in zip(chunks, vectors, strict=True)
+            ],
+        )
 
 
 async def embed_chunks(session: AsyncSession) -> EmbedOutcome:
-    """Fill in every missing chunk vector: provider calls run concurrently within a page, and
-    each batch commits as it lands, so a failure costs at most one batch's paid embeddings."""
+    """Fill in every missing chunk vector: provider calls overlap within a page while writes
+    serialize on the one session, and each batch commits as it lands, capping a failure's cost."""
     result = EmbedOutcome(already_embedded=await count_chunks(session, has_embedding=True))
     async for page in _unembedded_pages(session):
         batches = list(_batch_by_document(page))
-        async with _embed_batches_concurrently(batches) as pending:
-            for (celex, batch), vectors in zip(batches, pending, strict=True):
-                await _store_batch(session, celex, batch, vectors, result)
+        async with _run_concurrently(
+            batches, _embed_batch, limit=config.EMBED_CONCURRENCY
+        ) as pending:
+            for (celex, chunks), vectors in pending:
+                try:
+                    await _store_batch(session, chunks, await vectors)
+                except (LLMError, SQLAlchemyError) as exc:
+                    result.fail(celex, exc, chunks=len(chunks))
+                else:
+                    await session.commit()
+                    result.embedded += len(chunks)
     return result
