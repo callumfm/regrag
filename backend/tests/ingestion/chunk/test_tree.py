@@ -1,5 +1,5 @@
-from app.ingestion.chunk.models import Reference
-from app.ingestion.chunk.tree import chunk_document
+from app.ingestion.chunk.models import Locator, Reference
+from app.ingestion.chunk.tree import chunk_document, locate
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.models import ParsedDocument, Section
 
@@ -14,6 +14,38 @@ def document(*sections: Section) -> ParsedDocument:
 
 def article(number: str, title: str, *children: Section) -> Section:
     return Section(kind=SectionKind.ARTICLE, number=number, title=title, children=children)
+
+
+def heading(title: str) -> Section:
+    return Section(kind=SectionKind.HEADING, title=title)
+
+
+ARTICLE_6 = article("6", "Monitoring")
+ANNEX_I = Section(kind=SectionKind.ANNEX, number="I", title="Methods")
+PARAGRAPH_2 = Section(kind=SectionKind.PARAGRAPH, number="2")
+
+
+def test_an_article_ancestor_gives_its_number_and_title() -> None:
+    locator = locate((ARTICLE_6, PARAGRAPH_2))
+    assert (locator.article, locator.title, locator.annex) == ("6", "Monitoring", None)
+
+
+def test_the_nearest_division_wins_so_an_annex_inside_an_article_is_not_an_article() -> None:
+    locator = locate((ARTICLE_6, ANNEX_I, PARAGRAPH_2))
+    assert (locator.annex, locator.article, locator.title) == ("I", None, "Methods")
+
+
+def test_headings_stack_in_the_order_they_were_entered() -> None:
+    locator = locate((ANNEX_I, heading("Part A"), heading("Part B"), PARAGRAPH_2))
+    assert locator.heading_path == ("Part A", "Part B")
+
+
+def test_a_paragraph_contributes_nothing_to_the_address() -> None:
+    assert locate((ARTICLE_6, PARAGRAPH_2)) == locate((ARTICLE_6,))
+
+
+def test_a_path_with_no_article_or_annex_has_an_empty_address() -> None:
+    assert locate((heading("Part A"),)) == Locator(heading_path=("Part A",))
 
 
 def test_emits_one_chunk_per_numbered_paragraph() -> None:

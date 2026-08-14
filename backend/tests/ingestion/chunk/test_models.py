@@ -1,38 +1,4 @@
-from app.ingestion.chunk.models import Locator, locator_for
-from app.ingestion.enums import SectionKind
-from app.ingestion.parse.models import Section
 from tests.conftest import chunk
-
-ARTICLE_6 = Section(kind=SectionKind.ARTICLE, number="6", title="Monitoring")
-ANNEX_I = Section(kind=SectionKind.ANNEX, number="I", title="Methods")
-PARAGRAPH_2 = Section(kind=SectionKind.PARAGRAPH, number="2")
-
-
-def heading(title: str) -> Section:
-    return Section(kind=SectionKind.HEADING, title=title)
-
-
-def test_an_article_ancestor_gives_its_number_and_title() -> None:
-    locator = locator_for((ARTICLE_6, PARAGRAPH_2))
-    assert (locator.article, locator.title, locator.annex) == ("6", "Monitoring", None)
-
-
-def test_the_nearest_division_wins_so_an_annex_inside_an_article_is_not_an_article() -> None:
-    locator = locator_for((ARTICLE_6, ANNEX_I, PARAGRAPH_2))
-    assert (locator.annex, locator.article, locator.title) == ("I", None, "Methods")
-
-
-def test_headings_stack_in_the_order_they_were_entered() -> None:
-    locator = locator_for((ANNEX_I, heading("Part A"), heading("Part B"), PARAGRAPH_2))
-    assert locator.heading_path == ("Part A", "Part B")
-
-
-def test_a_paragraph_contributes_nothing_to_the_address() -> None:
-    assert locator_for((ARTICLE_6, PARAGRAPH_2)) == locator_for((ARTICLE_6,))
-
-
-def test_a_path_with_no_article_or_annex_has_an_empty_address() -> None:
-    assert locator_for((heading("Part A"),)) == Locator(heading_path=("Part A",))
 
 
 def test_hash_is_stable_for_identical_content():

@@ -2,17 +2,12 @@
 
 import hashlib
 import json
-from collections.abc import Sequence
 from typing import ClassVar
 
 from pydantic import computed_field
 
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.models import Section
-
-DIVISIONS = (SectionKind.ARTICLE, SectionKind.ANNEX)
-"""Section kinds that enclose a chunk: the innermost one is the division it belongs to."""
 
 
 class Reference(FrozenModel):
@@ -32,22 +27,6 @@ class Locator(FrozenModel):
     annex: str | None = None
     title: str | None = None
     heading_path: tuple[str, ...] = ()
-
-
-def locator_for(path: Sequence[Section]) -> Locator:
-    """Where a section sits, read off its ancestors: the nearest article or annex encloses it,
-    and every heading on the way down is part of the path."""
-    headings = tuple(s.title for s in path if s.kind is SectionKind.HEADING and s.title)
-    division = next((s for s in reversed(path) if s.kind in DIVISIONS), None)
-    if division is None:
-        return Locator(heading_path=headings)
-    is_article = division.kind is SectionKind.ARTICLE
-    return Locator(
-        article=division.number if is_article else None,
-        annex=None if is_article else division.number,
-        title=division.title,
-        heading_path=headings,
-    )
 
 
 class Chunk(Locator):
