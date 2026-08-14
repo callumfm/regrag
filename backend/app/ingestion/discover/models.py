@@ -10,8 +10,9 @@ from app.core.models import FrozenModel
 class ActsQueryRow(FrozenModel):
     """One line of CELLAR's answer: an act, and one consolidated text including it.
 
-    An act with no consolidations still gets a line, with the consolidation empty; anything that
-    is not law carries no in-force flag at all.
+    celex: the act this line is about; an act repeats across one line per consolidation.
+    in_force: whether the act is still law; None where there is no flag, as on anything not law.
+    consolidation: one consolidated text including the act, or None if it has never been one.
     """
 
     celex: str
@@ -20,7 +21,13 @@ class ActsQueryRow(FrozenModel):
 
 
 class CandidateAct(FrozenModel):
-    """One act the topic query returned, before select.py decides whether it is worth fetching."""
+    """One act the topic query returned, before select.py decides whether it is worth fetching.
+
+    celex: the act, folded from every line CELLAR returned for it.
+    in_force: the flag those lines repeat; None where the act is not law.
+    consolidations: every consolidated text including the act, its own and those of other acts
+        that folded it in as an amendment.
+    """
 
     celex: str
     in_force: bool | None = None
@@ -28,9 +35,22 @@ class CandidateAct(FrozenModel):
 
 
 class DiscoveredDocument(FrozenModel):
-    """One document discovery found: what to fetch, and which version to try first."""
+    """One document discovery found: what to fetch, and which version to try first.
+
+    topic: the topic query that returned the act.
+    source: the corpus it came from; every act is currently EUR-Lex.
+    celex: the act itself, which never changes.
+    candidates: every consolidated text CELLAR claims for the act, newest first, empty if it was
+        never consolidated. Only candidates because only fetch learns which EUR-Lex serves: CELLAR
+        mints an id when the act is published, but no text is rendered until one is amended in.
+    """
 
     topic: str
     source: str
     celex: str
-    candidate_celex: str | None
+    candidates: tuple[str, ...]
+
+    @property
+    def versions(self) -> list[str]:
+        """This document's versions, newest first: its consolidations, then the original act."""
+        return [*self.candidates, self.celex]
