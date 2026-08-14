@@ -89,7 +89,7 @@ def _updates_for_changed_chunks(
     incoming: Mapping[ContentKey, Chunk],
     existing: Mapping[ContentKey, Row[Any]],
 ) -> list[dict[str, Any]]:
-    """Update payloads for matched rows whose metadata columns drifted from the chunker's output.
+    """Update payloads for matched rows whose metadata columns drifted from what chunking produces.
     A NULL stored hash predates the column and reads as drifted, backfilling itself here."""
     updates = []
     for key in matched:

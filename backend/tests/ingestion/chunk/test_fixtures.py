@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 
 from app.core.config import config
-from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.models import Chunk
+from app.ingestion.chunk.tree import chunk_document
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.html.document import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument

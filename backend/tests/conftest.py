@@ -331,7 +331,7 @@ async def chunk_rows(session: AsyncSession, celex: str | None = None) -> list[Do
 
 
 def chunk(**overrides: Any) -> Chunk:
-    """The chunker's value object with sane defaults, overridable per field."""
+    """A chunk with sane defaults, overridable per field."""
     defaults: dict[str, Any] = {
         "celex": "32023R1805",
         "topic": "fueleu",

@@ -10,8 +10,8 @@ from sqlalchemy.exc import ProgrammingError
 from app.core.storage import StorageError
 from app.ingestion import pipeline
 from app.ingestion.celex import consolidated_stem
-from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.service import prune_chunks
+from app.ingestion.chunk.tree import chunk_document
 from app.ingestion.enums import DocChange, IngestRunStatus, SectionKind, Stage
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch.models import RawDocsQuery
@@ -645,8 +645,8 @@ async def test_single_topic_run_leaves_another_topics_chunks_alone(
     assert {row.id for row in await chunk_rows(db_session, "32023R1805")} == before
 
 
-async def test_fueleu_chunk_count_matches_the_chunker(db_session, local_store, corpus_client):
-    """Persisted order matches the chunker for a fresh corpus only: ids are first-insert order,
+async def test_fueleu_chunk_count_matches_chunk_document(db_session, local_store, corpus_client):
+    """Persisted order matches chunk_document for a fresh corpus only: ids are first-insert order,
     so after any partial change replacement rows sort above untouched ones."""
     await ingest_fueleu(db_session, local_store, corpus_client)
 
