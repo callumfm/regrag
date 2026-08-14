@@ -6,14 +6,15 @@ from app.core.config import config
 from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.enums import SectionKind
-from app.ingestion.parse.html.parser import parse_eurlex_html
+from app.ingestion.parse.html.document import parse_eurlex_html
+from app.ingestion.parse.models import ParsedDocument
 
 FIXTURES = Path(__file__).parents[1] / "parse" / "fixtures"
 
 
 def chunks_for(celex: str, topic: str) -> tuple[Chunk, ...]:
-    document = parse_eurlex_html((FIXTURES / f"{celex}.html").read_text(), celex, topic)
-    return chunk_document(document)
+    sections = parse_eurlex_html((FIXTURES / f"{celex}.html").read_text())
+    return chunk_document(ParsedDocument(celex=celex, topic=topic, sections=sections))
 
 
 @pytest.fixture(scope="module")
