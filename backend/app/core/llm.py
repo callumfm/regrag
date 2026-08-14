@@ -1,11 +1,12 @@
 """Voyage embeddings through LiteLLM: one call, wrapped errors."""
 
+import functools
 import logging
 import os
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from enum import StrEnum
 from operator import itemgetter
+from typing import Any
 
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "true")
 
@@ -69,36 +70,42 @@ llm_retry = transient_retry(_is_transient)
 """Decorator retrying transient provider failures with exponential backoff."""
 
 
-@contextmanager
-def wrap_provider_errors(label: str) -> Iterator[None]:
-    """Translate a provider failure into LLMError, marking the retryable ones transient."""
-    try:
-        yield
-    except ProviderError as exc:
-        logger.warning("%s failed: %s", label, exc)
-        raise LLMError(
-            f"{label} failed", transient=isinstance(exc, TRANSIENT_PROVIDER_ERRORS)
-        ) from exc
+def wrap_provider_errors(fn: Callable) -> Callable:
+    """Translate the wrapped call's provider failure into an LLMError named after the
+    function: ty types Callable without __name__, hence the suppression below."""
+    label = f"{fn.__name__.lstrip('_')} call"  # ty: ignore[unresolved-attribute]
+
+    @functools.wraps(fn)
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return await fn(*args, **kwargs)
+        except ProviderError as exc:
+            logger.warning("%s failed: %s", label, exc)
+            raise LLMError(
+                f"{label} failed", transient=isinstance(exc, TRANSIENT_PROVIDER_ERRORS)
+            ) from exc
+
+    return wrapper
 
 
+@wrap_provider_errors
 async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]]:
     """Embed texts in one provider call, in input order. Retries are the caller's."""
     if not texts:
         return []
-    with wrap_provider_errors("embedding call"):
-        response = await litellm.aembedding(
-            model=config.EMBED_MODEL,
-            input=texts,
-            input_type=input_type.value,
-            dimensions=EMBED_DIMENSIONS,
-            api_key=config.VOYAGE_API_KEY,
-            timeout=config.EMBED_TIMEOUT,
-        )
+    response = await litellm.aembedding(
+        model=config.EMBED_MODEL,
+        input=texts,
+        input_type=input_type.value,
+        dimensions=EMBED_DIMENSIONS,
+        api_key=config.VOYAGE_API_KEY,
+        timeout=config.EMBED_TIMEOUT,
+    )
     if len(response.data) != len(texts):
         logger.warning(
             "embedding response misaligned: got %d items for %d inputs",
             len(response.data),
             len(texts),
         )
-        raise LLMError("embedding call failed")
+        raise LLMError("embed call failed")
     return [item["embedding"] for item in sorted(response.data, key=itemgetter("index"))]

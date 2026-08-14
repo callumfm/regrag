@@ -40,14 +40,14 @@ async def retrieve(state: ChatState) -> dict:
     return {"sources": results}
 
 
+@wrap_provider_errors
 async def synthesize(state: ChatState) -> dict:
     """One streamed model call answering from the context with [n] citations."""
     messages = [
         SystemMessage(SYSTEM_PROMPT),
         HumanMessage(build_user_message(state["question"], state["sources"])),
     ]
-    with wrap_provider_errors("chat call"):
-        response = await chat_model().ainvoke(messages)
+    response = await chat_model().ainvoke(messages)
     return {"answer": str(response.content)}
 
 
