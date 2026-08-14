@@ -1,4 +1,8 @@
-"""Text sizing: a section's text as pieces that fit the embedding budget."""
+"""Text sizing: a section's text as pieces that fit the embedding budget.
+
+Every break costs something, so they are tried in order: line boundaries, then sentence
+boundaries inside an overlong line, then a hard cut where no boundary is left.
+"""
 
 import re
 
@@ -8,46 +12,58 @@ CELL_SEPARATOR = " | "
 SENTENCE = re.compile(r"(?<=[.;:])\s+")
 
 
-def cut_to_max_chars(part: str, max_chars: int) -> list[str]:
-    """Last resort for a part with no boundary left to split on."""
-    return [part[start : start + max_chars] for start in range(0, len(part), max_chars)]
-
-
-def pack_parts(parts: list[str], max_chars: int, joiner: str) -> list[str]:
-    """Greedily join parts, starting a new one when max_chars would be exceeded."""
-    packed: list[str] = []
-    for part in parts:
-        if packed and len(packed[-1]) + len(joiner) + len(part) <= max_chars:
-            packed[-1] += joiner + part
-        elif len(part) > max_chars:
-            packed.extend(cut_to_max_chars(part, max_chars))
-        else:
-            packed.append(part)
-    return packed
-
-
-def split_text(text: str, max_chars: int) -> list[str]:
-    """Split on line boundaries, falling back to sentence boundaries inside an overlong line."""
-    lines: list[str] = []
-    for line in filter(None, text.split("\n")):
-        if len(line) > max_chars:
-            lines.extend(pack_parts(SENTENCE.split(line), max_chars, " "))
-        else:
-            lines.append(line)
-    return pack_parts(lines, max_chars, "\n")
-
-
-def split_table_rows(rows: tuple[tuple[str, ...], ...], max_chars: int) -> list[str]:
-    """Split on row boundaries, leading every piece with the header row."""
-    header, *body = (CELL_SEPARATOR.join(row) for row in rows)
-    budget = max_chars - len(header) - 1
-    if not body or budget <= 0:
-        return split_text("\n".join([header, *body]), max_chars)
-    return [f"{header}\n{piece}" for piece in pack_parts(body, budget, "\n")]
-
-
 def split_section_text(section: Section, max_chars: int) -> list[str]:
     """A leaf's embeddable text; a section with neither rows nor text yields nothing."""
     if section.rows:
         return split_table_rows(section.rows, max_chars)
     return split_text(section.text, max_chars) if section.text else []
+
+
+def split_text(text: str, max_chars: int) -> list[str]:
+    """Break at the best boundary available, then pack the pieces back up to the budget."""
+    fitted_lines: list[str] = []
+    for line in filter(None, text.split("\n")):
+        if len(line) <= max_chars:
+            fitted_lines.append(line)
+        else:
+            fitted_lines.extend(split_on_sentences(line, max_chars))
+    return pack(fitted_lines, "\n", max_chars)
+
+
+def split_table_rows(rows: tuple[tuple[str, ...], ...], max_chars: int) -> list[str]:
+    """Break on row boundaries, leading every piece with the header row."""
+    header, *body = (CELL_SEPARATOR.join(row) for row in rows)
+    budget = max_chars - len(header) - 1
+    if not body or budget <= 0:
+        return split_text("\n".join([header, *body]), max_chars)
+    fitted_rows: list[str] = []
+    for row in body:
+        fitted_rows.extend(split_on_characters(row, budget))
+    return [f"{header}\n{piece}" for piece in pack(fitted_rows, "\n", budget)]
+
+
+def split_on_sentences(line: str, max_chars: int) -> list[str]:
+    """An overlong line at its sentence boundaries, hard-cutting any sentence still too long."""
+    fitted_sentences: list[str] = []
+    for sentence in SENTENCE.split(line):
+        fitted_sentences.extend(split_on_characters(sentence, max_chars))
+    return pack(fitted_sentences, " ", max_chars)
+
+
+def split_on_characters(text: str, max_chars: int) -> list[str]:
+    """The last resort, with no boundary left to respect: fixed-width slices."""
+    return [text[start : start + max_chars] for start in range(0, len(text), max_chars)]
+
+
+def pack(pieces: list[str], joiner: str, max_chars: int) -> list[str]:
+    """Join neighbours into as few pieces as the budget allows; every piece must already fit."""
+    if not pieces:
+        return []
+    packed = [pieces[0]]
+    for piece in pieces[1:]:
+        joined = packed[-1] + joiner + piece
+        if len(joined) <= max_chars:
+            packed[-1] = joined
+        else:
+            packed.append(piece)
+    return packed
