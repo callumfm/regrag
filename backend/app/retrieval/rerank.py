@@ -13,16 +13,16 @@ logger = logging.getLogger(__name__)
 
 
 @llm_retry
+@wrap_provider_errors
 async def _rerank(query: str, documents: list[str]) -> list[RerankResponseResult]:
     """The cross-encoder's ranking of the documents, which the provider returns best-first."""
-    with wrap_provider_errors("rerank call"):
-        response = await litellm.arerank(
-            model=config.RERANK_MODEL,
-            query=query,
-            documents=documents,
-            api_key=config.VOYAGE_API_KEY,
-            timeout=config.RERANK_TIMEOUT,
-        )
+    response = await litellm.arerank(
+        model=config.RERANK_MODEL,
+        query=query,
+        documents=documents,
+        api_key=config.VOYAGE_API_KEY,
+        timeout=config.RERANK_TIMEOUT,
+    )
     return response.results or []
 
 
