@@ -438,6 +438,25 @@ async def test_prune_chunks_refuses_to_wipe_everything_when_nothing_is_kept(
     assert len(await chunk_rows(db_session)) == 1
 
 
+async def test_the_prune_survives_a_rollback_that_follows_it(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    """Committed where the deleting happens, so a later abort cannot quietly restore them.
+
+    The run reports the count either way; leaving them pending would let it report deletes
+    that a rollback had already undone.
+    """
+    for celex in ("repealed", "32023R1805"):
+        await sync_document_chunks(
+            db_session, celex=celex, chunks=[chunk(celex=celex)], ingest_run_id=ingest_run.id
+        )
+
+    assert await prune_chunks(db_session, ["32023R1805"]) == 1
+    await db_session.rollback()
+
+    assert {row.celex for row in await chunk_rows(db_session)} == {"32023R1805"}
+
+
 async def test_create_chunks_stores_each_chunk_under_its_content_key(
     db_session: AsyncSession, ingest_run: IngestRun
 ):

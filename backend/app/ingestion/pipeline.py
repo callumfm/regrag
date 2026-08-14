@@ -9,7 +9,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
-from app.ingestion.chunk.stage import chunk_and_store_document, prune_dropped_chunks
+from app.ingestion.chunk.service import prune_chunks
+from app.ingestion.chunk.stage import chunk_and_store_document
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.stage import discover_topics, find_dropped_celexes
 from app.ingestion.embed.stage import embed_chunks
@@ -107,7 +108,7 @@ async def ingest(
 
         if result.corpus_complete:
             to_keep = await get_celexes_to_keep(session, discovered=discovered, topics=topics)
-            result.pruned = await prune_dropped_chunks(session, to_keep)
+            result.pruned = await prune_chunks(session, to_keep)
 
         logger.info("%s", result.line(Stage.CHUNK))
 

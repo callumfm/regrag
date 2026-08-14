@@ -67,12 +67,17 @@ async def delete_chunks(session: AsyncSession, chunk_ids: Collection[int]) -> in
 
 
 async def prune_chunks(session: AsyncSession, celexes_to_keep: Collection[str]) -> int:
-    """Drop the chunks no topic wants anymore."""
+    """Drop the chunks no topic wants anymore, committed where the deleting happens.
+
+    Left pending, the deletes would ride on whichever later commit fired first and any rollback
+    after this point would silently undo them, while the run still reported them as deleted.
+    """
     if not celexes_to_keep:
         return 0
 
     stmt = delete(DocumentChunk).where(DocumentChunk.celex.notin_(celexes_to_keep))
     result = await session.execute(stmt)
+    await session.commit()
     return cast(CursorResult, result).rowcount
 
 
