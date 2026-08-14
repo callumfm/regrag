@@ -31,6 +31,9 @@ ARTICLE_ORDER = (
     DocumentChunk.part,
 )
 
+ANNEX_ORDER = (DocumentChunk.position, DocumentChunk.part)
+"""An annex numbers no paragraphs, so where it sits in the document is the only order it has."""
+
 
 def _filtered(stmt: Select, filters: SearchFilters) -> Select:
     """Narrow a candidate query before its limit, so the pool the fusion sees is honest."""
@@ -113,17 +116,24 @@ async def hybrid_search(
     return tuple(SearchResult.model_validate(row, from_attributes=True) for row in rows)
 
 
-async def get_article(
-    session: AsyncSession, *, celex: str, article: str
+async def follow_reference(
+    session: AsyncSession,
+    *,
+    celex: str,
+    article: str | None = None,
+    paragraph: str | None = None,
+    annex: str | None = None,
 ) -> tuple[RetrievedChunk, ...]:
-    """One article's chunks in reading order: chapeau first, then '2' before '10' before '11a'."""
-    stmt = (
-        select(*CHUNK_COLUMNS)
-        .where(
-            DocumentChunk.celex == celex,
-            func.lower(DocumentChunk.article) == article.lower(),
-        )
-        .order_by(*ARTICLE_ORDER)
-    )
+    """The text a stored cross-reference points at, in reading order."""
+    if article is None and annex is None:
+        raise ValueError(f"following {celex} needs an article or annex, not the act alone")
+    stmt = select(*CHUNK_COLUMNS).where(DocumentChunk.celex == celex)
+    if article is not None:
+        stmt = stmt.where(func.lower(DocumentChunk.article) == article.lower())
+    if paragraph is not None:
+        stmt = stmt.where(DocumentChunk.paragraph == paragraph)
+    if annex is not None:
+        stmt = stmt.where(DocumentChunk.annex == annex)
+    stmt = stmt.order_by(*(ANNEX_ORDER if annex is not None else ARTICLE_ORDER))
     rows = await session.execute(stmt)
     return tuple(RetrievedChunk.model_validate(row, from_attributes=True) for row in rows)
