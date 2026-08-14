@@ -30,6 +30,11 @@ class EmbedOutcome(BaseModel):
         failure.chunks += chunks
 
     @property
+    def total(self) -> int:
+        """Every chunk the sweep accounted for: the ones it filled in and the ones already there."""
+        return self.embedded + self.already_embedded
+
+    @property
     def failures(self) -> dict[str, str]:
         """Each failed document's loss on one line: how many chunks are missing, and why."""
         return {celex: failure.describe() for celex, failure in self.failed.items()}

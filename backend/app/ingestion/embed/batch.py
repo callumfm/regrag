@@ -57,8 +57,11 @@ async def embed_batch(batch: Batch) -> Vectors:
 async def store_batch(
     session: AsyncSession, chunks: Sequence[ChunkToEmbed], vectors: Vectors
 ) -> None:
-    """Write one batch's vectors inside a savepoint: a plain rollback on failure would drag
-    down earlier uncommitted work, like the prune stage's deletes."""
+    """Write one batch's vectors inside a savepoint, so a failed batch rolls back alone.
+
+    Scoped rather than a plain rollback because the sweep must not depend on what its caller
+    left pending: a batch discards its own write and the page carries on to the next.
+    """
     async with session.begin_nested():
         updates = [
             {"id": chunk.id, "embedding": vector}

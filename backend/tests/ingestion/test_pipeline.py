@@ -10,26 +10,24 @@ from sqlalchemy.exc import ProgrammingError
 from app.core.storage import StorageError
 from app.ingestion import pipeline
 from app.ingestion.celex import consolidated_stem
-from app.ingestion.chunk.service import prune_chunks
 from app.ingestion.chunk.tree import chunk_document
 from app.ingestion.enums import DocChange, IngestRunStatus, SectionKind, Stage
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_raw_documents
+from app.ingestion.fetch.storage import document_key
 from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.html.document import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
-from app.ingestion.pipeline import _find_dropped_celexes, _get_celexes_to_keep, ingest
+from app.ingestion.pipeline import ingest
 from app.ingestion.schemas import IngestRun
-from app.ingestion.storage import document_key
 from tests.conftest import (
     FUELEU_HTML,
     MRV_SPARQL,
     binding,
     chunk_rows,
     chunk_versions,
-    discovered_document,
     payload,
 )
 
@@ -47,37 +45,6 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 def committed(report: IngestRunResult, change: DocChange) -> list[str]:
     """The celexes the run committed into one of fetch's buckets."""
     return sorted(doc.celex for doc in report.committed if doc.change is change)
-
-
-def test_dropped_celexes_are_the_previous_ones_discovery_no_longer_returns():
-    found = [discovered_document("32015R0757"), discovered_document("32016R1928")]
-    previous = ["32015R0757", "32016R1928", "32014R0666"]
-    assert _find_dropped_celexes(found, previous) == ["32014R0666"]
-
-
-def test_nothing_is_dropped_when_every_previous_celex_is_discovered():
-    assert _find_dropped_celexes([discovered_document("32015R0757")], ["32015R0757"]) == []
-
-
-async def test_keep_set_holds_this_runs_corpus_and_the_other_topics_documents(
-    db_session, make_document, make_chunk_row
-):
-    """The keep-set spares every chunk some topic wants: this run's and the other topics'."""
-    other = IngestRun(status=IngestRunStatus.SUCCESS)
-    db_session.add(make_document(other, "32015R0757", topic="mrv"))
-    db_session.add(make_chunk_row(other, celex="32015R0757", topic="mrv"))
-    db_session.add(make_chunk_row(other, celex="32023R1805", topic="fueleu"))
-    db_session.add(make_chunk_row(other, celex="32009L0016", topic="fueleu"))
-    await db_session.flush()
-
-    to_keep = await _get_celexes_to_keep(
-        db_session,
-        discovered=[discovered_document("32023R1805", topic="fueleu")],
-        topics=["fueleu"],
-    )
-
-    assert await prune_chunks(db_session, to_keep) == 1
-    assert {row.celex for row in await chunk_rows(db_session)} == {"32015R0757", "32023R1805"}
 
 
 async def test_sparql_failure_aborts_and_marks_run_aborted(db_session, local_store, corpus_client):
@@ -185,11 +152,11 @@ async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_zero(
 
     run = (await db_session.scalars(select(IngestRun))).one()
     assert run.result == {
-        "discover": {"dropped": 0, "failed": {}},
-        "fetch": {"new": 0, "updated": 0, "reused": 0, "failed": {}},
-        "parse": {"parsed": 0, "failed": {}},
-        "chunk": {"added": 0, "deleted": 0, "kept": 0, "updated": 0, "failed": {}},
-        "embed": {"embedded": 0, "already_embedded": 0, "failed": {}},
+        "discover": {"documents": 0, "dropped": 0, "failed": {}},
+        "fetch": {"documents": 0, "new": 0, "updated": 0, "reused": 0, "failed": {}},
+        "parse": {"documents": 0, "parsed": 0, "failed": {}},
+        "chunk": {"chunks": 0, "added": 0, "deleted": 0, "kept": 0, "updated": 0, "failed": {}},
+        "embed": {"chunks": 0, "embedded": 0, "already_embedded": 0, "failed": {}},
     }
 
 
@@ -445,7 +412,7 @@ async def test_unparseable_document_is_recorded_and_others_persist(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert "32023R2449" in report.failures(Stage.PARSE)
+    assert "32023R2449" in report.failures[Stage.PARSE]
     assert not report.ok
     assert await chunk_rows(db_session, "32015R0757")
     assert await chunk_rows(db_session, "32023R2449") == []
@@ -494,8 +461,8 @@ async def test_a_store_write_failure_is_recorded_not_raised(
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert sorted(report.failures(Stage.FETCH)) == ["32015R0757", "32023R2449"]
-    assert all("StorageError" in reason for reason in report.failures(Stage.FETCH).values())
+    assert sorted(report.failures[Stage.FETCH]) == ["32015R0757", "32023R2449"]
+    assert all("StorageError" in reason for reason in report.failures[Stage.FETCH].values())
     assert not report.ok
 
 
@@ -571,7 +538,7 @@ async def test_failed_fetch_still_chunks_what_was_downloaded(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert "32023R2449" in report.failures(Stage.FETCH)
+    assert "32023R2449" in report.failures[Stage.FETCH]
     assert not report.ok
     assert report.corpus_version is None
     assert await chunk_rows(db_session, "32015R0757")
@@ -676,7 +643,7 @@ async def test_a_second_run_embeds_nothing_and_reports_the_rest_unchanged(
     second = await ingest_fueleu(db_session, local_store, corpus_client)
 
     assert second.ok
-    assert second.failures(Stage.EMBED) == {}
+    assert second.failures[Stage.EMBED] == {}
     assert (second.embed.embedded, second.embed.already_embedded) == (0, stored)
 
 
@@ -689,7 +656,7 @@ async def test_a_document_that_fails_does_not_stop_the_documents_after_it(
 
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert list(report.failures(Stage.FETCH)) == ["32015R0757"]
+    assert list(report.failures[Stage.FETCH]) == ["32015R0757"]
     assert committed(report, DocChange.NEW) == ["32023R2449"]
     assert report.chunks.added > 0
     assert not report.ok
@@ -705,7 +672,7 @@ async def test_a_document_that_fails_to_parse_leaves_no_row_behind(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert list(report.failures(Stage.PARSE)) == ["32023R2449"]
+    assert list(report.failures[Stage.PARSE]) == ["32023R2449"]
     assert committed(report, DocChange.NEW) == ["32015R0757"]
     assert "32023R2449" not in await get_raw_documents(
         db_session, RawDocsQuery(include_topics=["mrv"])
@@ -733,7 +700,7 @@ async def test_a_failed_document_leaves_the_rows_the_next_one_needs_readable(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert list(report.failures(Stage.FETCH)) == ["32015R0757"]
+    assert list(report.failures[Stage.FETCH]) == ["32015R0757"]
     assert committed(report, DocChange.REUSED) == ["32023R2449"]
 
 
@@ -816,8 +783,9 @@ async def test_a_run_where_every_document_fails_still_reports_the_later_stages(
 
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert report.report()["parse"] == {"parsed": 0, "failed": {}}
+    assert report.report()["parse"] == {"documents": 0, "parsed": 0, "failed": {}}
     assert report.report()["chunk"] == {
+        "chunks": 0,
         "added": 0,
         "deleted": 0,
         "kept": 0,

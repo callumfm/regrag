@@ -26,10 +26,10 @@ from app.ingestion.embed.batch import embed_batch
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch.download import _download_version_html
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.storage import write_document
 from app.ingestion.parse.html.document import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.schemas import IngestRun
-from app.ingestion.storage import write_document
 from app.main import configure_app
 
 RETRIED = (run_acts_by_topic_query, _download_version_html, embed_batch)

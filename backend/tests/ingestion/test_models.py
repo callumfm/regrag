@@ -18,8 +18,8 @@ def failed_doc(
 
 @pytest.fixture
 def run() -> IngestRunResult:
-    """A run that fetched two documents and chunked one of them."""
-    result = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234")
+    """A run that discovered two documents, fetched both, and chunked one of them."""
+    result = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234", discovered=2)
     result.documents.append(
         DocumentOutcome(celex="a", change=DocChange.NEW, chunks=ChunkCounts(added=12, kept=30))
     )
@@ -53,9 +53,24 @@ def test_a_failed_document_counts_towards_nothing_but_its_failure() -> None:
     result = IngestRunResult(run_id=1)
     result.documents.append(failed_doc(Stage.CHUNK, "a"))
 
-    assert result.report()["fetch"] == {"new": 0, "updated": 0, "reused": 0, "failed": {}}
-    assert result.report()["parse"] == {"parsed": 0, "failed": {}}
+    assert result.report()["fetch"] == {
+        "documents": 0,
+        "new": 0,
+        "updated": 0,
+        "reused": 0,
+        "failed": {},
+    }
+    assert result.report()["parse"] == {"documents": 0, "parsed": 0, "failed": {}}
     assert result.report()["chunk"]["failed"] == {"a": "ParseError: no body"}
+
+
+def test_a_stage_line_adds_up_when_a_later_stage_loses_the_document(run: IngestRunResult) -> None:
+    """Fetch cleared three documents but only answers for two: chunk rolled the third back."""
+    run.documents.append(failed_doc(Stage.CHUNK, "c"))
+
+    assert run.line(Stage.FETCH) == "[fetch] 2 documents: 1 new, 0 updated, 1 reused, 0 failed"
+    assert run.line(Stage.PARSE) == "[parse] 2 documents: 2 parsed, 0 failed"
+    assert run.line(Stage.CHUNK).endswith("1 failed")
 
 
 def test_the_prune_is_counted_as_chunks_deleted(run: IngestRunResult) -> None:
@@ -81,11 +96,11 @@ def test_report_covers_every_stage_with_its_counts_and_failures(run: IngestRunRe
     run.embed.embedded = 12
 
     assert run.report() == {
-        "discover": {"dropped": 1, "failed": {}},
-        "fetch": {"new": 1, "updated": 0, "reused": 1, "failed": {}},
-        "parse": {"parsed": 2, "failed": {"c": "ParseError: no body"}},
-        "chunk": {"added": 12, "deleted": 0, "kept": 30, "updated": 0, "failed": {}},
-        "embed": {"embedded": 12, "already_embedded": 0, "failed": {}},
+        "discover": {"documents": 2, "dropped": 1, "failed": {}},
+        "fetch": {"documents": 2, "new": 1, "updated": 0, "reused": 1, "failed": {}},
+        "parse": {"documents": 3, "parsed": 2, "failed": {"c": "ParseError: no body"}},
+        "chunk": {"chunks": 42, "added": 12, "deleted": 0, "kept": 30, "updated": 0, "failed": {}},
+        "embed": {"chunks": 12, "embedded": 12, "already_embedded": 0, "failed": {}},
     }
 
 
@@ -112,10 +127,10 @@ def test_report_leaves_the_recorded_failure_message_whole() -> None:
     assert message in result.summary()
 
 
-def test_the_discover_line_reports_the_given_total_not_the_documents_seen_so_far() -> None:
-    """The mid-run discover log fires before documents populate, so it takes an explicit total."""
-    result = IngestRunResult(run_id=1, dropped=["z"])
-    assert result.line(Stage.DISCOVER, total=2) == "[discover] 2 documents: 1 dropped, 0 failed"
+def test_the_discover_line_reports_what_discovery_found_not_the_documents_seen_so_far() -> None:
+    """The mid-run discover log fires before the loop populates documents."""
+    result = IngestRunResult(run_id=1, discovered=2, dropped=["z"])
+    assert result.line(Stage.DISCOVER) == "[discover] 2 documents: 1 dropped, 0 failed"
 
 
 def test_summary_reports_every_stage_on_its_own_line_with_its_unit(run: IngestRunResult) -> None:

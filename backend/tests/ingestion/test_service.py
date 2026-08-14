@@ -1,17 +1,20 @@
-"""Ingestion CRUD: run lifecycle, the corpus fingerprint and its version."""
+"""Ingestion rows and corpus-wide reads: run lifecycle, the version, and the prune's keep-set."""
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_today
+from app.ingestion.chunk.service import prune_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import (
     complete_ingest_run,
     corpus_fingerprint,
     create_ingest_run,
+    get_celexes_to_keep,
     next_corpus_version,
 )
+from tests.conftest import chunk_rows, discovered_document
 
 pytestmark = pytest.mark.anyio
 
@@ -135,3 +138,24 @@ async def test_version_covers_topics_the_run_did_not_fetch(db_session: AsyncSess
     await db_session.flush()
 
     assert await next_corpus_version(db_session) == whole_corpus
+
+
+async def test_keep_set_holds_this_runs_corpus_and_the_other_topics_documents(
+    db_session, make_document, make_chunk_row
+):
+    """The keep-set spares every chunk some topic wants: this run's and the other topics'."""
+    other = IngestRun(status=IngestRunStatus.SUCCESS)
+    db_session.add(make_document(other, "32015R0757", topic="mrv"))
+    db_session.add(make_chunk_row(other, celex="32015R0757", topic="mrv"))
+    db_session.add(make_chunk_row(other, celex="32023R1805", topic="fueleu"))
+    db_session.add(make_chunk_row(other, celex="32009L0016", topic="fueleu"))
+    await db_session.flush()
+
+    to_keep = await get_celexes_to_keep(
+        db_session,
+        discovered=[discovered_document("32023R1805", topic="fueleu")],
+        topics=["fueleu"],
+    )
+
+    assert await prune_chunks(db_session, to_keep) == 1
+    assert {row.celex for row in await chunk_rows(db_session)} == {"32015R0757", "32023R1805"}

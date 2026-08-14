@@ -1,8 +1,8 @@
-"""CRUD operations for the ingestion domain."""
+"""The ingestion domain's own rows, and the corpus-wide questions asked across every topic."""
 
 import hashlib
 import json
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable, Sequence
 from typing import Any
 
 from sqlalchemy import select
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now, utc_today
 from app.core.db.crud import create_record, update_record
+from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
@@ -52,6 +53,17 @@ async def next_corpus_version(session: AsyncSession) -> str:
     if previous is not None and previous.endswith(f"-{fingerprint}"):
         return previous
     return f"{utc_today()}-{fingerprint}"
+
+
+async def get_celexes_to_keep(
+    session: AsyncSession, *, discovered: Sequence[DiscoveredDocument], topics: Sequence[str]
+) -> Collection[str]:
+    """The celexes some topic still wants: this run's corpus plus the other topics' documents."""
+    discovered_celexes = {document.celex for document in discovered}
+    other_topic_celexes = await get_raw_documents(
+        session, query=RawDocsQuery(exclude_topics=list(topics))
+    )
+    return discovered_celexes | set(other_topic_celexes.keys())
 
 
 async def complete_ingest_run(

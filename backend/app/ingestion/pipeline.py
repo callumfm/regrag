@@ -1,30 +1,26 @@
 """The ingest pipeline: one run, discover -> fetch -> parse -> chunk -> embed."""
 
 import logging
-from collections.abc import AsyncIterator, Collection, Iterable, Sequence
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 
 import httpx
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import config
 from app.core.storage import ObjectStore
-from app.ingestion.chunk.service import prune_chunks
-from app.ingestion.chunk.stage import chunk_and_store_document
+from app.ingestion.chunk.stage import chunk_and_store_document, prune_dropped_chunks
 from app.ingestion.discover.models import DiscoveredDocument
-from app.ingestion.discover.stage import discover_topics
+from app.ingestion.discover.stage import discover_topics, find_dropped_celexes
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus, Stage
-from app.ingestion.exceptions import CorpusShrankError, DocumentFailed
-from app.ingestion.fetch.models import RawDocsQuery
+from app.ingestion.exceptions import DocumentFailed
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.fetch.service import get_raw_documents
-from app.ingestion.fetch.stage import fetch_document
+from app.ingestion.fetch.stage import fetch_document, previous_corpus
 from app.ingestion.models import DocumentOutcome, IngestRunResult
 from app.ingestion.parse.stage import parse_document
 from app.ingestion.schemas import IngestRun
-from app.ingestion.service import complete_ingest_run, create_ingest_run
+from app.ingestion.service import complete_ingest_run, create_ingest_run, get_celexes_to_keep
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +34,7 @@ async def _recorded_run(
     result = IngestRunResult(run_id=run.id)
     try:
         yield run, result
-        await complete_ingest_run(session, run, status=result.status, result=result.report())
+        _ = await complete_ingest_run(session, run, status=result.status, result=result.report())
         result.corpus_version = run.corpus_version
     except BaseException:
         await _mark_aborted(session, run, result)
@@ -50,7 +46,7 @@ async def _mark_aborted(session: AsyncSession, run: IngestRun, result: IngestRun
     run_id = run.id
     await session.rollback()
     try:
-        await complete_ingest_run(
+        _ = await complete_ingest_run(
             session, run, status=IngestRunStatus.ABORTED, result=result.report()
         )
     except SQLAlchemyError:
@@ -80,36 +76,6 @@ async def _ingest_document(
     return DocumentOutcome(celex=document.celex, change=fetched.change, chunks=chunks)
 
 
-def _find_dropped_celexes(
-    discovered: Sequence[DiscoveredDocument], previous_celexes: Iterable[str]
-) -> list[str]:
-    """Celexes the previous run held that discovery no longer returns.
-
-    Losing an implausible share is an error: a truncated result set is indistinguishable from a
-    mass repeal, so refuse to call it one.
-    """
-    discovered_celexes = {document.celex for document in discovered}
-    previous = set(previous_celexes)
-    dropped = sorted(previous - discovered_celexes)
-    suspicious = len(dropped) >= config.MIN_SUSPICIOUS_DROPS
-    if suspicious and len(dropped) > config.MAX_DROP_RATIO * len(previous):
-        raise CorpusShrankError(
-            f"discovery lost {len(dropped)} of {len(previous)} documents: {', '.join(dropped)}"
-        )
-    return dropped
-
-
-async def _get_celexes_to_keep(
-    session: AsyncSession, *, discovered: Sequence[DiscoveredDocument], topics: Sequence[str]
-) -> Collection[str]:
-    """The celexes some topic still wants: this run's corpus plus the other topics' documents."""
-    discovered_celexes = {document.celex for document in discovered}
-    other_topic_celexes = await get_raw_documents(
-        session, query=RawDocsQuery(exclude_topics=list(topics))
-    )
-    return discovered_celexes | set(other_topic_celexes.keys())
-
-
 async def ingest(
     session: AsyncSession,
     *,
@@ -119,11 +85,11 @@ async def ingest(
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run, each document landing whole or not at all."""
     async with _recorded_run(session) as (run, result):
-        query_in = RawDocsQuery(include_topics=list(topics))
-        existing = await get_raw_documents(session, query=query_in)
+        existing = await previous_corpus(session, topics)
         discovered = await discover_topics(client, topics)
-        result.dropped = _find_dropped_celexes(discovered, existing.keys())
-        logger.info("%s", result.line(Stage.DISCOVER, total=len(discovered)))
+        result.discovered = len(discovered)
+        result.dropped = find_dropped_celexes(discovered, existing.keys())
+        logger.info("%s", result.line(Stage.DISCOVER))
 
         for document in discovered:
             outcome = await _ingest_document(
@@ -140,8 +106,8 @@ async def ingest(
         logger.info("%s", result.line(Stage.PARSE))
 
         if result.corpus_complete:
-            to_keep = await _get_celexes_to_keep(session, discovered=discovered, topics=topics)
-            result.pruned = await prune_chunks(session, to_keep)
+            to_keep = await get_celexes_to_keep(session, discovered=discovered, topics=topics)
+            result.pruned = await prune_dropped_chunks(session, to_keep)
 
         logger.info("%s", result.line(Stage.CHUNK))
 
