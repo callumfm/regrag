@@ -9,7 +9,7 @@ from app.core.config import EMBED_DIMENSIONS
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import SearchFilters
-from app.retrieval.service import ITERATIVE_SCAN, get_article, text_leg, vector_leg
+from app.retrieval.service import ITERATIVE_SCAN, follow_reference, text_leg, vector_leg
 from tests.retrieval.conftest import toy_embed
 
 pytestmark = pytest.mark.anyio
@@ -24,6 +24,21 @@ WANTED = 5
 HUGGING, BEHIND = 0.01, 0.1
 SEED = 8
 """Fixed, so the graph this test builds and walks is the same one on every run."""
+
+
+async def stored_reference(
+    session: AsyncSession, *, celex: str, predicate: Callable[[dict], bool]
+) -> dict:
+    """One cross-reference the chunker really stored, so the follow is driven by real data."""
+    stmt = select(DocumentChunk.references).where(DocumentChunk.celex == celex)
+    found = [
+        reference
+        for (references,) in await session.execute(stmt)
+        for reference in references
+        if predicate(reference)
+    ]
+    assert found, f"the {celex} fixture no longer stores a reference this test can follow"
+    return found[0]
 
 
 def random_query(rng: random.Random) -> list[float]:
@@ -173,7 +188,7 @@ async def test_a_celex_filter_narrows_the_keyword_leg_to_one_act(
     assert set(await db_session.scalars(stmt)) == {"32023R1805"}
 
 
-async def test_get_article_sorts_a_chapeau_first_and_a_lettered_paragraph_after_its_number(
+async def test_follow_reference_sorts_a_chapeau_first_and_a_lettered_paragraph_after_its_number(
     db_session: AsyncSession,
     corpus: list[DocumentChunk],
     ingest_run: IngestRun,
@@ -193,7 +208,7 @@ async def test_get_article_sorts_a_chapeau_first_and_a_lettered_paragraph_after_
         )
     await db_session.flush()
 
-    found = await get_article(db_session, celex=INVENTED_CELEX, article="7")
+    found = await follow_reference(db_session, celex=INVENTED_CELEX, article="7")
 
     assert [chunk.citation for chunk in found] == [
         "Article 7",
@@ -203,35 +218,36 @@ async def test_get_article_sorts_a_chapeau_first_and_a_lettered_paragraph_after_
     ]
 
 
-async def test_get_article_returns_paragraphs_in_reading_order_not_text_order(
+async def test_follow_reference_returns_paragraphs_in_reading_order_not_text_order(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await get_article(db_session, celex="32023R1805", article="5")
+    found = await follow_reference(db_session, celex="32023R1805", article="5")
 
     assert [chunk.citation for chunk in found] == [f"Article 5({n})" for n in range(1, 11)]
 
 
-async def test_get_article_puts_a_split_chapeau_in_part_order(
+async def test_follow_reference_puts_a_split_chapeau_in_part_order(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await get_article(db_session, celex="32015R0757", article="3")
+    found = await follow_reference(db_session, celex="32015R0757", article="3")
 
     assert [chunk.citation for chunk in found] == ["Article 3", "Article 3"]
     assert len(found) == 2
 
 
-async def test_get_article_matches_the_article_number_case_insensitively(
+async def test_follow_reference_matches_the_article_number_case_insensitively(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    assert await get_article(db_session, celex="32015R0757", article="11A") == await get_article(
-        db_session, celex="32015R0757", article="11a"
-    )
+    upper = await follow_reference(db_session, celex="32015R0757", article="11A")
+    lower = await follow_reference(db_session, celex="32015R0757", article="11a")
+
+    assert upper == lower
 
 
-async def test_get_article_does_not_reach_into_another_act(
+async def test_follow_reference_does_not_reach_into_another_act(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    found = await get_article(db_session, celex="32015R0757", article="4")
+    found = await follow_reference(db_session, celex="32015R0757", article="4")
 
     assert {chunk.celex for chunk in found} == {"32015R0757"}
 
@@ -239,4 +255,104 @@ async def test_get_article_does_not_reach_into_another_act(
 async def test_an_unknown_article_returns_nothing_rather_than_raising(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    assert await get_article(db_session, celex="32015R0757", article="999") == ()
+    assert await follow_reference(db_session, celex="32015R0757", article="999") == ()
+
+
+async def test_an_act_outside_the_corpus_returns_nothing_rather_than_raising(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    """The agent has to be able to say the text is not held, which an exception denies it."""
+    assert await follow_reference(db_session, celex=INVENTED_CELEX, article="1") == ()
+
+
+async def test_a_paragraph_narrows_to_the_paragraph_cited(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    found = await follow_reference(db_session, celex="32023R1805", article="5", paragraph="7")
+
+    assert [chunk.citation for chunk in found] == ["Article 5(7)"]
+
+
+async def test_an_annex_comes_back_in_document_order(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    """An annex has no paragraph to sort on, so position is the only reading order it has."""
+    found = await follow_reference(db_session, celex="32015R0757", annex="I")
+
+    positions = select(DocumentChunk.id, DocumentChunk.position).where(
+        DocumentChunk.celex == "32015R0757", DocumentChunk.annex == "I"
+    )
+    order = {id_: position for id_, position in await db_session.execute(positions)}
+    assert len(found) == 5
+    assert [order[chunk.id] for chunk in found] == sorted(order.values())
+
+
+async def test_an_annex_a_single_annex_act_left_unnumbered_is_still_addressable(
+    db_session: AsyncSession,
+    corpus: list[DocumentChunk],
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    """RRG-75 writes '' for an act whose one annex carries no number; None is not-in-an-annex."""
+    db_session.add(
+        make_chunk_row(
+            ingest_run,
+            celex=INVENTED_CELEX,
+            article=None,
+            annex="",
+            citation="Annex",
+            content_hash=f"{1:064d}",
+        )
+    )
+    await db_session.flush()
+
+    found = await follow_reference(db_session, celex=INVENTED_CELEX, annex="")
+
+    assert [chunk.citation for chunk in found] == ["Annex"]
+
+
+async def test_a_bare_act_is_refused_rather_than_dumped(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    """Following a whole act is a filtered search, not a lookup; it must not return the act."""
+    with pytest.raises(ValueError, match="article or annex"):
+        await follow_reference(db_session, celex="32015R0757")
+
+
+async def test_following_a_stored_reference_reaches_the_cited_text(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    """RRG-58's first acceptance, driven by a reference the chunker really stored."""
+    reference = await stored_reference(
+        db_session, celex="32023R1805", predicate=lambda r: r["article"] == "4"
+    )
+
+    found = await follow_reference(
+        db_session,
+        celex=reference["instrument"] or "32023R1805",
+        article=reference["article"],
+        paragraph=reference["paragraph"],
+    )
+
+    assert [chunk.citation for chunk in found] == ["Article 4(1)"]
+    assert found[0].text
+
+
+async def test_following_a_stored_reference_to_an_act_outside_the_corpus_is_empty(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    """RRG-58's second acceptance: the corpus holds 32023R1805 but not its Article 10."""
+    reference = await stored_reference(
+        db_session,
+        celex="32015R0757",
+        predicate=lambda r: r["instrument"] == "32023R1805" and r["article"] is not None,
+    )
+
+    found = await follow_reference(
+        db_session,
+        celex=reference["instrument"],
+        article=reference["article"],
+        paragraph=reference["paragraph"],
+    )
+
+    assert found == ()
