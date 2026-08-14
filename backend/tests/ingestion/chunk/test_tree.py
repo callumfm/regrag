@@ -170,3 +170,14 @@ def test_an_annex_after_an_article_is_not_cited_as_an_article() -> None:
     doc = document(article("4", "Limits", inner))
     chunk = chunk_document(doc)[0]
     assert (chunk.article, chunk.annex, chunk.citation) == (None, "I", "Annex I")
+
+
+def test_an_unnumbered_annex_still_encloses_what_sits_under_it() -> None:
+    """An act with one annex labels it 'ANNEX' and nothing else, so there is no number to read."""
+    locator = locate((Section(kind=SectionKind.ANNEX, title="Template"), PARAGRAPH_2))
+    assert (locator.annex, locator.article) == ("", None)
+
+
+def test_the_sole_unnumbered_annex_is_cited_as_the_annex() -> None:
+    doc = document(Section(kind=SectionKind.ANNEX, children=(paragraph(None, "Body."),)))
+    assert chunk_document(doc)[0].citation == "Annex"

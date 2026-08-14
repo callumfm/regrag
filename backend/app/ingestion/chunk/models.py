@@ -25,6 +25,8 @@ class Locator(FrozenModel):
 
     article: str | None = None
     annex: str | None = None
+    """The annex's number, "" where its act has only one and labels it without a number;
+    None is the different fact that the chunk sits outside any annex."""
     title: str | None = None
     heading_path: tuple[str, ...] = ()
 
@@ -54,7 +56,7 @@ class Chunk(Locator):
             suffix = f"({self.paragraph})" if self.paragraph else ""
             return f"Article {self.article}{suffix}"
         if self.annex is not None:
-            return f"Annex {self.annex}"
+            return f"Annex {self.annex}".rstrip()
         return self.title or ""
 
     @property

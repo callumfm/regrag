@@ -23,7 +23,7 @@ def locate(path: tuple[Section, ...]) -> Locator:
     is_article = division.kind is SectionKind.ARTICLE
     return Locator(
         article=division.number if is_article else None,
-        annex=None if is_article else division.number,
+        annex=None if is_article else division.number or "",
         title=division.title,
         heading_path=headings,
     )

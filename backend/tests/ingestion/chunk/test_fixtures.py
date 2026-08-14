@@ -77,3 +77,17 @@ def test_mrv_resolves_external_instruments_to_celex(mrv: tuple[Chunk, ...]) -> N
 
 def test_annex_heading_path_is_recorded_for_consolidated_annexes(mrv: tuple[Chunk, ...]) -> None:
     assert any(c.heading_path for c in mrv if c.annex == "I")
+
+
+def test_an_act_whose_sole_annex_is_unnumbered_still_addresses_every_chunk() -> None:
+    """32024R2031 carries its substance in one annex labelled 'ANNEX', with no numeral to read."""
+    sections = parse_eurlex_html(
+        "<html><body>"
+        '<div class="eli-subdivision" id="art_1">'
+        '<p class="oj-ti-art">Article 1</p><p class="oj-normal">Subject matter.</p></div>'
+        '<div id="anx_1"><p class="oj-doc-ti">ANNEX</p>'
+        '<div class="oj-normal">Template body.</div></div>'
+        "</body></html>"
+    )
+    document = ParsedDocument(celex="32024R2031", topic="fueleu", sections=sections)
+    assert [c.citation for c in chunk_document(document)] == ["Article 1", "Annex"]
