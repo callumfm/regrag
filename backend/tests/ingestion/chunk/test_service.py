@@ -5,7 +5,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import EMBED_DIMENSIONS
-from app.ingestion.chunk.models import ChunkQuery
+from app.ingestion.chunk.models import Chunk, ChunkQuery
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.service import (
     _key_incoming_chunks,
@@ -28,27 +28,25 @@ pytestmark = pytest.mark.anyio
 VECTOR = [0.1] * EMBED_DIMENSIONS
 
 
-async def test_first_upsert_inserts_every_chunk(db_session: AsyncSession, ingest_run: IngestRun):
-    result = await sync_document_chunks(
-        db_session,
-        celex="32023R1805",
-        chunks=[chunk(), chunk(article="5")],
-        ingest_run_id=ingest_run.id,
+async def sync(session: AsyncSession, run: IngestRun, *chunks: Chunk, celex: str = "32023R1805"):
+    """Reconcile one document's chunks: every test here spells the same four arguments."""
+    return await sync_document_chunks(
+        session, celex=celex, chunks=list(chunks), ingest_run_id=run.id
     )
+
+
+async def test_first_upsert_inserts_every_chunk(db_session: AsyncSession, ingest_run: IngestRun):
+    result = await sync(db_session, ingest_run, chunk(), chunk(article="5"))
     assert (result.added, result.deleted, result.kept) == (2, 0, 0)
     assert len(await chunk_rows(db_session)) == 2
 
 
 async def test_repeat_upsert_changes_nothing(db_session: AsyncSession, ingest_run: IngestRun):
     chunks = [chunk(), chunk(article="5")]
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=chunks, ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, *chunks)
     before = {row.id for row in await chunk_rows(db_session)}
 
-    result = await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=chunks, ingest_run_id=ingest_run.id
-    )
+    result = await sync(db_session, ingest_run, *chunks)
 
     assert (result.added, result.deleted, result.kept, result.updated) == (0, 0, 2, 0)
     assert {row.id for row in await chunk_rows(db_session)} == before
@@ -57,12 +55,8 @@ async def test_repeat_upsert_changes_nothing(db_session: AsyncSession, ingest_ru
 async def test_matched_rows_keep_the_run_they_first_appeared_in(
     db_session: AsyncSession, ingest_run: IngestRun, later_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=later_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
+    await sync(db_session, later_run, chunk())
 
     assert [row.ingest_run_id for row in await chunk_rows(db_session)] == [ingest_run.id]
 
@@ -70,16 +64,9 @@ async def test_matched_rows_keep_the_run_they_first_appeared_in(
 async def test_edited_chunk_is_replaced_not_duplicated(
     db_session: AsyncSession, ingest_run: IngestRun, later_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
 
-    result = await sync_document_chunks(
-        db_session,
-        celex="32023R1805",
-        chunks=[chunk(text="Reworded entirely.")],
-        ingest_run_id=later_run.id,
-    )
+    result = await sync(db_session, later_run, chunk(text="Reworded entirely."))
 
     assert (result.added, result.deleted, result.kept) == (1, 1, 0)
     rows = await chunk_rows(db_session)
@@ -90,22 +77,10 @@ async def test_edited_chunk_is_replaced_not_duplicated(
 async def test_upsert_touches_only_its_own_document(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session,
-        celex="32015R0757",
-        chunks=[chunk(celex="32015R0757")],
-        ingest_run_id=ingest_run.id,
-    )
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk(celex="32015R0757"), celex="32015R0757")
+    await sync(db_session, ingest_run, chunk())
 
-    await sync_document_chunks(
-        db_session,
-        celex="32023R1805",
-        chunks=[chunk(text="Reworded entirely.")],
-        ingest_run_id=ingest_run.id,
-    )
+    await sync(db_session, ingest_run, chunk(text="Reworded entirely."))
 
     assert [row.text for row in await chunk_rows(db_session, "32015R0757")] == [
         "The greenhouse gas intensity limit."
@@ -119,14 +94,10 @@ async def test_upserting_nothing_over_a_stored_document_raises_and_keeps_the_row
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     """A document that parsed to no chunks is a parse that went wrong, not a repeal."""
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
 
     with pytest.raises(EmptyChunkSetError, match="32023R1805"):
-        await sync_document_chunks(
-            db_session, celex="32023R1805", chunks=[], ingest_run_id=ingest_run.id
-        )
+        await sync(db_session, ingest_run)
 
     assert len(await chunk_rows(db_session, "32023R1805")) == 1
 
@@ -135,18 +106,14 @@ async def test_upserting_nothing_over_a_document_with_no_rows_is_not_an_error(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     """Nothing to lose, so nothing to refuse; the document simply contributed no chunks."""
-    result = await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[], ingest_run_id=ingest_run.id
-    )
+    result = await sync(db_session, ingest_run)
     assert (result.added, result.deleted, result.kept) == (0, 0, 0)
 
 
 async def test_duplicate_chunks_persist_as_separate_occurrences(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    result = await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk(), chunk()], ingest_run_id=ingest_run.id
-    )
+    result = await sync(db_session, ingest_run, chunk(), chunk())
     assert result.added == 2
     assert sorted(row.occurrence for row in await chunk_rows(db_session)) == [0, 1]
 
@@ -154,11 +121,8 @@ async def test_duplicate_chunks_persist_as_separate_occurrences(
 async def test_chunk_fields_are_mapped_onto_the_row(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session,
-        celex="32023R1805",
-        chunks=[chunk(heading_path=("Chapter I",), annex=None, part=2, parts=3)],
-        ingest_run_id=ingest_run.id,
+    await sync(
+        db_session, ingest_run, chunk(heading_path=("Chapter I",), annex=None, part=2, parts=3)
     )
     row = (await chunk_rows(db_session))[0]
     assert row.topic == "fueleu"
@@ -171,22 +135,16 @@ async def test_chunk_fields_are_mapped_onto_the_row(
 async def test_inserting_a_chunk_renumbers_the_ones_after_it(
     db_session: AsyncSession, ingest_run: IngestRun, later_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session,
-        celex="32023R1805",
-        chunks=[chunk(position=0), chunk(paragraph="2", text="Second.", position=1)],
-        ingest_run_id=ingest_run.id,
+    await sync(
+        db_session, ingest_run, chunk(position=0), chunk(paragraph="2", text="Second.", position=1)
     )
 
-    result = await sync_document_chunks(
+    result = await sync(
         db_session,
-        celex="32023R1805",
-        chunks=[
-            chunk(position=0),
-            chunk(paragraph="1a", text="Inserted.", position=1),
-            chunk(paragraph="2", text="Second.", position=2),
-        ],
-        ingest_run_id=later_run.id,
+        later_run,
+        chunk(position=0),
+        chunk(paragraph="1a", text="Inserted.", position=1),
+        chunk(paragraph="2", text="Second.", position=2),
     )
 
     rows = await chunk_rows(db_session)
@@ -203,14 +161,10 @@ async def test_position_holds_document_order_once_ids_no_longer_do(
         chunk(article=None, annex="I", paragraph=None, text=text, position=index)
         for index, text in enumerate(["First.", "Second.", "Third."])
     ]
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=annex, ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, *annex)
 
     amended = [annex[0], annex[1].model_copy(update={"text": "Second, amended."}), annex[2]]
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=amended, ingest_run_id=later_run.id
-    )
+    await sync(db_session, later_run, *amended)
 
     rows = sorted(await chunk_rows(db_session), key=lambda row: row.position)
     assert [row.text for row in rows] == ["First.", "Second, amended.", "Third."]
@@ -219,12 +173,7 @@ async def test_position_holds_document_order_once_ids_no_longer_do(
 
 async def test_references_are_stored_as_json(db_session: AsyncSession, ingest_run: IngestRun):
     text = "As set out in Annex I to this Regulation."
-    await sync_document_chunks(
-        db_session,
-        celex="32023R1805",
-        chunks=[chunk(text=text, references=extract_references(text))],
-        ingest_run_id=ingest_run.id,
-    )
+    await sync(db_session, ingest_run, chunk(text=text, references=extract_references(text)))
     row = (await chunk_rows(db_session))[0]
     assert row.references
     assert row.references[0]["annex"] == "I"
@@ -232,13 +181,8 @@ async def test_references_are_stored_as_json(db_session: AsyncSession, ingest_ru
 
 async def seed_two_topics(session: AsyncSession, run: IngestRun) -> None:
     """One fueleu document and one mrv document, a chunk each."""
-    await sync_document_chunks(session, celex="32023R1805", chunks=[chunk()], ingest_run_id=run.id)
-    await sync_document_chunks(
-        session,
-        celex="32015R0757",
-        chunks=[chunk(celex="32015R0757", topic="mrv")],
-        ingest_run_id=run.id,
-    )
+    await sync(session, run, chunk())
+    await sync(session, run, chunk(celex="32015R0757", topic="mrv"), celex="32015R0757")
 
 
 def test_occurrence_counts_up_for_duplicates():
@@ -296,9 +240,7 @@ async def test_counts_zero_on_an_empty_table(db_session):
 async def test_key_stored_chunks_keys_every_row_by_hash_and_occurrence(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk(), chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk(), chunk())
     stored = await _key_stored_chunks(db_session, "32023R1805")
     assert sorted(occurrence for _, occurrence in stored) == [0, 1]
     assert len({digest for digest, _ in stored}) == 1
@@ -314,9 +256,7 @@ async def test_key_stored_chunks_is_scoped_to_one_document(
 async def test_key_stored_chunks_carries_the_metadata_hash_not_the_metadata_fields(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
     row = next(iter((await _key_stored_chunks(db_session, "32023R1805")).values()))
     assert row.metadata_hash == chunk().metadata_hash
     assert set(row._fields) == {"content_hash", "occurrence", "id", "metadata_hash"}
@@ -325,9 +265,7 @@ async def test_key_stored_chunks_carries_the_metadata_hash_not_the_metadata_fiel
 async def test_stored_chunk_records_its_metadata_hash(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
     assert (await chunk_rows(db_session))[0].metadata_hash == chunk().metadata_hash
 
 
@@ -335,15 +273,11 @@ async def test_row_without_a_metadata_hash_is_updated_and_backfilled(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     """Rows from before the column exists read as drifted, so the next sync fills them in."""
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
     (await chunk_rows(db_session))[0].metadata_hash = None
     await db_session.flush()
 
-    result = await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    result = await sync(db_session, ingest_run, chunk())
 
     assert (result.kept, result.updated) == (0, 1)
     assert (await chunk_rows(db_session))[0].metadata_hash == chunk().metadata_hash
@@ -353,18 +287,14 @@ async def test_matched_row_with_changed_references_is_updated_in_place(
     db_session: AsyncSession, ingest_run: IngestRun, later_run: IngestRun
 ):
     """Same text, corrected extraction: the row updates without losing its embedding."""
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
     before = (await chunk_rows(db_session))[0]
     before_id = before.id
     before.embedding = VECTOR
     await db_session.flush()
 
     corrected = chunk(references=extract_references("as set out in Annex I"))
-    result = await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[corrected], ingest_run_id=later_run.id
-    )
+    result = await sync(db_session, later_run, corrected)
 
     assert (result.added, result.deleted, result.kept, result.updated) == (0, 0, 0, 1)
     row = (await chunk_rows(db_session))[0]
@@ -377,13 +307,9 @@ async def test_matched_row_with_changed_references_is_updated_in_place(
 async def test_matched_row_picks_up_a_changed_topic(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
 
-    result = await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk(topic="mrv")], ingest_run_id=ingest_run.id
-    )
+    result = await sync(db_session, ingest_run, chunk(topic="mrv"))
 
     assert (result.kept, result.updated) == (0, 1)
     assert (await chunk_rows(db_session))[0].topic == "mrv"
@@ -392,12 +318,7 @@ async def test_matched_row_picks_up_a_changed_topic(
 async def test_delete_chunks_removes_only_the_given_ids(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session,
-        celex="32023R1805",
-        chunks=[chunk(), chunk(article="5")],
-        ingest_run_id=ingest_run.id,
-    )
+    await sync(db_session, ingest_run, chunk(), chunk(article="5"))
     rows = await chunk_rows(db_session)
 
     assert await delete_chunks(db_session, [rows[0].id]) == 1
@@ -408,9 +329,7 @@ async def test_delete_chunks_removes_only_the_given_ids(
 async def test_delete_chunks_leaves_the_table_alone_when_given_nothing(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
     assert await delete_chunks(db_session, []) == 0
     assert len(await chunk_rows(db_session)) == 1
 
@@ -419,9 +338,7 @@ async def test_prune_chunks_drops_only_the_celexes_not_kept(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     for celex in ("32023R1805", "32015R0757"):
-        await sync_document_chunks(
-            db_session, celex=celex, chunks=[chunk(celex=celex)], ingest_run_id=ingest_run.id
-        )
+        await sync(db_session, ingest_run, chunk(celex=celex), celex=celex)
 
     assert await prune_chunks(db_session, ["32023R1805"]) == 1
 
@@ -431,9 +348,7 @@ async def test_prune_chunks_drops_only_the_celexes_not_kept(
 async def test_prune_chunks_refuses_to_wipe_everything_when_nothing_is_kept(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
-    await sync_document_chunks(
-        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
-    )
+    await sync(db_session, ingest_run, chunk())
     assert await prune_chunks(db_session, []) == 0
     assert len(await chunk_rows(db_session)) == 1
 
@@ -447,9 +362,7 @@ async def test_the_prune_survives_a_rollback_that_follows_it(
     that a rollback had already undone.
     """
     for celex in ("repealed", "32023R1805"):
-        await sync_document_chunks(
-            db_session, celex=celex, chunks=[chunk(celex=celex)], ingest_run_id=ingest_run.id
-        )
+        await sync(db_session, ingest_run, chunk(celex=celex), celex=celex)
 
     assert await prune_chunks(db_session, ["32023R1805"]) == 1
     await db_session.rollback()

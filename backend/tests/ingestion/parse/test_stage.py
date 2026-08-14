@@ -4,7 +4,6 @@ One bad document not stopping the others is the pipeline's loop now, and is cove
 """
 
 from collections.abc import Callable
-from pathlib import Path
 
 import pytest
 
@@ -13,8 +12,7 @@ from app.ingestion.exceptions import DocumentFailed
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.parse.stage import parse_document
 from app.ingestion.schemas import IngestRun
-
-HTML = (Path(__file__).parent / "fixtures" / "32023R1805.html").read_text()
+from tests.conftest import FUELEU_HTML as HTML
 
 
 def row(make_document: Callable[..., RawDocument], celex: str = "32023R1805") -> RawDocument:
