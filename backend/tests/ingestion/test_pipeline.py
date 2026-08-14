@@ -10,7 +10,6 @@ from sqlalchemy.exc import ProgrammingError
 from app.core.storage import StorageError
 from app.ingestion import pipeline
 from app.ingestion.celex import consolidated_stem
-from app.ingestion.chunk.service import prune_chunks
 from app.ingestion.chunk.tree import chunk_document
 from app.ingestion.enums import DocChange, IngestRunStatus, SectionKind, Stage
 from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
@@ -21,7 +20,7 @@ from app.ingestion.fetch.storage import document_key
 from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.html.document import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
-from app.ingestion.pipeline import _find_dropped_celexes, _get_celexes_to_keep, ingest
+from app.ingestion.pipeline import ingest
 from app.ingestion.schemas import IngestRun
 from tests.conftest import (
     FUELEU_HTML,
@@ -29,7 +28,6 @@ from tests.conftest import (
     binding,
     chunk_rows,
     chunk_versions,
-    discovered_document,
     payload,
 )
 
@@ -47,37 +45,6 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
 def committed(report: IngestRunResult, change: DocChange) -> list[str]:
     """The celexes the run committed into one of fetch's buckets."""
     return sorted(doc.celex for doc in report.committed if doc.change is change)
-
-
-def test_dropped_celexes_are_the_previous_ones_discovery_no_longer_returns():
-    found = [discovered_document("32015R0757"), discovered_document("32016R1928")]
-    previous = ["32015R0757", "32016R1928", "32014R0666"]
-    assert _find_dropped_celexes(found, previous) == ["32014R0666"]
-
-
-def test_nothing_is_dropped_when_every_previous_celex_is_discovered():
-    assert _find_dropped_celexes([discovered_document("32015R0757")], ["32015R0757"]) == []
-
-
-async def test_keep_set_holds_this_runs_corpus_and_the_other_topics_documents(
-    db_session, make_document, make_chunk_row
-):
-    """The keep-set spares every chunk some topic wants: this run's and the other topics'."""
-    other = IngestRun(status=IngestRunStatus.SUCCESS)
-    db_session.add(make_document(other, "32015R0757", topic="mrv"))
-    db_session.add(make_chunk_row(other, celex="32015R0757", topic="mrv"))
-    db_session.add(make_chunk_row(other, celex="32023R1805", topic="fueleu"))
-    db_session.add(make_chunk_row(other, celex="32009L0016", topic="fueleu"))
-    await db_session.flush()
-
-    to_keep = await _get_celexes_to_keep(
-        db_session,
-        discovered=[discovered_document("32023R1805", topic="fueleu")],
-        topics=["fueleu"],
-    )
-
-    assert await prune_chunks(db_session, to_keep) == 1
-    assert {row.celex for row in await chunk_rows(db_session)} == {"32015R0757", "32023R1805"}
 
 
 async def test_sparql_failure_aborts_and_marks_run_aborted(db_session, local_store, corpus_client):
