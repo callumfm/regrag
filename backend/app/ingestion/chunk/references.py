@@ -95,11 +95,22 @@ def _format_citation(kind: str, number: str, paragraph: str | None = None) -> st
 
 
 INSTRUMENT_REF = re.compile(
-    r"(?:(?:Council|Commission(?:\s+(?:Implementing|Delegated))?"
-    r"|European\s+Parliament\s+and\s+Council)\s+)?"
-    r"(Regulation|Directive|Decision)\s*(?:\((?:EU|EC|EEC|Euratom)\)\s*)?(No\s*)?"
+    r"(Regulation|Directive|Decision)\s*(?:\((?:EU|EC|EEC|Euratom)\)\s*)?(?:No\s*)?"
     r"(\d{1,4})/(\d{1,4})(?:/\w{2,7})?",
     re.IGNORECASE,
+)
+
+INSTITUTION_WORDS = (
+    "Council",
+    "Commission",
+    "European",
+    "Parliament",
+    "Implementing",
+    "Delegated",
+    "Framework",
+)
+INSTITUTION_RUN = re.compile(
+    rf"(?:(?:{'|'.join(INSTITUTION_WORDS)})(?:\s+(?:and|of|the))?\s+)+$", re.IGNORECASE
 )
 
 
@@ -110,18 +121,28 @@ class InstrumentMention(Mention):
     celex: str | None
 
 
+def _mention_start(text: str, match: re.Match[str]) -> int:
+    """Where the institution naming an act begins: 'Council Implementing Regulation ...'.
+
+    Institution words combine freely, so a run of them leading into a citation belongs to
+    it however the form is styled; the first word that names no institution ends the run.
+    """
+    run = INSTITUTION_RUN.search(text, 0, match.start())
+    return run.start() if run else match.start()
+
+
 def _find_instrument_mentions(text: str) -> list[InstrumentMention]:
     """Every instrument mention in order of appearance."""
     found: list[InstrumentMention] = []
     for match in INSTRUMENT_REF.finditer(text):
-        numbered = bool(match.group(2))
-        number, year = celex.order_number_and_year(numbered, match.group(3), match.group(4))
+        kind = match.group(1)
+        number, year = celex.order_number_and_year(kind, match.group(2), match.group(3))
         try:
-            resolved = celex.build(match.group(1), year, number)
+            resolved = celex.build(kind, year, number)
         except ValueError:
             resolved = None
-        start, end = match.span()
-        found.append(InstrumentMention(start=start, end=end, celex=resolved))
+        start = _mention_start(text, match)
+        found.append(InstrumentMention(start=start, end=match.end(), celex=resolved))
     return found
 
 

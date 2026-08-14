@@ -41,30 +41,46 @@ def test_year_candidates_are_plausible_four_digit_years(value: str, expected: in
 
 
 @pytest.mark.parametrize(
-    ("numbered", "pair", "expected", "citation"),
+    ("kind", "pair", "expected", "citation"),
     [
-        (True, ("765", "2008"), ("765", "2008"), "Regulation (EC) No 765/2008"),
-        (True, ("2913", "92"), ("2913", "92"), "Regulation (EEC) No 2913/92"),
-        (True, ("95", "93"), ("95", "93"), "Regulation (EEC) No 95/93"),
-        (True, ("2003", "2003"), ("2003", "2003"), "Regulation (EC) No 2003/2003"),
-        (True, ("2015", "757"), ("757", "2015"), "Regulation (EU) No 2015/757"),
-        (True, ("2015", "1998"), ("1998", "2015"), "Regulation (EU) No 2015/1998"),
-        (False, ("2015", "757"), ("757", "2015"), "Regulation (EU) 2015/757"),
-        (False, ("2003", "87"), ("87", "2003"), "Directive 2003/87/EC"),
-        (False, ("92", "43"), ("43", "92"), "Council Directive 92/43/EEC"),
-        (False, ("1907", "2006"), ("1907", "2006"), "Regulation (EC) 1907/2006"),
-        (False, ("2018", "2066"), ("2066", "2018"), "Regulation (EU) 2018/2066"),
+        ("Regulation", ("765", "2008"), ("765", "2008"), "Regulation (EC) No 765/2008"),
+        ("Regulation", ("2913", "92"), ("2913", "92"), "Regulation (EEC) No 2913/92"),
+        ("Regulation", ("2015", "757"), ("757", "2015"), "Regulation (EU) No 2015/757"),
+        ("Regulation", ("2018", "2066"), ("2066", "2018"), "Regulation (EU) 2018/2066"),
+        ("Decision", ("1600", "2002"), ("1600", "2002"), "Decision No 1600/2002/EC"),
     ],
 )
-def test_a_citation_pair_reads_as_number_then_year(numbered, pair, expected, citation) -> None:
-    """A 'No' marks the old number-first scheme; without one, the likelier year is the year."""
-    assert celex.order_number_and_year(numbered, *pair) == expected
+def test_the_half_that_cannot_be_a_year_is_the_act_number(kind, pair, expected, citation) -> None:
+    """Where only one half is year-shaped, nothing else needs consulting."""
+    assert celex.order_number_and_year(kind, *pair) == expected
 
 
-def test_a_half_that_cannot_be_a_year_must_be_the_act_number() -> None:
+@pytest.mark.parametrize(
+    ("kind", "pair", "expected", "citation"),
+    [
+        ("Regulation", ("95", "93"), ("95", "93"), "Regulation (EEC) No 95/93"),
+        ("Regulation", ("2003", "2003"), ("2003", "2003"), "Regulation (EC) No 2003/2003"),
+        ("Regulation", ("1907", "2006"), ("1907", "2006"), "Regulation (EC) 1907/2006"),
+        ("Regulation", ("17", "62"), ("17", "62"), "Regulation 17/62"),
+        ("Regulation", ("2015", "1998"), ("1998", "2015"), "Regulation (EU) No 2015/1998"),
+        ("Regulation", ("2019", "2020"), ("2020", "2019"), "Regulation (EU) 2019/2020"),
+        ("Directive", ("2003", "87"), ("87", "2003"), "Directive 2003/87/EC"),
+        ("Directive", ("92", "43"), ("43", "92"), "Council Directive 92/43/EEC"),
+        ("Directive", ("70", "50"), ("50", "70"), "Commission Directive No 70/50/EEC"),
+        ("Decision", ("2002", "584"), ("584", "2002"), "Council Framework Decision 2002/584/JHA"),
+    ],
+)
+def test_two_year_shaped_halves_are_split_by_kind_and_scheme(
+    kind, pair, expected, citation
+) -> None:
+    """Directives and decisions were always year-first; regulations only from 2015 on."""
+    assert celex.order_number_and_year(kind, *pair) == expected
+
+
+def test_a_future_year_is_an_act_number_not_a_year() -> None:
     """2018/2066 only resolves because 2066 has not happened; as_year rejects future years."""
     assert celex.as_year("2066") is None
-    assert celex.order_number_and_year(False, "2018", "2066") == ("2066", "2018")
+    assert celex.order_number_and_year("Regulation", "2018", "2066") == ("2066", "2018")
 
 
 @pytest.mark.parametrize("celex_id", ["32015R0757", "32003L0087", "32013D0162"])
