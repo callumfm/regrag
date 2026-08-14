@@ -1,3 +1,5 @@
+import pytest
+
 from app.ingestion.chunk.models import Reference
 from app.ingestion.chunk.references import (
     _find_division_mentions,
@@ -185,53 +187,58 @@ def test_an_instrument_a_division_claimed_is_not_cited_again_in_its_own_right() 
     ]
 
 
-def test_attributes_article_across_a_council_prefix() -> None:
-    references = extract_references("pursuant to Article 3 of Council Regulation (EEC) No 3577/92")
+@pytest.mark.parametrize(
+    ("mention", "article", "instrument"),
+    [
+        ("Council Regulation (EEC) No 3577/92", "3", "31992R3577"),
+        ("Commission Implementing Regulation (EU) 2016/1927", "2", "32016R1927"),
+        ("Commission Delegated Regulation (EU) 2023/1640", "5", "32023R1640"),
+        ("European Parliament and Council Directive 95/46/EC", "6", "31995L0046"),
+        ("Council Implementing Regulation (EU) 2020/1998", "7", "32020R1998"),
+        ("Council Framework Decision 2002/584/JHA", "4", "32002D0584"),
+    ],
+)
+def test_attributes_an_article_across_any_institutional_prefix(
+    mention: str, article: str, instrument: str
+) -> None:
+    """The institution naming an act sits inside its mention, however it is styled."""
+    references = extract_references(f"pursuant to Article {article} of {mention}")
     assert references == (
         Reference(
-            raw="Article 3 of Council Regulation (EEC) No 3577/92",
-            instrument="31992R3577",
-            article="3",
+            raw=f"Article {article} of {mention}",
+            instrument=instrument,
+            article=article,
         ),
     )
 
 
-def test_attributes_article_across_a_commission_implementing_prefix() -> None:
+def test_an_institutional_prefix_is_kept_when_the_act_is_cited_in_its_own_right() -> None:
+    references = extract_references("as amended by Council Implementing Regulation (EU) 2020/1998")
+    assert references == (
+        Reference(raw="Council Implementing Regulation (EU) 2020/1998", instrument="32020R1998"),
+    )
+
+
+def test_the_prefix_does_not_reach_back_over_a_sentence_boundary() -> None:
+    references = extract_references("set out in Annex II. Regulation (EU) 2015/757 applies")
+    assert Reference(raw="Regulation (EU) 2015/757", instrument="32015R0757") in references
+
+
+def test_the_prefix_does_not_reach_back_into_the_act_cited_before_it() -> None:
+    """'/EC' ends the preceding citation; it does not name the institution of the next."""
+    references = extract_references("comply with Directive 2003/87/EC and Regulation (EU) 2015/757")
+    assert references == (
+        Reference(raw="Directive 2003/87/EC", instrument="32003L0087"),
+        Reference(raw="Regulation (EU) 2015/757", instrument="32015R0757"),
+    )
+
+
+def test_the_prefix_does_not_swallow_upper_case_prose_in_a_heading() -> None:
     references = extract_references(
-        "in Article 2 of Commission Implementing Regulation (EU) 2016/1927"
+        "THE ANNEX TO COMMISSION IMPLEMENTING REGULATION (EU) 2016/1927"
     )
     assert references == (
-        Reference(
-            raw="Article 2 of Commission Implementing Regulation (EU) 2016/1927",
-            instrument="32016R1927",
-            article="2",
-        ),
-    )
-
-
-def test_attributes_article_across_a_commission_delegated_prefix() -> None:
-    references = extract_references(
-        "under Article 5 of Commission Delegated Regulation (EU) 2023/1640"
-    )
-    assert references == (
-        Reference(
-            raw="Article 5 of Commission Delegated Regulation (EU) 2023/1640",
-            instrument="32023R1640",
-            article="5",
-        ),
-    )
-
-
-def test_attributes_article_across_a_parliament_and_council_prefix() -> None:
-    references = extract_references(
-        "under Article 6 of European Parliament and Council Directive 95/46/EC"
-    )
-    assert references == (
-        Reference(
-            raw="Article 6 of European Parliament and Council Directive 95/46/EC",
-            instrument="31995L0046",
-            article="6",
-        ),
+        Reference(raw="COMMISSION IMPLEMENTING REGULATION (EU) 2016/1927", instrument="32016R1927"),
     )
 
 
@@ -248,6 +255,25 @@ def test_a_numbered_instrument_with_two_year_shaped_halves_reads_number_first() 
 def test_an_unnumbered_two_digit_pair_reads_year_then_number() -> None:
     references = extract_references("equipment approved under Council Directive 96/98/EC")
     assert references == (Reference(raw="Council Directive 96/98/EC", instrument="31996L0098"),)
+
+
+def test_a_numbered_directive_still_reads_year_first() -> None:
+    references = extract_references("measures under Commission Directive No 70/50/EEC")
+    assert references == (
+        Reference(raw="Commission Directive No 70/50/EEC", instrument="31970L0050"),
+    )
+
+
+def test_an_ascending_year_shaped_pair_reads_year_first_under_the_2015_scheme() -> None:
+    references = extract_references("labelling in Commission Regulation (EU) 2019/2020")
+    assert references == (
+        Reference(raw="Commission Regulation (EU) 2019/2020", instrument="32019R2020"),
+    )
+
+
+def test_a_pre_1999_regulation_reads_number_first() -> None:
+    references = extract_references("competition rules in Regulation 17/62")
+    assert references == (Reference(raw="Regulation 17/62", instrument="31962R0017"),)
 
 
 def test_resolves_a_bare_commission_regulation() -> None:

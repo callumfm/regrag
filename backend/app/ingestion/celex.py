@@ -7,8 +7,10 @@ CONSOLIDATED = "0"
 CENTURIES = ("19", "20")
 LENGTH = 10
 KIND_LETTERS = {"regulation": "R", "directive": "L", "decision": "D"}
+YEAR_FIRST_KINDS = ("directive", "decision")
+"""Numbered year-first in every era; only regulations ever led with the act number."""
 YEAR_FIRST_SCHEME = 2015
-"""From this year on acts are numbered year-first, and stopped carrying a 'No'."""
+"""The year from which regulations too are numbered year-first."""
 
 
 def expand_year(value: str) -> str:
@@ -24,25 +26,19 @@ def as_year(value: str) -> int | None:
     return int(year)
 
 
-def order_number_and_year(numbered: bool, first: str, second: str) -> tuple[str, str]:
-    """A '765/2008' pair as (number, year); the 'No NN/MM' form is number-first.
+def order_number_and_year(kind: str, first: str, second: str) -> tuple[str, str]:
+    """A '765/2008' pair as (number, year): the half that cannot be a year is the number.
 
-    Acts numbered under the 2015 year-first scheme never carried a 'No', so a leading
-    four-digit year from that scheme marks a sloppy citation to read year-first anyway.
+    Where both halves could be years the kind settles it, since only regulations were ever
+    number-first, and only until the 2015 scheme. A pair that is neither is left as written
+    for build to reject.
     """
-    if numbered:
-        year = as_year(first)
-        if len(first) == 4 and year is not None and year >= YEAR_FIRST_SCHEME:
-            return second, first
-        return first, second
-    if len(first) == 2 and len(second) == 2:
+    leading, trailing = as_year(first), as_year(second)
+    if leading is None or trailing is None:
+        return (first, second) if trailing else (second, first)
+    if kind.lower() in YEAR_FIRST_KINDS or leading >= YEAR_FIRST_SCHEME:
         return second, first
-    left, right = as_year(first), as_year(second)
-    if left and right:
-        return (second, first) if left >= right else (first, second)
-    if right:
-        return first, second
-    return second, first
+    return first, second
 
 
 def build(kind: str, year: str, number: str) -> str:
