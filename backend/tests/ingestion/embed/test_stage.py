@@ -1,4 +1,4 @@
-"""The embed stage: how it batches, what it retries, and what a failure costs."""
+"""The embed stage: how it sweeps, what it retries, and what a failure costs."""
 
 import asyncio
 
@@ -11,8 +11,8 @@ from app.core.llm import LLMError
 from app.ingestion.chunk.models import ChunkQuery
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import get_chunks
-from app.ingestion.embed import stage
-from app.ingestion.embed.stage import ChunkToEmbed, _batch_by_document, embed_chunks
+from app.ingestion.embed import batch
+from app.ingestion.embed.stage import embed_chunks
 
 pytestmark = pytest.mark.anyio
 
@@ -22,24 +22,6 @@ def rows(make_chunk_row, run, celex: str, count: int, start: int = 0):
     return [
         make_chunk_row(run, celex=celex, content_hash=f"{celex}-{index + start}".ljust(64, "x"))
         for index in range(count)
-    ]
-
-
-def test_batches_split_at_the_provider_ceiling():
-    produced = _batch_by_document([ChunkToEmbed(id=0, celex="32023R1805", text="")] * 129)
-
-    assert [len(batch) for _, batch in produced] == [128, 1]
-
-
-def test_batches_never_span_two_documents():
-    chunks = [ChunkToEmbed(id=0, celex="32015R0757", text="")] * 3 + [
-        ChunkToEmbed(id=0, celex="32023R1805", text="")
-    ] * 2
-    produced = _batch_by_document(chunks)
-
-    assert [(celex, len(batch)) for celex, batch in produced] == [
-        ("32015R0757", 3),
-        ("32023R1805", 2),
     ]
 
 
@@ -161,7 +143,7 @@ async def test_a_later_batch_failing_keeps_the_earlier_batches_vectors(
 
     result = await embed_chunks(db_session)
 
-    assert [len(batch) for batch in embeddings.calls] == [128, 72]
+    assert [len(call) for call in embeddings.calls] == [128, 72]
     assert result.embedded == 128
     assert list(result.failed) == ["32023R1805"]
     assert len(await get_chunks(db_session, ChunkQuery(has_embedding=False, limit=100))) == 72
@@ -198,7 +180,7 @@ async def test_a_batch_that_keeps_failing_does_not_loop_the_sweep(
         sizes.append(len(texts))
         raise LLMError("provider down")
 
-    monkeypatch.setattr("app.ingestion.embed.stage.embed", always_fails)
+    monkeypatch.setattr("app.ingestion.embed.batch.embed", always_fails)
     monkeypatch.setattr(config, "EMBED_PAGE_SIZE", 2)
     db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 5))
     await db_session.flush()
@@ -219,7 +201,7 @@ async def test_a_database_failure_in_one_batch_does_not_kill_the_sweep(
     await db_session.flush()
 
     calls: list[int] = []
-    real_write = stage.update_chunks
+    real_write = batch.update_chunks
 
     async def fail_once(session, updates):
         calls.append(1)
@@ -227,7 +209,7 @@ async def test_a_database_failure_in_one_batch_does_not_kill_the_sweep(
             raise SQLAlchemyError("connection lost")
         await real_write(session, updates)
 
-    monkeypatch.setattr("app.ingestion.embed.stage.update_chunks", fail_once)
+    monkeypatch.setattr("app.ingestion.embed.batch.update_chunks", fail_once)
 
     result = await embed_chunks(db_session)
 
@@ -254,7 +236,7 @@ async def test_provider_calls_overlap_within_a_page(
     db_session, ingest_run, make_chunk_row, monkeypatch
 ):
     peaks: list[int] = []
-    monkeypatch.setattr("app.ingestion.embed.stage.embed", overlap_tracker(peaks))
+    monkeypatch.setattr("app.ingestion.embed.batch.embed", overlap_tracker(peaks))
     db_session.add_all(rows(make_chunk_row, ingest_run, "32015R0757", 1))
     db_session.add_all(rows(make_chunk_row, ingest_run, "32023R1805", 1))
     await db_session.flush()
@@ -269,7 +251,7 @@ async def test_in_flight_provider_calls_are_capped(
     db_session, ingest_run, make_chunk_row, monkeypatch
 ):
     peaks: list[int] = []
-    monkeypatch.setattr("app.ingestion.embed.stage.embed", overlap_tracker(peaks))
+    monkeypatch.setattr("app.ingestion.embed.batch.embed", overlap_tracker(peaks))
     monkeypatch.setattr(config, "EMBED_CONCURRENCY", 2)
     for celex in ["32015R0757", "32023R1805", "32024R0001"]:
         db_session.add_all(rows(make_chunk_row, ingest_run, celex, 1))

@@ -1,0 +1,30 @@
+"""One EUR-Lex document's HTML as a section tree, whichever dialect it is written in."""
+
+from selectolax.parser import HTMLParser
+
+from app.ingestion.exceptions import ParseError
+from app.ingestion.parse.html.annexes import ANNEX_CONTAINER, build_annex
+from app.ingestion.parse.html.articles import ARTICLE_CONTAINER, build_article
+from app.ingestion.parse.html.dialect import detect_dialect
+from app.ingestion.parse.html.text import drop_non_legal_markup, replace_formula_images
+from app.ingestion.parse.models import Section
+
+
+def prepare(html: str) -> HTMLParser:
+    """Parse the HTML with the non-legal markup already stripped, before any text is read."""
+    tree = HTMLParser(html)
+    replace_formula_images(tree)
+    drop_non_legal_markup(tree)
+    return tree
+
+
+def parse_eurlex_html(html: str) -> tuple[Section, ...]:
+    """Parse one EUR-Lex document into the format-neutral section tree."""
+    tree = prepare(html)
+    dialect = detect_dialect(tree)
+
+    articles = [build_article(node, dialect) for node in tree.css(ARTICLE_CONTAINER)]
+    if not articles:
+        raise ParseError("no articles found")
+    annexes = [build_annex(node, dialect) for node in tree.css(ANNEX_CONTAINER)]
+    return tuple(articles + annexes)

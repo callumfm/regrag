@@ -24,7 +24,7 @@ def row(make_document: Callable[..., RawDocument], celex: str = "32023R1805") ->
 
 def test_parses_the_document_it_was_handed(make_document: Callable[..., RawDocument]) -> None:
     parsed = parse_document(row(make_document), HTML.encode("utf-8"))
-    assert parsed.celex == "32023R1805"
+    assert (parsed.celex, parsed.topic) == ("32023R1805", "fueleu")
 
 
 def test_html_that_will_not_parse_fails_the_document_at_the_parse_stage(

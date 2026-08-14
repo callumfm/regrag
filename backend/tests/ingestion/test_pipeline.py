@@ -18,7 +18,8 @@ from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.models import IngestRunResult
-from app.ingestion.parse.html.parser import parse_eurlex_html
+from app.ingestion.parse.html.document import parse_eurlex_html
+from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.pipeline import _find_dropped_celexes, _get_celexes_to_keep, ingest
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import document_key
@@ -649,7 +650,9 @@ async def test_fueleu_chunk_count_matches_the_chunker(db_session, local_store, c
     so after any partial change replacement rows sort above untouched ones."""
     await ingest_fueleu(db_session, local_store, corpus_client)
 
-    expected = chunk_document(parse_eurlex_html(FUELEU_HTML, "32023R1805", "fueleu"))
+    expected = chunk_document(
+        ParsedDocument(celex="32023R1805", topic="fueleu", sections=parse_eurlex_html(FUELEU_HTML))
+    )
     rows = await chunk_rows(db_session, "32023R1805")
     assert len(rows) == len(expected)
     assert [row.text for row in rows] == [c.text for c in expected]

@@ -22,17 +22,17 @@ from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.discover.models import ActsQueryRow, DiscoveredDocument
 from app.ingestion.discover.sparql import run_acts_by_topic_query
-from app.ingestion.embed.stage import _embed_batch
+from app.ingestion.embed.batch import embed_batch
 from app.ingestion.enums import IngestRunStatus, SectionKind
 from app.ingestion.fetch.download import _download_version_html
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.parse.html.parser import parse_eurlex_html
+from app.ingestion.parse.html.document import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.schemas import IngestRun
 from app.ingestion.storage import write_document
 from app.main import configure_app
 
-RETRIED = (run_acts_by_topic_query, _download_version_html, _embed_batch)
+RETRIED = (run_acts_by_topic_query, _download_version_html, embed_batch)
 
 PARSE_FIXTURES = Path(__file__).parent / "ingestion" / "parse" / "fixtures"
 FUELEU_HTML = (PARSE_FIXTURES / "32023R1805.html").read_text()
@@ -163,13 +163,14 @@ def store_document(
 @pytest.fixture(scope="session")
 def fueleu() -> ParsedDocument:
     """The OJ dialect fixture, parsed once: a ParsedDocument is frozen, so tests share one."""
-    return parse_eurlex_html(FUELEU_HTML, "32023R1805", "fueleu")
+    sections = parse_eurlex_html(FUELEU_HTML)
+    return ParsedDocument(celex="32023R1805", topic="fueleu", sections=sections)
 
 
 @pytest.fixture(scope="session")
 def mrv() -> ParsedDocument:
     """The consolidated dialect fixture, parsed once and shared like fueleu."""
-    return parse_eurlex_html(MRV_HTML, "32015R0757", "mrv")
+    return ParsedDocument(celex="32015R0757", topic="mrv", sections=parse_eurlex_html(MRV_HTML))
 
 
 @pytest.fixture
@@ -250,7 +251,7 @@ class FakeProvider:
 def embeddings(monkeypatch: pytest.MonkeyPatch) -> FakeProvider:
     """No test reaches a provider: every embed call is recorded and answered locally."""
     provider = FakeProvider()
-    monkeypatch.setattr("app.ingestion.embed.stage.embed", provider)
+    monkeypatch.setattr("app.ingestion.embed.batch.embed", provider)
     return provider
 
 
