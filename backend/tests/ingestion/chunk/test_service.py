@@ -311,14 +311,42 @@ async def test_key_stored_chunks_is_scoped_to_one_document(
     assert len(await _key_stored_chunks(db_session, "32023R1805")) == 1
 
 
-async def test_key_stored_chunks_carries_the_derived_fields(
+async def test_key_stored_chunks_carries_the_metadata_hash_not_the_metadata_fields(
     db_session: AsyncSession, ingest_run: IngestRun
 ):
     await sync_document_chunks(
         db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
     )
     row = next(iter((await _key_stored_chunks(db_session, "32023R1805")).values()))
-    assert (row.topic, row.citation, row.references) == ("fueleu", "Article 4(1)", [])
+    assert row.metadata_hash == chunk().metadata_hash
+    assert set(row._fields) == {"content_hash", "occurrence", "id", "metadata_hash"}
+
+
+async def test_stored_chunk_records_its_metadata_hash(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    await sync_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+    assert (await chunk_rows(db_session))[0].metadata_hash == chunk().metadata_hash
+
+
+async def test_row_without_a_metadata_hash_is_updated_and_backfilled(
+    db_session: AsyncSession, ingest_run: IngestRun
+):
+    """Rows from before the column exists read as drifted, so the next sync fills them in."""
+    await sync_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+    (await chunk_rows(db_session))[0].metadata_hash = None
+    await db_session.flush()
+
+    result = await sync_document_chunks(
+        db_session, celex="32023R1805", chunks=[chunk()], ingest_run_id=ingest_run.id
+    )
+
+    assert (result.kept, result.updated) == (0, 1)
+    assert (await chunk_rows(db_session))[0].metadata_hash == chunk().metadata_hash
 
 
 async def test_matched_row_with_changed_references_is_updated_in_place(

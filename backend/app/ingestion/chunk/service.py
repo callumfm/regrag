@@ -33,7 +33,7 @@ async def _key_stored_chunks(session: AsyncSession, celex: str) -> dict[ContentK
         DocumentChunk.content_hash,
         DocumentChunk.occurrence,
         DocumentChunk.id,
-        *(getattr(DocumentChunk, column) for column in sorted(Chunk.NOT_IDENTITY)),
+        DocumentChunk.metadata_hash,
     ).where(DocumentChunk.celex == celex)
     rows = await session.execute(stmt)
     return {(row.content_hash, row.occurrence): row for row in rows}
@@ -47,6 +47,7 @@ async def create_chunks(
         DocumentChunk(
             **chunk.model_dump(mode="json"),
             content_hash=digest,
+            metadata_hash=chunk.metadata_hash,
             occurrence=occurrence,
             ingest_run_id=ingest_run_id,
         )
@@ -88,14 +89,15 @@ def _updates_for_changed_chunks(
     incoming: Mapping[ContentKey, Chunk],
     existing: Mapping[ContentKey, Row[Any]],
 ) -> list[dict[str, Any]]:
-    """Update payloads for matched rows whose derived columns drifted from the chunker's output."""
+    """Update payloads for matched rows whose metadata columns drifted from the chunker's output.
+    A NULL stored hash predates the column and reads as drifted, backfilling itself here."""
     updates = []
     for key in matched:
+        chunk = incoming[key]
         row = existing[key]
-        new = incoming[key].model_dump(mode="json", include=Chunk.NOT_IDENTITY)
-        old = {column: getattr(row, column) for column in Chunk.NOT_IDENTITY}
-        if new != old:
-            updates.append({"id": row.id, **new})
+        if chunk.metadata_hash != row.metadata_hash:
+            new = chunk.model_dump(mode="json", include=Chunk.METADATA)
+            updates.append({"id": row.id, "metadata_hash": chunk.metadata_hash, **new})
     return updates
 
 
