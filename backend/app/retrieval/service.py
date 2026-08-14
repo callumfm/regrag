@@ -124,14 +124,7 @@ async def follow_reference(
     paragraph: str | None = None,
     annex: str | None = None,
 ) -> tuple[RetrievedChunk, ...]:
-    """The text a stored cross-reference points at, in reading order.
-
-    Every locator the reference carries is another filter, each tested against None rather
-    than truthiness, since an annex numbered '' is a real annex. A reference naming an act
-    and nothing else is a filtered search rather than a lookup, so it is refused instead of
-    returning the act whole. An act the corpus does not hold comes back empty, which the
-    agent can tell the user.
-    """
+    """The text a stored cross-reference points at, in reading order."""
     if article is None and annex is None:
         raise ValueError(f"following {celex} needs an article or annex, not the act alone")
     stmt = select(*CHUNK_COLUMNS).where(DocumentChunk.celex == celex)
