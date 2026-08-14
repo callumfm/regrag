@@ -69,15 +69,15 @@ async def _ingest_document(
     """One document through fetch -> parse -> chunk: committed whole, or rolled back as failed."""
     try:
         async with session.begin_nested():
-            fetched, change = await fetch_document(
+            fetched = await fetch_document(
                 session, client=client, discovered=document, previous=previous, run=run, store=store
             )
-            parsed = parse_document(fetched)
+            parsed = parse_document(fetched.raw, fetched.html)
             chunks = await chunk_and_store_document(session, parsed, ingest_run_id=run.id)
     except DocumentFailed as failure:
         return DocumentOutcome(celex=failure.celex, failed=failure.stage, error=failure.reason)
     await session.commit()
-    return DocumentOutcome(celex=document.celex, change=change, chunks=chunks)
+    return DocumentOutcome(celex=document.celex, change=fetched.change, chunks=chunks)
 
 
 def _find_dropped_celexes(

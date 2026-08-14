@@ -18,15 +18,15 @@ def document_key(celex: str, resolved_celex: str, sha256: str) -> str:
 
 
 def write_document(
-    store: ObjectStore, celex: str, resolved_celex: str, content: bytes
+    store: ObjectStore, celex: str, resolved_celex: str, html: bytes
 ) -> tuple[str, int]:
     """Store the document's bytes and return their (sha256, size_bytes), refusing empty
     content so a failed download cannot be recorded as a version."""
-    if not content:
+    if not html:
         raise EmptyDownloadError(f"{celex}: download returned an empty body")
-    sha256 = hashlib.sha256(content).hexdigest()
-    store.put(document_key(celex, resolved_celex, sha256), content)
-    return sha256, len(content)
+    sha256 = hashlib.sha256(html).hexdigest()
+    store.put(document_key(celex, resolved_celex, sha256), html)
+    return sha256, len(html)
 
 
 def read_document(store: ObjectStore, document: RawDocument) -> bytes:
@@ -36,7 +36,7 @@ def read_document(store: ObjectStore, document: RawDocument) -> bytes:
     the reuse path treats that as bytes it does not have and downloads the version again.
     """
     key = document_key(document.celex, document.resolved_celex, document.sha256)
-    content = store.get(key)
-    if hashlib.sha256(content).hexdigest() != document.sha256:
+    html = store.get(key)
+    if hashlib.sha256(html).hexdigest() != document.sha256:
         raise StoredBytesMismatchError("verify", key, "stored bytes do not match the recorded hash")
-    return content
+    return html

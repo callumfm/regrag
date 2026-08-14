@@ -10,9 +10,10 @@ from app.ingestion.discover.stage import discover_topics
 from app.ingestion.enums import DocChange, IngestRunStatus
 from app.ingestion.exceptions import DocumentFailed, ParseError
 from app.ingestion.fetch import stage
-from app.ingestion.fetch.models import FetchedDocument, RawDocsQuery
+from app.ingestion.fetch.models import RawDocsQuery
+from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_raw_documents
-from app.ingestion.fetch.stage import _reuse_stored_version, fetch_document
+from app.ingestion.fetch.stage import _reuse_previous_version, fetch_document
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run
 from app.ingestion.storage import document_key, read_document
@@ -26,19 +27,26 @@ def stored(store_document, celex="32023R1805"):
     return store_document(IngestRun(status=IngestRunStatus.SUCCESS), celex=celex)
 
 
-def html_of(fetched, celex, local_store) -> bytes:
+def this_run() -> IngestRun:
+    """The open run a reused version would be recorded against."""
+    return IngestRun(status=IngestRunStatus.RUNNING)
+
+
+def html_of(documents, celex, local_store) -> bytes:
     """The bytes the run left in the store for one celex, read back the way a later run would."""
-    return read_document(local_store, {f.document.celex: f.document for f in fetched}[celex])
+    return read_document(local_store, {d.celex: d for d in documents}[celex])
 
 
 def test_stored_version_is_reused_when_discovery_still_points_at_it(local_store, store_document):
     prev = stored(store_document)
-    reused = _reuse_stored_version(local_store, discovered_document("32023R1805"), prev)
+    reused = _reuse_previous_version(
+        local_store, discovered_document("32023R1805"), prev, this_run()
+    )
     assert reused is not None
-    version, content = reused
-    assert version.resolved_celex == prev.resolved_celex
+    document, content = reused
+    assert document.resolved_celex == prev.resolved_celex
     assert content == b"<html>act</html>"
-    assert (version.sha256, version.size_bytes, version.fetched_at) == (
+    assert (document.sha256, document.size_bytes, document.fetched_at) == (
         prev.sha256,
         prev.size_bytes,
         prev.fetched_at,
@@ -56,28 +64,29 @@ def test_reuse_carries_the_version_that_was_served_not_the_one_that_was_asked_fo
     )
     asked_again = discovered_document("32023R1805", candidates=("02023R1805-20250101",))
 
-    reused = _reuse_stored_version(local_store, asked_again, prev)
+    reused = _reuse_previous_version(local_store, asked_again, prev, this_run())
 
     assert reused is not None
     assert reused[0].resolved_celex == "32023R1805"
-    assert reused[0].url.endswith("CELEX:32023R1805")
 
 
 def test_a_newly_discovered_consolidation_is_not_reused(local_store, store_document):
     """Discovery pointing somewhere new is exactly the case that has to hit the network."""
     prev = stored(store_document)
     newer = discovered_document("32023R1805", candidates=("02023R1805-20250101",))
-    assert _reuse_stored_version(local_store, newer, prev) is None
+    assert _reuse_previous_version(local_store, newer, prev, this_run()) is None
 
 
 def test_stored_version_no_longer_in_the_store_is_not_reused(local_store, store_document):
     prev = stored(store_document)
     (local_store.root / document_key(prev.celex, prev.resolved_celex, prev.sha256)).unlink()
-    assert _reuse_stored_version(local_store, discovered_document("32023R1805"), prev) is None
+    discovered = discovered_document("32023R1805")
+    assert _reuse_previous_version(local_store, discovered, prev, this_run()) is None
 
 
 def test_a_document_with_no_previous_run_has_nothing_to_reuse(local_store):
-    assert _reuse_stored_version(local_store, discovered_document("32023R1805"), None) is None
+    discovered = discovered_document("32023R1805")
+    assert _reuse_previous_version(local_store, discovered, None, this_run()) is None
 
 
 def test_stored_bytes_that_do_not_match_the_row_are_not_reused(local_store, store_document):
@@ -85,8 +94,9 @@ def test_stored_bytes_that_do_not_match_the_row_are_not_reused(local_store, stor
     prev = stored(store_document)
     key = document_key(prev.celex, prev.resolved_celex, prev.sha256)
     local_store.put(key, b"<html>a different version</html>")
+    discovered = discovered_document("32023R1805")
 
-    assert _reuse_stored_version(local_store, discovered_document("32023R1805"), prev) is None
+    assert _reuse_previous_version(local_store, discovered, prev, this_run()) is None
 
 
 def test_a_store_that_cannot_be_read_is_not_treated_as_a_missing_object(
@@ -101,7 +111,7 @@ def test_a_store_that_cannot_be_read_is_not_treated_as_a_missing_object(
     monkeypatch.setattr(local_store, "get", outage)
 
     with pytest.raises(StorageError):
-        _reuse_stored_version(local_store, discovered_document("32023R1805"), prev)
+        _reuse_previous_version(local_store, discovered_document("32023R1805"), prev, this_run())
 
 
 def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, httpx.Response]:
@@ -112,7 +122,7 @@ def mrv_docs(overrides: dict[str, httpx.Response] | None = None) -> dict[str, ht
     } | (overrides or {})
 
 
-Fetched = tuple[dict[str, DocChange], dict[str, str], list[FetchedDocument]]
+Fetched = tuple[dict[str, DocChange], dict[str, str], list[RawDocument]]
 
 
 async def fetch(db_session, client, topics, store) -> Fetched:
@@ -120,13 +130,13 @@ async def fetch(db_session, client, topics, store) -> Fetched:
     run = await create_ingest_run(db_session)
     previous = await get_raw_documents(db_session, RawDocsQuery(include_topics=topics))
     discovered = await discover_topics(client, topics)
-    fetched: list[FetchedDocument] = []
+    documents: list[RawDocument] = []
     changes: dict[str, DocChange] = {}
     failed: dict[str, str] = {}
     for document in discovered:
         try:
             async with db_session.begin_nested():
-                item, change = await fetch_document(
+                fetched = await fetch_document(
                     db_session,
                     client=client,
                     discovered=document,
@@ -137,10 +147,10 @@ async def fetch(db_session, client, topics, store) -> Fetched:
         except DocumentFailed as failure:
             failed[failure.celex] = failure.reason
         else:
-            fetched.append(item)
-            changes[document.celex] = change
+            documents.append(fetched.raw)
+            changes[document.celex] = fetched.change
     await complete_ingest_run(db_session, run, status=IngestRunStatus.SUCCESS)
-    return changes, failed, fetched
+    return changes, failed, documents
 
 
 def celexes(changes: dict[str, DocChange], change: DocChange) -> list[str]:
@@ -318,7 +328,7 @@ async def test_any_ingestion_error_is_recorded_per_document(
     def unparseable(*args, **kwargs):
         raise ParseError("unrecognised EUR-Lex dialect")
 
-    monkeypatch.setattr(stage, "_reuse_stored_version", unparseable)
+    monkeypatch.setattr(stage, "_reuse_previous_version", unparseable)
     _, failed, _ = await fetch(db_session, client, ["mrv"], local_store)
 
     assert sorted(failed) == ["32015R0757", "32023R2449"]
@@ -331,11 +341,11 @@ async def test_a_row_that_will_not_flush_fails_only_its_own_document(
     """A database error on one row must skip that document, not poison the run's transaction."""
     real = stage._download_new_version
 
-    async def unstorable(client, store, discovered):
-        version, content = await real(client, store, discovered)
+    async def unstorable(client, store, discovered, run):
+        document, content = await real(client, store, discovered, run)
         if discovered.celex == "32015R0757":
-            version = version.model_copy(update={"size_bytes": 2**40})
-        return version, content
+            document.size_bytes = 2**40
+        return document, content
 
     monkeypatch.setattr(stage, "_download_new_version", unstorable)
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())

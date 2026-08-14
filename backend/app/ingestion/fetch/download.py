@@ -6,8 +6,8 @@ from app.core.http import is_transient
 from app.core.retry import transient_retry
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.exceptions import DocumentStillRenderingError, NoFetchableVersionError
-from app.ingestion.fetch.models import eurlex_html_url
 
+HTML_URL_TEMPLATE = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}"
 MISSING_PAGE_MARKER = "The requested document does not exist."
 
 
@@ -35,7 +35,7 @@ download_retry = transient_retry(_is_retryable)
 @download_retry
 async def _download_version_html(client: httpx.AsyncClient, version_celex: str) -> bytes | None:
     """The HTML EUR-Lex serves for one version, or None if it denies having that version."""
-    response = await client.get(eurlex_html_url(version_celex))
+    response = await client.get(HTML_URL_TEMPLATE.format(celex=version_celex))
     if _is_still_rendering(response):
         raise DocumentStillRenderingError(f"EUR-Lex is still rendering {version_celex}")
     if _is_version_missing(response):
@@ -50,9 +50,9 @@ async def download_fetchable_version(
 ) -> tuple[str, bytes]:
     """The newest version EUR-Lex will serve, and the HTML it served for it."""
     for version_celex in document.versions:
-        content = await _download_version_html(client, version_celex)
-        if content is not None:
-            return version_celex, content
+        html = await _download_version_html(client, version_celex)
+        if html is not None:
+            return version_celex, html
 
     raise NoFetchableVersionError(
         f"{document.topic}:{document.celex}: no fetchable HTML, tried {document.versions}"
