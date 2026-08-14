@@ -34,8 +34,13 @@ class StageReport(BaseModel):
     failed: dict[str, str]
 
     def stored(self) -> dict[str, Any]:
-        """The stage as its run row holds it, with provider messages capped to fit."""
+        """The stage as its run row holds it, with provider messages capped to fit.
+
+        Leads with the total under its own unit, so a stored run answers what it counted and
+        not only how that split: discovery's buckets alone never say how much it found.
+        """
         return {
+            self.unit: self.total,
             **self.counts,
             "failed": {
                 celex: error[: config.MAX_FAILURE_CHARS] for celex, error in self.failed.items()
@@ -111,17 +116,24 @@ class IngestRunResult(BaseModel):
         committed = self.committed
         changes = Counter(doc.change for doc in committed)
         fetched = {change.value: changes[change] for change in DocChange}
-        documents = len(self.documents)
 
         def stage(name: Stage, unit: str, total: int, **counts: int) -> StageReport:
             return StageReport(
                 stage=name, unit=unit, total=total, counts=counts, failed=failures[name]
             )
 
+        def accounted(name: Stage) -> int:
+            """Documents this stage answered for: the ones that got through, plus the ones it lost.
+
+            One that cleared this stage and died in a later one counts towards neither, because
+            the loop rolled its whole pass back — so the buckets always sum to the total.
+            """
+            return len(committed) + len(failures[name])
+
         reports = [
             stage(Stage.DISCOVER, "documents", self.discovered, dropped=len(self.dropped)),
-            stage(Stage.FETCH, "documents", documents, **fetched),
-            stage(Stage.PARSE, "documents", documents, parsed=len(committed)),
+            stage(Stage.FETCH, "documents", accounted(Stage.FETCH), **fetched),
+            stage(Stage.PARSE, "documents", accounted(Stage.PARSE), parsed=len(committed)),
             stage(Stage.CHUNK, "chunks", chunks.total, **chunks.model_dump()),
             stage(Stage.EMBED, "chunks", embed.total, **embed.model_dump(exclude={"failed"})),
         ]
