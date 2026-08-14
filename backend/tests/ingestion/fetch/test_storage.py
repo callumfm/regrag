@@ -9,8 +9,8 @@ from app.core.storage import LocalObjectStore, StorageError
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.exceptions import EmptyDownloadError
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.storage import document_key, read_document, write_document
 from app.ingestion.schemas import IngestRun
-from app.ingestion.storage import document_key, read_document, write_document
 
 HTML = b"<html>act</html>"
 

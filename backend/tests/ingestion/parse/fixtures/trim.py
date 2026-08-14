@@ -12,7 +12,7 @@ from app.core.db.session import get_session
 from app.core.storage import StorageError, get_object_store
 from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.service import get_raw_documents
-from app.ingestion.storage import read_document
+from app.ingestion.fetch.storage import read_document
 
 FIXTURES = Path(__file__).parent
 KEEP: dict[str, tuple[str, ...]] = {

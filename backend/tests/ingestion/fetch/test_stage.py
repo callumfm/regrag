@@ -14,9 +14,9 @@ from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.fetch.stage import _reuse_previous_version, fetch_document
+from app.ingestion.fetch.storage import document_key, read_document
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import complete_ingest_run, create_ingest_run
-from app.ingestion.storage import document_key, read_document
 from tests.conftest import MRV_SPARQL, binding, discovered_document, payload
 
 pytestmark = pytest.mark.anyio

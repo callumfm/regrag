@@ -17,12 +17,12 @@ from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
 from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_raw_documents
+from app.ingestion.fetch.storage import document_key
 from app.ingestion.models import IngestRunResult
 from app.ingestion.parse.html.document import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.pipeline import _find_dropped_celexes, _get_celexes_to_keep, ingest
 from app.ingestion.schemas import IngestRun
-from app.ingestion.storage import document_key
 from tests.conftest import (
     FUELEU_HTML,
     MRV_SPARQL,

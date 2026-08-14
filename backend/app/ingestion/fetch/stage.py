@@ -12,8 +12,8 @@ from app.ingestion.exceptions import DocumentFailed, IngestionError
 from app.ingestion.fetch.download import download_fetchable_version
 from app.ingestion.fetch.models import FetchedDocument
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.storage import StoredBytesMismatchError, read_document, write_document
 from app.ingestion.schemas import IngestRun
-from app.ingestion.storage import StoredBytesMismatchError, read_document, write_document
 
 
 def _reuse_previous_version(
