@@ -11,7 +11,7 @@ from app.ingestion.schemas import IngestRun
 
 
 def _latest_success_run_id() -> ScalarSelect[int]:
-    """The highest complete run id holding rows for the outer row's own topic, or 0 if none."""
+    """The highest successful run id holding rows for the outer row's own topic, or 0 if none."""
     other = aliased(RawDocument)
     stmt = (
         select(func.coalesce(func.max(other.ingest_run_id), 0))

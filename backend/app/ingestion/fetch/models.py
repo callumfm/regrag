@@ -15,7 +15,11 @@ class RawDocsQuery(FrozenModel):
 
 
 class FetchedDocument(NamedTuple):
-    """One document as fetch left it: the row it recorded, its bytes, and how it moved."""
+    """One document as fetch left it: the row it recorded, its bytes, and how it moved.
+
+    change compares the version this run resolved against the one the previous run did, so a
+    document whose bytes were reused and one re-downloaded to the same version read alike.
+    """
 
     raw: RawDocument
     html: bytes

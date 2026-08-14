@@ -73,7 +73,7 @@ async def fetch_document(
     run: IngestRun,
     store: ObjectStore,
 ) -> FetchedDocument:
-    """Record one document's row and hand back its bytes, or say why it would not download."""
+    """Record one document's row, hand back its bytes and how it moved, or say why it failed."""
     try:
         reused = _reuse_previous_version(store, discovered, previous, run)
         raw, html = reused or await _download_new_version(client, store, discovered, run)

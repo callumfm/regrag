@@ -10,7 +10,12 @@ from app.ingestion.schemas import IngestRun
 
 
 class RawDocument(BaseSchema):
-    """One source document as fetched: its provenance, its bytes' fingerprint, its file."""
+    """One source document as fetched: where it came from, which version, and its bytes.
+
+    celex is the act discovery found and candidates the consolidations it offered; resolved_celex
+    is the version EUR-Lex served, one of those candidates or the act itself. No column names the
+    stored object: its key is derived from celex, resolved_celex and sha256.
+    """
 
     __tablename__ = "raw_documents"
     __table_args__ = (UniqueConstraint("ingest_run_id", "celex"),)
