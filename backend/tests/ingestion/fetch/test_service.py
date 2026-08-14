@@ -60,6 +60,32 @@ async def test_baseline_survives_a_newer_run_of_another_topic(
     assert set(previous) == {"32015R0757"}
 
 
+async def test_a_topic_with_no_successful_run_still_holds_what_it_downloaded(
+    db_session: AsyncSession, make_document
+):
+    """A topic yet to complete a run has no id to measure against, so every row it has stands.
+
+    Its rows must not be retired on another topic's success: the next run reuses these bytes.
+    """
+    first_attempt = IngestRun(status=IngestRunStatus.FAILED)
+    other_topic = IngestRun(status=IngestRunStatus.SUCCESS)
+    db_session.add_all(
+        [
+            make_document(first_attempt, "32015R0757", topic="mrv"),
+            make_document(other_topic, "32023R1805", topic="fueleu"),
+        ]
+    )
+    await db_session.flush()
+
+    assert set(await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))) == {
+        "32015R0757"
+    }
+    assert set(await get_raw_documents(db_session, RawDocsQuery())) == {
+        "32015R0757",
+        "32023R1805",
+    }
+
+
 async def test_baseline_skips_newer_run_without_rows(db_session: AsyncSession, make_document):
     with_rows = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add(make_document(with_rows, "32015R0757", topic="mrv"))

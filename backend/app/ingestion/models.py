@@ -72,7 +72,7 @@ class IngestRunResult(BaseModel):
         for doc in self.documents:
             if doc.failed is not None:
                 failed[doc.failed][doc.celex] = doc.error
-        failed[Stage.EMBED] = self.embed.failures
+        failed[Stage.EMBED] |= self.embed.failures
         return failed
 
     @property
@@ -137,7 +137,7 @@ class IngestRunResult(BaseModel):
 
     def _details(self) -> list[str]:
         """The per-document lines the stage lines are too short to carry."""
-        lines = []
+        lines: list[str] = []
         if self.dropped:
             lines.append(f"discover dropped: {', '.join(sorted(self.dropped))}")
         for change in (DocChange.NEW, DocChange.UPDATED):

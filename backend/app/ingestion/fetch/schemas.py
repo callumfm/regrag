@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import ARRAY, ForeignKey, String, UniqueConstraint
+from sqlalchemy import ARRAY, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db.schema import BaseSchema
@@ -18,7 +18,10 @@ class RawDocument(BaseSchema):
     """
 
     __tablename__ = "raw_documents"
-    __table_args__ = (UniqueConstraint("ingest_run_id", "celex"),)
+    __table_args__ = (
+        UniqueConstraint("ingest_run_id", "celex"),
+        Index("ix_raw_documents_topic_run", "topic", "ingest_run_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     ingest_run_id: Mapped[int] = mapped_column(ForeignKey("ingest_runs.id", ondelete="CASCADE"))

@@ -37,7 +37,7 @@ async def _recorded_run(
     result = IngestRunResult(run_id=run.id)
     try:
         yield run, result
-        await complete_ingest_run(session, run, status=result.status, result=result.report())
+        _ = await complete_ingest_run(session, run, status=result.status, result=result.report())
         result.corpus_version = run.corpus_version
     except BaseException:
         await _mark_aborted(session, run, result)
@@ -49,7 +49,7 @@ async def _mark_aborted(session: AsyncSession, run: IngestRun, result: IngestRun
     run_id = run.id
     await session.rollback()
     try:
-        await complete_ingest_run(
+        _ = await complete_ingest_run(
             session, run, status=IngestRunStatus.ABORTED, result=result.report()
         )
     except SQLAlchemyError:
