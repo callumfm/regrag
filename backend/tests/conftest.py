@@ -7,15 +7,17 @@ from typing import Any
 
 import httpx
 import pytest
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select
+from sqlalchemy import URL, create_engine, delete, make_url, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
 from app.core.clock import utc_now
-from app.core.config import EMBED_DIMENSIONS, R2Config, config
+from app.core.config import BACKEND_ROOT, EMBED_DIMENSIONS, R2Config, config
 from app.core.db.session import async_session_factory
 from app.core.storage import LocalObjectStore
 from app.ingestion.chunk.models import Chunk
@@ -72,8 +74,32 @@ def no_retry_backoff(defuse_retry: Callable[[Callable], Callable]) -> None:
         defuse_retry(fn)
 
 
+def _create_database_if_missing(url: URL) -> None:
+    """CREATE DATABASE cannot run in a transaction, so issue it autocommitting on `postgres`."""
+    engine = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    exists = text("SELECT 1 FROM pg_database WHERE datname = :name")
+    with engine.connect() as conn:
+        if not conn.scalar(exists, {"name": url.database}):
+            conn.execute(text(f'CREATE DATABASE "{url.database}"'))
+    engine.dispose()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def test_database() -> None:
+    """Bring the test database into existence and up to head before anything connects.
+
+    Migrating every session is what keeps the schema honest: a new revision would otherwise
+    only reach the suite once someone remembered to run alembic against it by hand.
+    """
+    url = make_url(config.SQLALCHEMY_DATABASE_URI)
+    _create_database_if_missing(url)
+    alembic = AlembicConfig(str(BACKEND_ROOT / "alembic.ini"))
+    alembic.set_main_option("script_location", str(BACKEND_ROOT / "migrations"))
+    command.upgrade(alembic, "head")
+
+
 @pytest.fixture(scope="session")
-def db_engine() -> AsyncEngine:
+def db_engine(test_database: None) -> AsyncEngine:
     """NullPool so each test's connection lives and dies inside its own event loop."""
     return create_async_engine(config.SQLALCHEMY_DATABASE_URI, poolclass=NullPool)
 
