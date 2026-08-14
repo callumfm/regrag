@@ -18,8 +18,8 @@ def failed_doc(
 
 @pytest.fixture
 def run() -> IngestRunResult:
-    """A run that fetched two documents and chunked one of them."""
-    result = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234")
+    """A run that discovered two documents, fetched both, and chunked one of them."""
+    result = IngestRunResult(run_id=7, corpus_version="2026-08-05-abc1234", discovered=2)
     result.documents.append(
         DocumentOutcome(celex="a", change=DocChange.NEW, chunks=ChunkCounts(added=12, kept=30))
     )
@@ -112,10 +112,10 @@ def test_report_leaves_the_recorded_failure_message_whole() -> None:
     assert message in result.summary()
 
 
-def test_the_discover_line_reports_the_given_total_not_the_documents_seen_so_far() -> None:
-    """The mid-run discover log fires before documents populate, so it takes an explicit total."""
-    result = IngestRunResult(run_id=1, dropped=["z"])
-    assert result.line(Stage.DISCOVER, total=2) == "[discover] 2 documents: 1 dropped, 0 failed"
+def test_the_discover_line_reports_what_discovery_found_not_the_documents_seen_so_far() -> None:
+    """The mid-run discover log fires before the loop populates documents."""
+    result = IngestRunResult(run_id=1, discovered=2, dropped=["z"])
+    assert result.line(Stage.DISCOVER) == "[discover] 2 documents: 1 dropped, 0 failed"
 
 
 def test_summary_reports_every_stage_on_its_own_line_with_its_unit(run: IngestRunResult) -> None:

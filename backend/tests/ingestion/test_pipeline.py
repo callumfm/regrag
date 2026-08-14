@@ -445,7 +445,7 @@ async def test_unparseable_document_is_recorded_and_others_persist(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert "32023R2449" in report.failures(Stage.PARSE)
+    assert "32023R2449" in report.failures[Stage.PARSE]
     assert not report.ok
     assert await chunk_rows(db_session, "32015R0757")
     assert await chunk_rows(db_session, "32023R2449") == []
@@ -494,8 +494,8 @@ async def test_a_store_write_failure_is_recorded_not_raised(
     client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert sorted(report.failures(Stage.FETCH)) == ["32015R0757", "32023R2449"]
-    assert all("StorageError" in reason for reason in report.failures(Stage.FETCH).values())
+    assert sorted(report.failures[Stage.FETCH]) == ["32015R0757", "32023R2449"]
+    assert all("StorageError" in reason for reason in report.failures[Stage.FETCH].values())
     assert not report.ok
 
 
@@ -571,7 +571,7 @@ async def test_failed_fetch_still_chunks_what_was_downloaded(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert "32023R2449" in report.failures(Stage.FETCH)
+    assert "32023R2449" in report.failures[Stage.FETCH]
     assert not report.ok
     assert report.corpus_version is None
     assert await chunk_rows(db_session, "32015R0757")
@@ -676,7 +676,7 @@ async def test_a_second_run_embeds_nothing_and_reports_the_rest_unchanged(
     second = await ingest_fueleu(db_session, local_store, corpus_client)
 
     assert second.ok
-    assert second.failures(Stage.EMBED) == {}
+    assert second.failures[Stage.EMBED] == {}
     assert (second.embed.embedded, second.embed.already_embedded) == (0, stored)
 
 
@@ -689,7 +689,7 @@ async def test_a_document_that_fails_does_not_stop_the_documents_after_it(
 
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert list(report.failures(Stage.FETCH)) == ["32015R0757"]
+    assert list(report.failures[Stage.FETCH]) == ["32015R0757"]
     assert committed(report, DocChange.NEW) == ["32023R2449"]
     assert report.chunks.added > 0
     assert not report.ok
@@ -705,7 +705,7 @@ async def test_a_document_that_fails_to_parse_leaves_no_row_behind(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert list(report.failures(Stage.PARSE)) == ["32023R2449"]
+    assert list(report.failures[Stage.PARSE]) == ["32023R2449"]
     assert committed(report, DocChange.NEW) == ["32015R0757"]
     assert "32023R2449" not in await get_raw_documents(
         db_session, RawDocsQuery(include_topics=["mrv"])
@@ -733,7 +733,7 @@ async def test_a_failed_document_leaves_the_rows_the_next_one_needs_readable(
     )
     report = await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
-    assert list(report.failures(Stage.FETCH)) == ["32015R0757"]
+    assert list(report.failures[Stage.FETCH]) == ["32015R0757"]
     assert committed(report, DocChange.REUSED) == ["32023R2449"]
 
 

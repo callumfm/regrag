@@ -12,15 +12,6 @@ from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.embed.models import EmbedOutcome
 from app.ingestion.enums import DocChange, IngestRunStatus, Stage
 
-UNITS = {
-    Stage.DISCOVER: "documents",
-    Stage.FETCH: "documents",
-    Stage.PARSE: "documents",
-    Stage.CHUNK: "chunks",
-    Stage.EMBED: "chunks",
-}
-"""What each stage's counts count, since a run's documents and its chunks read alike."""
-
 
 class DocumentOutcome(FrozenModel):
     """What one document's pass through the loop committed, or the stage that stopped it."""
@@ -32,30 +23,62 @@ class DocumentOutcome(FrozenModel):
     error: str = ""
 
 
+class StageReport(BaseModel):
+    """One stage as its two readers take it: the entry its row stores, and the line it logs."""
+
+    stage: Stage
+    unit: str
+    """What this stage's counts count, since a run's documents and its chunks read alike."""
+    total: int
+    counts: dict[str, int]
+    failed: dict[str, str]
+
+    def stored(self) -> dict[str, Any]:
+        """The stage as its run row holds it, with provider messages capped to fit."""
+        return {
+            **self.counts,
+            "failed": {
+                celex: error[: config.MAX_FAILURE_CHARS] for celex, error in self.failed.items()
+            },
+        }
+
+    def line(self) -> str:
+        """The stage on one line: its total in its own unit, then the buckets it split into."""
+        buckets = ", ".join(
+            f"{value} {label.replace('_', ' ')}" for label, value in self.counts.items()
+        )
+        return f"[{self.stage}] {self.total} {self.unit}: {buckets}, {len(self.failed)} failed"
+
+
 class IngestRunResult(BaseModel):
     """Outcome of one ingest run: its discovery diff, its documents, and its embedding pass."""
 
     run_id: int
     corpus_version: str | None = None
+    discovered: int = 0
     dropped: list[str] = Field(default_factory=list)
     documents: list[DocumentOutcome] = Field(default_factory=list)
     pruned: int = 0
     embed: EmbedOutcome = Field(default_factory=EmbedOutcome)
 
-    def failures(self, stage: Stage) -> dict[str, str]:
-        """Why each document this stage could not process failed."""
-        if stage is Stage.EMBED:
-            return self.embed.failures
-        return {doc.celex: doc.error for doc in self.documents if doc.failed is stage}
+    @property
+    def failures(self) -> dict[Stage, dict[str, str]]:
+        """Why each stage lost what it lost: the loop's documents, then the embed pass's own.
+
+        Embed reports for itself because it sweeps the corpus after the loop, so its losses
+        are counted in chunks against a document rather than in documents against a stage.
+        """
+        failed: dict[Stage, dict[str, str]] = {stage: {} for stage in Stage}
+        for doc in self.documents:
+            if doc.failed is not None:
+                failed[doc.failed][doc.celex] = doc.error
+        failed[Stage.EMBED] = self.embed.failures
+        return failed
 
     @property
     def committed(self) -> list[DocumentOutcome]:
         """The documents that got all the way through the loop, which are the ones that count."""
         return [doc for doc in self.documents if doc.failed is None]
-
-    @property
-    def changes(self) -> Counter[DocChange]:
-        return Counter(doc.change for doc in self.committed if doc.change is not None)
 
     @property
     def chunks(self) -> ChunkCounts:
@@ -69,55 +92,50 @@ class IngestRunResult(BaseModel):
         )
 
     @property
-    def counts(self) -> dict[Stage, dict[str, int]]:
-        """Each stage's outcome buckets, in the order the report and the summary present them."""
-        changes = self.changes
-        return {
-            Stage.DISCOVER: {"dropped": len(self.dropped)},
-            Stage.FETCH: {change.value: changes[change] for change in DocChange},
-            Stage.PARSE: {"parsed": len(self.committed)},
-            Stage.CHUNK: self.chunks.model_dump(),
-            Stage.EMBED: {
-                "embedded": self.embed.embedded,
-                "already_embedded": self.embed.already_embedded,
-            },
-        }
-
-    @property
     def corpus_complete(self) -> bool:
         """Every discovered document reached storage, so a celex it lacks is repealed, not lost."""
-        return not (self.failures(Stage.FETCH) or self.failures(Stage.PARSE))
+        failures = self.failures
+        return not (failures[Stage.FETCH] or failures[Stage.PARSE])
 
     @property
     def ok(self) -> bool:
-        return not any(self.failures(stage) for stage in Stage)
+        return not any(self.failures.values())
 
     @property
     def status(self) -> IngestRunStatus:
         return IngestRunStatus.SUCCESS if self.ok else IngestRunStatus.FAILED
 
+    def _stages(self) -> dict[Stage, StageReport]:
+        """Every stage written out: what it counted, in what unit, and what it could not."""
+        failures, chunks, embed = self.failures, self.chunks, self.embed
+        committed = self.committed
+        changes = Counter(doc.change for doc in committed)
+        fetched = {change.value: changes[change] for change in DocChange}
+        documents = len(self.documents)
+
+        def stage(name: Stage, unit: str, total: int, **counts: int) -> StageReport:
+            return StageReport(
+                stage=name, unit=unit, total=total, counts=counts, failed=failures[name]
+            )
+
+        reports = [
+            stage(Stage.DISCOVER, "documents", self.discovered, dropped=len(self.dropped)),
+            stage(Stage.FETCH, "documents", documents, **fetched),
+            stage(Stage.PARSE, "documents", documents, parsed=len(committed)),
+            stage(Stage.CHUNK, "chunks", chunks.total, **chunks.model_dump()),
+            stage(Stage.EMBED, "chunks", embed.total, **embed.model_dump(exclude={"failed"})),
+        ]
+        return {report.stage: report for report in reports}
+
     def report(self) -> dict[str, Any]:
         """The run as its row stores it: each stage's counts, plus why each document failed."""
-        return {
-            stage.value: {
-                **counts,
-                "failed": {
-                    celex: error[: config.MAX_FAILURE_CHARS]
-                    for celex, error in self.failures(stage).items()
-                },
-            }
-            for stage, counts in self.counts.items()
-        }
+        return {stage.value: report.stored() for stage, report in self._stages().items()}
 
-    def line(self, stage: Stage, *, total: int | None = None) -> str:
-        """One stage's counts on a line, carrying the unit those counts are in."""
-        counts, unit = self.counts[stage], UNITS[stage]
-        if total is None:
-            total = len(self.documents) if unit == "documents" else sum(counts.values())
-        buckets = ", ".join(f"{value} {label.replace('_', ' ')}" for label, value in counts.items())
-        return f"[{stage}] {total} {unit}: {buckets}, {len(self.failures(stage))} failed"
+    def line(self, stage: Stage) -> str:
+        """One stage on a line, for the log the pipeline writes as that stage finishes."""
+        return self._stages()[stage].line()
 
-    def details(self) -> list[str]:
+    def _details(self) -> list[str]:
         """The per-document lines the stage lines are too short to carry."""
         lines = []
         if self.dropped:
@@ -125,10 +143,9 @@ class IngestRunResult(BaseModel):
         for change in (DocChange.NEW, DocChange.UPDATED):
             if celexes := sorted(doc.celex for doc in self.committed if doc.change is change):
                 lines.append(f"fetch {change}: {', '.join(celexes)}")
-        for stage in Stage:
+        for stage, failures in self.failures.items():
             lines += [
-                f"{stage} failed: {celex} ({error})"
-                for celex, error in sorted(self.failures(stage).items())
+                f"{stage} failed: {celex} ({error})" for celex, error in sorted(failures.items())
             ]
         return lines
 
@@ -137,8 +154,8 @@ class IngestRunResult(BaseModel):
         return "\n".join(
             [
                 f"run {self.run_id} ({self.corpus_version or 'not stamped'})",
-                *(f"  {self.line(stage)}" for stage in Stage),
-                *(f"  {line}" for line in self.details()),
+                *(f"  {report.line()}" for report in self._stages().values()),
+                *(f"  {line}" for line in self._details()),
             ]
         )
 

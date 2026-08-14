@@ -87,3 +87,8 @@ class ChunkCounts(FrozenModel):
     deleted: int = 0
     kept: int = 0
     updated: int = 0
+
+    @property
+    def total(self) -> int:
+        """Every chunk the reconciliation accounted for, whichever bucket it fell in."""
+        return self.added + self.deleted + self.kept + self.updated
