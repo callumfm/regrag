@@ -47,7 +47,7 @@ class Locator(FrozenModel):
 class Chunk(Locator):
     """One retrievable unit of a regulation, with its citation and cross-references."""
 
-    NOT_IDENTITY: ClassVar[set[str]] = {"citation", "position", "references", "topic"}
+    METADATA: ClassVar[set[str]] = {"citation", "position", "references", "topic"}
     """Fields outside content_hash: topic is provenance, position is placement, the rest
     derive from what is hashed."""
 
@@ -75,7 +75,15 @@ class Chunk(Locator):
     @property
     def content_hash(self) -> str:
         """Hash of every field bar the exclusions, so a new field counts towards identity."""
-        payload = self.model_dump(mode="json", exclude=self.NOT_IDENTITY)
+        return self._digest(self.model_dump(mode="json", exclude=self.METADATA))
+
+    @property
+    def metadata_hash(self) -> str:
+        """Hash of the metadata fields, so drift detection compares one string per row."""
+        return self._digest(self.model_dump(mode="json", include=self.METADATA))
+
+    @staticmethod
+    def _digest(payload: dict[str, object]) -> str:
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 

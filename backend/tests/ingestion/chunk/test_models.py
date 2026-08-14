@@ -61,3 +61,20 @@ def test_position_does_not_affect_the_hash():
     shifted = chunk(position=7)
     assert shifted.position == 7
     assert shifted.content_hash == chunk().content_hash
+
+
+def test_metadata_hash_is_stable_for_identical_content():
+    assert chunk().metadata_hash == chunk().metadata_hash
+
+
+def test_topic_affects_the_metadata_hash_not_the_content_hash():
+    assert chunk().metadata_hash != chunk(topic="mrv").metadata_hash
+
+
+def test_position_affects_the_metadata_hash_not_the_content_hash():
+    assert chunk().metadata_hash != chunk(position=7).metadata_hash
+
+
+def test_text_affects_the_content_hash_not_the_metadata_hash():
+    """Identity and metadata fields partition the chunk: each change lands in exactly one hash."""
+    assert chunk().metadata_hash == chunk(text="Something else entirely.").metadata_hash

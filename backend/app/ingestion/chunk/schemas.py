@@ -46,6 +46,9 @@ class DocumentChunk(BaseSchema):
     content_hash: Mapped[str]
     occurrence: Mapped[int]
 
+    # Drift: fingerprint of the metadata columns; NULL predates the column and reads as drifted.
+    metadata_hash: Mapped[str | None]
+
     # Locator: where the chunk sits in the document, and how it cites itself.
     kind: Mapped[SectionKind]
     article: Mapped[str | None]
