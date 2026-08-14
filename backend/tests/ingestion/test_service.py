@@ -4,7 +4,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_today
-from app.ingestion.chunk.service import prune_chunks
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.schemas import IngestRun
 from app.ingestion.service import (
@@ -14,7 +13,7 @@ from app.ingestion.service import (
     get_celexes_to_keep,
     next_corpus_version,
 )
-from tests.conftest import chunk_rows, discovered_document
+from tests.conftest import discovered_document
 
 pytestmark = pytest.mark.anyio
 
@@ -141,14 +140,14 @@ async def test_version_covers_topics_the_run_did_not_fetch(db_session: AsyncSess
 
 
 async def test_keep_set_holds_this_runs_corpus_and_the_other_topics_documents(
-    db_session, make_document, make_chunk_row
+    db_session, make_document
 ):
-    """The keep-set spares every chunk some topic wants: this run's and the other topics'."""
+    """The keep-set names every celex some topic wants: this run's and the other topics'.
+
+    What is then dropped is prune_chunks' to answer, and chunk/test_service.py answers it.
+    """
     other = IngestRun(status=IngestRunStatus.SUCCESS)
     db_session.add(make_document(other, "32015R0757", topic="mrv"))
-    db_session.add(make_chunk_row(other, celex="32015R0757", topic="mrv"))
-    db_session.add(make_chunk_row(other, celex="32023R1805", topic="fueleu"))
-    db_session.add(make_chunk_row(other, celex="32009L0016", topic="fueleu"))
     await db_session.flush()
 
     to_keep = await get_celexes_to_keep(
@@ -157,5 +156,4 @@ async def test_keep_set_holds_this_runs_corpus_and_the_other_topics_documents(
         topics=["fueleu"],
     )
 
-    assert await prune_chunks(db_session, to_keep) == 1
-    assert {row.celex for row in await chunk_rows(db_session)} == {"32015R0757", "32023R1805"}
+    assert set(to_keep) == {"32023R1805", "32015R0757"}

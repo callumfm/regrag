@@ -9,7 +9,6 @@ from app.ingestion.chunk.models import Chunk, ChunkQuery
 from app.ingestion.chunk.references import extract_references
 from app.ingestion.chunk.service import (
     _key_incoming_chunks,
-    _key_stored_chunks,
     count_chunks,
     create_chunks,
     delete_chunks,
@@ -237,29 +236,25 @@ async def test_counts_zero_on_an_empty_table(db_session):
     assert await count_chunks(db_session, has_embedding=True) == 0
 
 
-async def test_key_stored_chunks_keys_every_row_by_hash_and_occurrence(
-    db_session: AsyncSession, ingest_run: IngestRun
+async def test_reconciling_does_not_load_the_stored_text(
+    db_engine, db_session: AsyncSession, ingest_run: IngestRun, later_run: IngestRun
 ):
-    await sync(db_session, ingest_run, chunk(), chunk())
-    stored = await _key_stored_chunks(db_session, "32023R1805")
-    assert sorted(occurrence for _, occurrence in stored) == [0, 1]
-    assert len({digest for digest, _ in stored}) == 1
-
-
-async def test_key_stored_chunks_is_scoped_to_one_document(
-    db_session: AsyncSession, ingest_run: IngestRun
-):
-    await seed_two_topics(db_session, ingest_run)
-    assert len(await _key_stored_chunks(db_session, "32023R1805")) == 1
-
-
-async def test_key_stored_chunks_carries_the_metadata_hash_not_the_metadata_fields(
-    db_session: AsyncSession, ingest_run: IngestRun
-):
+    """Matching is on hashes, so the read must not drag every stored chunk's text back with it."""
     await sync(db_session, ingest_run, chunk())
-    row = next(iter((await _key_stored_chunks(db_session, "32023R1805")).values()))
-    assert row.metadata_hash == chunk().metadata_hash
-    assert set(row._fields) == {"content_hash", "occurrence", "id", "metadata_hash"}
+    selects: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT") and "document_chunks" in statement:
+            selects.append(statement)
+
+    event.listen(db_engine.sync_engine, "before_cursor_execute", record)
+    try:
+        await sync(db_session, later_run, chunk())
+    finally:
+        event.remove(db_engine.sync_engine, "before_cursor_execute", record)
+
+    assert selects
+    assert not any("document_chunks.text" in statement for statement in selects)
 
 
 async def test_stored_chunk_records_its_metadata_hash(
