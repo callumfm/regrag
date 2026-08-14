@@ -7,6 +7,8 @@ CONSOLIDATED = "0"
 CENTURIES = ("19", "20")
 LENGTH = 10
 KIND_LETTERS = {"regulation": "R", "directive": "L", "decision": "D"}
+YEAR_FIRST_SCHEME = 2015
+"""From this year on acts are numbered year-first, and stopped carrying a 'No'."""
 
 
 def expand_year(value: str) -> str:
@@ -20,6 +22,27 @@ def as_year(value: str) -> int | None:
     if len(year) != 4 or year[:2] not in CENTURIES or int(year) > utc_today().year:
         return None
     return int(year)
+
+
+def order_number_and_year(numbered: bool, first: str, second: str) -> tuple[str, str]:
+    """A '765/2008' pair as (number, year); the 'No NN/MM' form is number-first.
+
+    Acts numbered under the 2015 year-first scheme never carried a 'No', so a leading
+    four-digit year from that scheme marks a sloppy citation to read year-first anyway.
+    """
+    if numbered:
+        year = as_year(first)
+        if len(first) == 4 and year is not None and year >= YEAR_FIRST_SCHEME:
+            return second, first
+        return first, second
+    if len(first) == 2 and len(second) == 2:
+        return second, first
+    left, right = as_year(first), as_year(second)
+    if left and right:
+        return (second, first) if left >= right else (first, second)
+    if right:
+        return first, second
+    return second, first
 
 
 def build(kind: str, year: str, number: str) -> str:
