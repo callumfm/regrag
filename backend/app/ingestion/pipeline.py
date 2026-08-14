@@ -9,17 +9,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import ObjectStore
-from app.ingestion.chunk.service import prune_chunks
-from app.ingestion.chunk.stage import chunk_and_store_document
+from app.ingestion.chunk.stage import chunk_and_store_document, prune_dropped_chunks
 from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.discover.stage import discover_topics, find_dropped_celexes
 from app.ingestion.embed.stage import embed_chunks
 from app.ingestion.enums import IngestRunStatus, Stage
 from app.ingestion.exceptions import DocumentFailed
-from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
-from app.ingestion.fetch.service import get_raw_documents
-from app.ingestion.fetch.stage import fetch_document
+from app.ingestion.fetch.stage import fetch_document, previous_corpus
 from app.ingestion.models import DocumentOutcome, IngestRunResult
 from app.ingestion.parse.stage import parse_document
 from app.ingestion.schemas import IngestRun
@@ -88,8 +85,7 @@ async def ingest(
 ) -> IngestRunResult:
     """Run the whole pipeline under one ingest run, each document landing whole or not at all."""
     async with _recorded_run(session) as (run, result):
-        query_in = RawDocsQuery(include_topics=list(topics))
-        existing = await get_raw_documents(session, query=query_in)
+        existing = await previous_corpus(session, topics)
         discovered = await discover_topics(client, topics)
         result.discovered = len(discovered)
         result.dropped = find_dropped_celexes(discovered, existing.keys())
@@ -111,7 +107,7 @@ async def ingest(
 
         if result.corpus_complete:
             to_keep = await get_celexes_to_keep(session, discovered=discovered, topics=topics)
-            result.pruned = await prune_chunks(session, to_keep)
+            result.pruned = await prune_dropped_chunks(session, to_keep)
 
         logger.info("%s", result.line(Stage.CHUNK))
 

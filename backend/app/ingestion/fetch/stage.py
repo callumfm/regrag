@@ -1,5 +1,7 @@
 """Fetch stage: version-diff against the previous run, download only what changed."""
 
+from collections.abc import Sequence
+
 import httpx
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,10 +12,16 @@ from app.ingestion.discover.models import DiscoveredDocument
 from app.ingestion.enums import DocChange, Stage
 from app.ingestion.exceptions import DocumentFailed, IngestionError
 from app.ingestion.fetch.download import download_fetchable_version
-from app.ingestion.fetch.models import FetchedDocument
+from app.ingestion.fetch.models import FetchedDocument, RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
+from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.fetch.storage import StoredBytesMismatchError, read_document, write_document
 from app.ingestion.schemas import IngestRun
+
+
+async def previous_corpus(session: AsyncSession, topics: Sequence[str]) -> dict[str, RawDocument]:
+    """The standing rows for these topics, keyed by celex: the corpus the last run left behind."""
+    return await get_raw_documents(session, query=RawDocsQuery(include_topics=list(topics)))
 
 
 def _reuse_previous_version(

@@ -1,4 +1,4 @@
-"""The chunk stage on one parsed document; the corpus-wide prune is the pipeline's, not this."""
+"""The chunk stage: one parsed document reconciled, and the corpus-wide prune that follows."""
 
 from collections.abc import Callable
 
@@ -111,3 +111,24 @@ async def test_chunking_one_document_leaves_outsiders_alone(
 
     assert counts.deleted == 0
     assert await chunk_versions(db_session, "repealed") != set()
+
+
+async def test_the_prune_survives_a_rollback_that_follows_it(
+    db_session: AsyncSession,
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    """Committed where the deleting happens, so a later abort cannot quietly restore them.
+
+    The run reports the count either way; leaving them pending would let it report deletes
+    that a rollback had already undone.
+    """
+    db_session.add(make_chunk_row(ingest_run, celex="repealed", topic="fueleu"))
+    db_session.add(make_chunk_row(ingest_run, celex="32023R1805", topic="fueleu"))
+    await db_session.commit()
+
+    assert await stage.prune_dropped_chunks(db_session, ["32023R1805"]) == 1
+    await db_session.rollback()
+
+    assert await chunk_versions(db_session, "repealed") == set()
+    assert await chunk_versions(db_session, "32023R1805") != set()
