@@ -22,7 +22,7 @@ LEADING_NUMBER_RE = re.compile(r"^(\d+[a-z]?)\.\s*")
 
 
 def replace_formula_images(tree: HTMLParser) -> None:
-    """Stand every base64 formula image down to a marker the chunker can carry."""
+    """Stand every base64 formula image down to a marker a chunk can carry."""
     for image in tree.css("img"):
         if (image.attributes.get("src") or "").startswith("data:"):
             image.replace_with(FORMULA_PLACEHOLDER)

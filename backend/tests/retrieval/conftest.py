@@ -14,9 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.core.config import EMBED_DIMENSIONS
 from app.core.db.session import async_session_factory
-from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import sync_document_chunks
+from app.ingestion.chunk.tree import chunk_document
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.schemas import IngestRun

@@ -7,10 +7,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk import stage
-from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.stage import chunk_and_store_document
+from app.ingestion.chunk.tree import chunk_document
 from app.ingestion.enums import SectionKind, Stage
 from app.ingestion.exceptions import DocumentFailed, ParseError
 from app.ingestion.parse.models import ParsedDocument, Section

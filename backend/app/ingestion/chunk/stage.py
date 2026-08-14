@@ -3,9 +3,9 @@
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ingestion.chunk.chunker import chunk_document
 from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.chunk.service import sync_document_chunks
+from app.ingestion.chunk.tree import chunk_document
 from app.ingestion.enums import Stage
 from app.ingestion.exceptions import DocumentFailed, IngestionError
 from app.ingestion.parse.models import ParsedDocument

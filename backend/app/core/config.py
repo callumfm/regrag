@@ -146,7 +146,7 @@ class IngestConfig(BaseConfig):
         the rest is courtesy.
     MAX_DROP_RATIO: fraction of the previous corpus that may vanish before discovery aborts.
     MIN_SUSPICIOUS_DROPS: dropped documents below this never abort, however small the corpus.
-    MAX_CHARS: longest chunk the chunker will emit.
+    MAX_CHARS: longest chunk emitted.
     EMBED_PAGE_SIZE: chunks the embed sweep reads per page.
     EMBED_CONCURRENCY: provider calls in flight at once; llm_retry absorbs the rate limits.
     MAX_FAILURE_CHARS: cut for a stored failure message, so one talkative provider cannot

@@ -2,13 +2,17 @@
 
 import hashlib
 import json
-from typing import ClassVar, Self
+from collections.abc import Sequence
+from typing import ClassVar
 
 from pydantic import computed_field
 
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.models import Section
+
+DIVISIONS = (SectionKind.ARTICLE, SectionKind.ANNEX)
+"""Section kinds that enclose a chunk: the innermost one is the division it belongs to."""
 
 
 class Reference(FrozenModel):
@@ -22,26 +26,28 @@ class Reference(FrozenModel):
 
 
 class Locator(FrozenModel):
-    """Where a chunk sits in the document, accumulated on the way down the tree."""
+    """Where a chunk sits: the division it belongs to, under the headings above it."""
 
     article: str | None = None
     annex: str | None = None
     title: str | None = None
     heading_path: tuple[str, ...] = ()
 
-    def with_section(self, section: Section) -> Self:
-        """This locator with a section's identity folded in; its children inherit the result."""
-        if section.kind is SectionKind.ARTICLE:
-            return self.model_copy(
-                update={"article": section.number, "annex": None, "title": section.title}
-            )
-        if section.kind is SectionKind.ANNEX:
-            return self.model_copy(
-                update={"annex": section.number, "article": None, "title": section.title}
-            )
-        if section.kind is SectionKind.HEADING and section.title:
-            return self.model_copy(update={"heading_path": (*self.heading_path, section.title)})
-        return self
+
+def locator_for(path: Sequence[Section]) -> Locator:
+    """Where a section sits, read off its ancestors: the nearest article or annex encloses it,
+    and every heading on the way down is part of the path."""
+    headings = tuple(s.title for s in path if s.kind is SectionKind.HEADING and s.title)
+    division = next((s for s in reversed(path) if s.kind in DIVISIONS), None)
+    if division is None:
+        return Locator(heading_path=headings)
+    is_article = division.kind is SectionKind.ARTICLE
+    return Locator(
+        article=division.number if is_article else None,
+        annex=None if is_article else division.number,
+        title=division.title,
+        heading_path=headings,
+    )
 
 
 class Chunk(Locator):
