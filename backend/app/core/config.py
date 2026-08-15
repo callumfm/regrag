@@ -168,6 +168,8 @@ class RetrievalConfig(BaseConfig):
 
     SEARCH_CANDIDATES: per-leg candidate pool feeding Reciprocal Rank Fusion.
     SEARCH_DEFAULT_LIMIT: results returned when the caller does not say how many.
+    EF_SEARCH_PER_CANDIDATE: how far the HNSW walk looks per candidate wanted; pgvector
+        caps the product at 1000.
     RRF_K: fusion damping; a result at some rank scores 1 / (RRF_K + rank).
     RERANK_ENABLED: the cross-encoder's off switch.
     RERANK_MODEL: which cross-encoder rescores the fused results.
@@ -177,6 +179,7 @@ class RetrievalConfig(BaseConfig):
 
     SEARCH_CANDIDATES: int = 50
     SEARCH_DEFAULT_LIMIT: int = 10
+    EF_SEARCH_PER_CANDIDATE: int = 4
     RRF_K: int = 60
 
     RERANK_ENABLED: bool = True

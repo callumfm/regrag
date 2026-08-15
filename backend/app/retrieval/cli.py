@@ -8,8 +8,8 @@ from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import LLMError
 from app.core.logger import setup_logging
-from app.retrieval.models import SearchFilters, SearchResult
-from app.retrieval.pipeline import search
+from app.retrieval.models import SearchFilters, SearchRequest, SearchResult
+from app.retrieval.search import search
 
 SNIPPET = 160
 
@@ -25,17 +25,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _search(query: str, filters: SearchFilters, limit: int) -> tuple[SearchResult, ...]:
+async def _search(request: SearchRequest) -> tuple[SearchResult, ...]:
     async with get_session(auto_commit=False) as session:
-        return await search(session, query, filters, limit=limit)
+        return await search(session, request)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging()
-    filters = SearchFilters(celex=args.celex, topic=args.topic)
+    request = SearchRequest(
+        query=args.query,
+        filters=SearchFilters(celex=args.celex, topic=args.topic),
+        limit=args.limit,
+    )
     try:
-        found = asyncio.run(_search(args.query, filters, args.limit))
+        found = asyncio.run(_search(request))
     except LLMError as exc:
         print(f"retrieval failed: {exc}", file=sys.stderr)
         return 1

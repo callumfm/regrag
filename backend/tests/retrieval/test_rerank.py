@@ -26,6 +26,7 @@ def _result(chunk_id: int) -> SearchResult:
         citation=f"Article {chunk_id}",
         title=None,
         text=f"text of chunk {chunk_id}",
+        references=(),
         score=1.0 / chunk_id,
         vector_rank=chunk_id,
         text_rank=None,

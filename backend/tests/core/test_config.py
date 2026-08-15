@@ -137,6 +137,7 @@ def test_retrieval_defaults_match_the_shipped_tunables():
 
     assert retrieval.SEARCH_CANDIDATES == 50
     assert retrieval.SEARCH_DEFAULT_LIMIT == 10
+    assert retrieval.EF_SEARCH_PER_CANDIDATE == 4
     assert retrieval.RRF_K == 60
     assert retrieval.RERANK_ENABLED is True
     assert retrieval.RERANK_MODEL == "voyage/rerank-2.5"
