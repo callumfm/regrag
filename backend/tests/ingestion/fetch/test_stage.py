@@ -322,17 +322,3 @@ async def test_duplicate_celex_across_topics_ingested_once(db_session, local_sto
     assert failed == {}
     rows = await get_raw_documents(db_session, RawDocsQuery(include_topics=["fueleu", "mrv"]))
     assert rows["32015R0757"].topic == "fueleu"
-
-
-async def test_a_freshly_downloaded_document_hands_its_bytes_straight_on(
-    db_session, local_store, corpus_client, monkeypatch
-):
-    """The download already holds the bytes, so parse must not pay a second storage round trip."""
-    reads: list[str] = []
-    monkeypatch.setattr(local_store, "get", lambda key: reads.append(key))
-    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    _, failed, documents = await fetch(db_session, client, ["mrv"], local_store)
-
-    assert failed == {}
-    assert len(documents) == 2
-    assert reads == []

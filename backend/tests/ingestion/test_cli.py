@@ -103,9 +103,15 @@ def test_abort_on_http_error(monkeypatch, capsys):
 
 
 async def test_ingest_hands_the_pipeline_a_paced_client(monkeypatch):
-    """The CLI is where the crawl delays are attached, so the real client it builds must carry
-    the pacing hook — asserting on the kwargs alone would only restate the call."""
+    """The CLI is where the crawl delays are attached, so pin both the delays it asks for and
+    that the real client it gets back carries the hook they produce."""
+    built: dict = {}
     clients: list[httpx.AsyncClient] = []
+    real_client = cli.http_client
+
+    def spy(**kwargs):
+        built.update(kwargs)
+        return real_client(**kwargs)
 
     @contextlib.asynccontextmanager
     async def fake_session(**_):
@@ -115,9 +121,11 @@ async def test_ingest_hands_the_pipeline_a_paced_client(monkeypatch):
         clients.append(client)
         return IngestRunResult(run_id=1)
 
+    monkeypatch.setattr(cli, "http_client", spy)
     monkeypatch.setattr(cli, "get_session", fake_session)
     monkeypatch.setattr(cli, "ingest", capture)
     await cli._ingest(["mrv"])
 
     (client,) = clients
+    assert built["delays"] == config.CRAWL_DELAYS
     assert client.event_hooks["request"]

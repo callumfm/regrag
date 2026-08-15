@@ -428,6 +428,27 @@ async def test_unparseable_document_is_recorded_and_others_persist(
     assert run.status is IngestRunStatus.FAILED
 
 
+async def test_a_freshly_downloaded_document_is_parsed_without_reading_it_back(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """The download already holds the bytes, so parse must not pay a second storage round trip.
+
+    Asserted over the whole loop rather than the fetch stage: fetch alone never reads the store
+    for a document it just downloaded, so only a run that goes on to parse can catch the reread.
+    """
+    reads: list[str] = []
+
+    def record(key: str) -> bytes:
+        reads.append(key)
+        raise AssertionError(f"parse read {key} back from the store")
+
+    monkeypatch.setattr(local_store, "get", record)
+    report = await ingest_mrv(db_session, local_store, corpus_client)
+
+    assert report.ok
+    assert reads == []
+
+
 async def test_a_source_document_lost_from_the_store_is_downloaded_again(
     db_session, local_store, corpus_client
 ):
