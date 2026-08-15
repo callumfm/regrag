@@ -5,6 +5,7 @@
 .superpowers/
 docs/superpowers/
 .zed/
+.playwright-mcp/
 
 # Local corpus spike data
 /data/
