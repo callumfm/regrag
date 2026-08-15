@@ -61,6 +61,7 @@ async def test_an_empty_item_list_runs_nothing():
 async def test_leaving_the_block_early_cancels_what_is_still_running():
     """An abort mid-consumption must not leave provider calls running behind the caller's back."""
     started = asyncio.Event()
+    tasks: list[asyncio.Task[int]] = []
 
     async def never_finishes(item: int) -> int:
         started.set()
@@ -70,8 +71,9 @@ async def test_leaving_the_block_early_cancels_what_is_still_running():
     with pytest.raises(RuntimeError):
         async with run_concurrently([1, 2], never_finishes, limit=2) as pending:
             await started.wait()
-            tasks = [task for _, task in pending]
+            tasks.extend(task for _, task in pending)
             raise RuntimeError("caller aborted")
 
+    assert tasks
     await asyncio.gather(*tasks, return_exceptions=True)
     assert all(task.cancelled() for task in tasks)
