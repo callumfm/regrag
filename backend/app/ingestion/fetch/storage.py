@@ -1,6 +1,7 @@
 """Where a fetched document's bytes live: the only module that reads or writes them."""
 
 import hashlib
+import re
 
 from app.core.storage import ObjectStore, StorageError
 from app.ingestion.exceptions import EmptyDownloadError
@@ -17,16 +18,32 @@ def document_key(celex: str, resolved_celex: str, sha256: str) -> str:
     return f"{celex}/{resolved_celex}/{sha256}.html"
 
 
+SCRIPT_RE = re.compile(rb"<script\b[^>]*>.*?</script\s*>", re.DOTALL | re.IGNORECASE)
+"""Cut out rather than parsed out, so every other byte of the document survives untouched;
+a parser round trip would rewrite the markup around them. Scripts cannot nest, and an
+unescaped </script> inside one is not legal HTML, so the non-greedy match is exact."""
+
+
+def remove_scripts(html: bytes) -> bytes:
+    """Drop script tags: EUR-Lex stamps a per-request analytics id into every response, so the
+    same law downloads as different bytes each time and lands under a different content key."""
+    return SCRIPT_RE.sub(b"", html)
+
+
 def write_document(
     store: ObjectStore, celex: str, resolved_celex: str, html: bytes
 ) -> tuple[str, int]:
     """Store the document's bytes and return their (sha256, size_bytes), refusing empty
-    content so a failed download cannot be recorded as a version."""
+    content so a failed download cannot be recorded as a version.
+
+    What is hashed is what is stored, because read_document re-hashes the object it fetched.
+    """
     if not html:
         raise EmptyDownloadError(f"{celex}: download returned an empty body")
-    sha256 = hashlib.sha256(html).hexdigest()
-    store.put(document_key(celex, resolved_celex, sha256), html)
-    return sha256, len(html)
+    stored = remove_scripts(html)
+    sha256 = hashlib.sha256(stored).hexdigest()
+    store.put(document_key(celex, resolved_celex, sha256), stored)
+    return sha256, len(stored)
 
 
 def read_document(store: ObjectStore, document: RawDocument) -> bytes:
