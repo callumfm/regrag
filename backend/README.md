@@ -1,6 +1,6 @@
 # Backend
 
-FastAPI backend for RegRag: the ingestion pipeline, the retrieval agent and the evaluation harness.
+FastAPI backend for RegRag: the ingestion pipeline and the retrieval layer.
 
 ## Stack
 
@@ -58,7 +58,7 @@ pre-commit install          # from the repo root
 cp .env.example .env.dev    # then set VOYAGE_API_KEY
 ```
 
-Start the database from the repo root, then migrate and run the API:
+Start the database, migrate and run the API:
 
 ```bash
 docker compose up -d db

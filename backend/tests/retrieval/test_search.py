@@ -313,11 +313,12 @@ async def test_a_search_over_an_empty_corpus_returns_nothing(empty_session: Asyn
 async def test_the_candidate_pool_is_read_from_config_per_call(
     db_session: AsyncSession, corpus: list[DocumentChunk], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    request = SearchRequest(query="greenhouse gas emissions", limit=10)
+    assert len(await search(db_session, request)) > 2
+
     monkeypatch.setattr(config, "SEARCH_CANDIDATES", 1)
 
-    found = await search(db_session, SearchRequest(query="greenhouse gas emissions", limit=10))
-
-    assert len(found) == 2
+    assert len(await search(db_session, request)) <= 2
 
 
 async def test_a_request_without_a_limit_takes_the_configured_default_per_call(
