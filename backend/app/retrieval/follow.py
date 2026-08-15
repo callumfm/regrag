@@ -4,7 +4,7 @@ from sqlalchemy import Integer, Select, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.retrieval.models import CHUNK_COLUMNS, ReferenceTarget, RetrievedChunk
+from app.retrieval.models import ReferenceTarget, RetrievedChunk
 
 ARTICLE_ORDER = (
     DocumentChunk.paragraph.is_not(None),
@@ -36,7 +36,16 @@ async def follow_reference(
 ) -> tuple[RetrievedChunk, ...]:
     """The text a stored cross-reference points at, in reading order."""
     order = ANNEX_ORDER if target.annex is not None else ARTICLE_ORDER
-    stmt = _targeted(select(*CHUNK_COLUMNS), target).order_by(*order)
+    stmt = select(
+        DocumentChunk.id,
+        DocumentChunk.celex,
+        DocumentChunk.topic,
+        DocumentChunk.citation,
+        DocumentChunk.title,
+        DocumentChunk.text,
+        DocumentChunk.references,
+    )
+    stmt = _targeted(stmt, target).order_by(*order)
 
     rows = await session.execute(stmt)
     return tuple(RetrievedChunk.model_validate(row, from_attributes=True) for row in rows)

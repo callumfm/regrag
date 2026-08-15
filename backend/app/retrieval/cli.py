@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--celex", help="restrict to one act")
     parser.add_argument("--topic", help="restrict to one topic")
     parser.add_argument(
-        "--limit", type=int, default=config.SEARCH_DEFAULT_LIMIT, help="results to return"
+        "--limit", type=int, help=f"results to return (default: {config.SEARCH_DEFAULT_LIMIT})"
     )
     return parser
 

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import config
 from app.core.llm import EmbedInput, embed, llm_retry
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.retrieval.models import CHUNK_COLUMNS, SearchFilters, SearchRequest, SearchResult
+from app.retrieval.models import SearchFilters, SearchRequest, SearchResult
 from app.retrieval.rerank import rerank_results
 
 EF_SEARCH_MAX = 1000
@@ -97,7 +97,13 @@ async def hybrid_search(
     )
     stmt = (
         select(
-            *CHUNK_COLUMNS,
+            DocumentChunk.id,
+            DocumentChunk.celex,
+            DocumentChunk.topic,
+            DocumentChunk.citation,
+            DocumentChunk.title,
+            DocumentChunk.text,
+            DocumentChunk.references,
             score,
             by_vector.c.rank.label("vector_rank"),
             by_text.c.rank.label("text_rank"),
@@ -113,8 +119,9 @@ async def hybrid_search(
 
 async def search(session: AsyncSession, request: SearchRequest) -> tuple[SearchResult, ...]:
     """The corpus's best answers to a query, fused across both legs and reranked."""
+    limit = request.limit or config.SEARCH_DEFAULT_LIMIT
     embedding = await _embed_query(request.query)
-    pool = max(request.limit, config.RERANK_POOL) if config.RERANK_ENABLED else request.limit
+    pool = max(limit, config.RERANK_POOL) if config.RERANK_ENABLED else limit
     results = await hybrid_search(
         session,
         embedding,
@@ -125,5 +132,5 @@ async def search(session: AsyncSession, request: SearchRequest) -> tuple[SearchR
         limit=pool,
     )
     if config.RERANK_ENABLED:
-        results = await rerank_results(request.query, results, limit=request.limit)
+        results = await rerank_results(request.query, results, limit=limit)
     return results

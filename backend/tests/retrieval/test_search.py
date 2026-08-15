@@ -71,10 +71,14 @@ async def test_the_walk_runs_in_the_order_fusion_ranks_on(db_session: AsyncSessi
     assert await db_session.scalar(text("SHOW hnsw.iterative_scan")) == "strict_order"
 
 
-async def test_the_walk_is_sized_from_the_candidate_pool(db_session: AsyncSession) -> None:
+async def test_the_walk_is_sized_from_the_candidate_pool_and_the_knob(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "EF_SEARCH_PER_CANDIDATE", 7)
+
     await _tune_hnsw_walk(db_session, 50)
 
-    assert await db_session.scalar(text("SHOW hnsw.ef_search")) == "200"
+    assert await db_session.scalar(text("SHOW hnsw.ef_search")) == "350"
 
 
 async def test_a_candidate_pool_past_the_ceiling_is_clamped_rather_than_refused(
@@ -102,7 +106,8 @@ async def test_hybrid_search_sizes_the_walk_from_the_candidates_it_is_given(
         limit=5,
     )
 
-    assert await db_session.scalar(text("SHOW hnsw.ef_search")) == "400"
+    expected = str(100 * config.EF_SEARCH_PER_CANDIDATE)
+    assert await db_session.scalar(text("SHOW hnsw.ef_search")) == expected
 
 
 # The vector leg
@@ -311,6 +316,16 @@ async def test_the_candidate_pool_is_read_from_config_per_call(
     monkeypatch.setattr(config, "SEARCH_CANDIDATES", 1)
 
     found = await search(db_session, SearchRequest(query="greenhouse gas emissions", limit=10))
+
+    assert len(found) == 2
+
+
+async def test_a_request_without_a_limit_takes_the_configured_default_per_call(
+    db_session: AsyncSession, corpus: list[DocumentChunk], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "SEARCH_DEFAULT_LIMIT", 2)
+
+    found = await search(db_session, SearchRequest(query="greenhouse gas emissions"))
 
     assert len(found) == 2
 

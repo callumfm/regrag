@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ingestion.chunk.models import Reference
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.follow import follow_reference
@@ -15,14 +16,14 @@ INVENTED_CELEX = "39999R9999"
 
 
 async def stored_reference(
-    session: AsyncSession, *, celex: str, predicate: Callable[[dict], bool]
-) -> dict:
+    session: AsyncSession, *, celex: str, predicate: Callable[[Reference], bool]
+) -> Reference:
     """One cross-reference the chunker really stored, so the follow is driven by real data."""
     stmt = select(DocumentChunk.references).where(DocumentChunk.celex == celex)
     found = [
         reference
         for (references,) in await session.execute(stmt)
-        for reference in references
+        for reference in map(Reference.model_validate, references)
         if predicate(reference)
     ]
     assert found, f"the {celex} fixture no longer stores a reference this test can follow"
@@ -70,10 +71,15 @@ async def test_follow_reference_returns_paragraphs_in_reading_order_not_text_ord
 async def test_follow_reference_puts_a_split_chapeau_in_part_order(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
+    """A RetrievedChunk carries no part, so the order is checked against the rows' own parts."""
     found = await follow_reference(db_session, ReferenceTarget(celex="32015R0757", article="3"))
 
+    parts = select(DocumentChunk.id, DocumentChunk.part).where(
+        DocumentChunk.celex == "32015R0757", DocumentChunk.article == "3"
+    )
+    part_of = {id_: part for id_, part in await db_session.execute(parts)}
     assert [chunk.citation for chunk in found] == ["Article 3", "Article 3"]
-    assert len(found) == 2
+    assert [part_of[chunk.id] for chunk in found] == [1, 2]
 
 
 async def test_follow_reference_matches_the_article_number_case_insensitively(
@@ -82,6 +88,7 @@ async def test_follow_reference_matches_the_article_number_case_insensitively(
     upper = await follow_reference(db_session, ReferenceTarget(celex="32015R0757", article="11A"))
     lower = await follow_reference(db_session, ReferenceTarget(celex="32015R0757", article="11a"))
 
+    assert lower
     assert upper == lower
 
 
@@ -163,16 +170,11 @@ async def test_following_a_stored_reference_reaches_the_cited_text(
 ) -> None:
     """RRG-58's first acceptance, driven by a reference the chunker really stored."""
     reference = await stored_reference(
-        db_session, celex="32023R1805", predicate=lambda r: r["article"] == "4"
+        db_session, celex="32023R1805", predicate=lambda r: r.article == "4"
     )
 
     found = await follow_reference(
-        db_session,
-        ReferenceTarget(
-            celex=reference["instrument"] or "32023R1805",
-            article=reference["article"],
-            paragraph=reference["paragraph"],
-        ),
+        db_session, ReferenceTarget.from_reference(reference, citing="32023R1805")
     )
 
     assert [chunk.citation for chunk in found] == ["Article 4(1)"]
@@ -186,16 +188,11 @@ async def test_following_a_stored_reference_to_an_act_outside_the_corpus_is_empt
     reference = await stored_reference(
         db_session,
         celex="32015R0757",
-        predicate=lambda r: r["instrument"] == "32023R1805" and r["article"] is not None,
+        predicate=lambda r: r.instrument == "32023R1805" and r.article is not None,
     )
 
     found = await follow_reference(
-        db_session,
-        ReferenceTarget(
-            celex=reference["instrument"],
-            article=reference["article"],
-            paragraph=reference["paragraph"],
-        ),
+        db_session, ReferenceTarget.from_reference(reference, citing="32015R0757")
     )
 
     assert found == ()
@@ -214,12 +211,7 @@ async def test_a_followed_chunk_carries_the_reference_that_leads_on_from_it(
     assert cited.raw == "Article 11a"
     assert cited.instrument is None
     second = await follow_reference(
-        db_session,
-        ReferenceTarget(
-            celex=cited.instrument or "32015R0757",
-            article=cited.article,
-            paragraph=cited.paragraph,
-        ),
+        db_session, ReferenceTarget.from_reference(cited, citing="32015R0757")
     )
     assert second
     assert all(chunk.citation.startswith("Article 11a") for chunk in second)

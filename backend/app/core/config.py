@@ -5,6 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -177,9 +178,9 @@ class RetrievalConfig(BaseConfig):
     RERANK_POOL: fused results the cross-encoder rescores.
     """
 
-    SEARCH_CANDIDATES: int = 50
-    SEARCH_DEFAULT_LIMIT: int = 10
-    EF_SEARCH_PER_CANDIDATE: int = 4
+    SEARCH_CANDIDATES: int = Field(default=50, ge=1)
+    SEARCH_DEFAULT_LIMIT: int = Field(default=10, ge=1)
+    EF_SEARCH_PER_CANDIDATE: int = Field(default=4, ge=1)
     RRF_K: int = 60
 
     RERANK_ENABLED: bool = True

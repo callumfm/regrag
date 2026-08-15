@@ -1,0 +1,16 @@
+[     510ms] [ERROR] Error with Permissions-Policy header: Parse of permissions policy failed because of errors reported by structured header parser. @ :0
+[    1891ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ https://view-emissions-trading-registry.service.gov.uk/auth/realms/uk-ets/protocol/openid-connect/3p-cookies/step1.html:0
+[    2058ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ https://view-emissions-trading-registry.service.gov.uk/auth/realms/uk-ets/protocol/openid-connect/3p-cookies/step2.html:0
+[    2225ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ https://view-emissions-trading-registry.service.gov.uk/auth/realms/uk-ets/protocol/openid-connect/login-status-iframe.html:0
+[    2753ms] [ERROR] Error: An error happened during access validation. Details:false
+    at t.<anonymous> (https://view-emissions-trading-registry.service.gov.uk/chunk-ZBBOJH4N.js:36:8449)
+    at Generator.throw (<anonymous>)
+    at g (https://view-emissions-trading-registry.service.gov.uk/chunk-23SLLJ2L.js:1:1466)
+    at a.invoke (https://view-emissions-trading-registry.service.gov.uk/polyfills-FPR5PGRX.js:4:44376)
+    at Object.onInvoke (https://view-emissions-trading-registry.service.gov.uk/chunk-ZBBOJH4N.js:22:30026)
+    at a.invoke (https://view-emissions-trading-registry.service.gov.uk/polyfills-FPR5PGRX.js:4:44316)
+    at V.run (https://view-emissions-trading-registry.service.gov.uk/polyfills-FPR5PGRX.js:4:39632)
+    at https://view-emissions-trading-registry.service.gov.uk/polyfills-FPR5PGRX.js:5:554
+    at a.invokeTask (https://view-emissions-trading-registry.service.gov.uk/polyfills-FPR5PGRX.js:4:45001)
+    at Object.onInvokeTask (https://view-emissions-trading-registry.service.gov.uk/chunk-ZBBOJH4N.js:22:29842) @ https://view-emissions-trading-registry.service.gov.uk/chunk-ZBBOJH4N.js:42
+[    2929ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://view-emissions-trading-registry.service.gov.uk/auth/realms/uk-ets/protocol/openid-connect/logout?post_logout_redirect_uri=https://view-emissions-trading-registry.service.gov.uk/dashboard:0

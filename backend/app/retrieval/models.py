@@ -1,11 +1,9 @@
 """Retrieval values: what a caller asks for, and what comes back."""
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
-from app.core.config import config
 from app.core.models import FrozenModel
 from app.ingestion.chunk.models import Reference
-from app.ingestion.chunk.schemas import DocumentChunk
 
 
 class SearchFilters(FrozenModel):
@@ -20,7 +18,8 @@ class SearchRequest(FrozenModel):
 
     query: str
     filters: SearchFilters = SearchFilters()
-    limit: int = config.SEARCH_DEFAULT_LIMIT
+    limit: int | None = Field(default=None, ge=1)
+    """None leaves the count to SEARCH_DEFAULT_LIMIT, read when the search runs."""
 
 
 class ReferenceTarget(FrozenModel):
@@ -30,6 +29,16 @@ class ReferenceTarget(FrozenModel):
     article: str | None = None
     paragraph: str | None = None
     annex: str | None = None
+
+    @classmethod
+    def from_reference(cls, reference: Reference, *, citing: str) -> "ReferenceTarget":
+        """The division a stored reference names, in the citing act unless it names another."""
+        return cls(
+            celex=reference.instrument or citing,
+            article=reference.article,
+            paragraph=reference.paragraph,
+            annex=reference.annex,
+        )
 
     @model_validator(mode="after")
     def _addresses_a_division(self) -> "ReferenceTarget":
@@ -48,19 +57,7 @@ class RetrievedChunk(FrozenModel):
     citation: str
     title: str | None
     text: str
-    references: tuple[Reference, ...]
-
-
-CHUNK_COLUMNS = (
-    DocumentChunk.id,
-    DocumentChunk.celex,
-    DocumentChunk.topic,
-    DocumentChunk.citation,
-    DocumentChunk.title,
-    DocumentChunk.text,
-    DocumentChunk.references,
-)
-"""The projection that fills a RetrievedChunk, one column per field."""
+    references: tuple[Reference, ...] = ()
 
 
 class SearchResult(RetrievedChunk):
