@@ -1,7 +1,7 @@
 [project]
 name = "regrag-backend"
 version = "0.1.0"
-description = "RegRag backend — API, agent, ingestion, evals"
+description = "RegRag backend — ingestion pipeline and retrieval API"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.16",
