@@ -137,11 +137,23 @@ def test_retrieval_defaults_match_the_shipped_tunables():
 
     assert retrieval.SEARCH_CANDIDATES == 50
     assert retrieval.SEARCH_DEFAULT_LIMIT == 10
+    assert retrieval.EF_SEARCH_PER_CANDIDATE == 4
     assert retrieval.RRF_K == 60
     assert retrieval.RERANK_ENABLED is True
     assert retrieval.RERANK_MODEL == "voyage/rerank-2.5"
     assert retrieval.RERANK_TIMEOUT == 30
     assert retrieval.RERANK_POOL == 30
+
+
+@pytest.mark.parametrize(
+    "name", ["SEARCH_CANDIDATES", "SEARCH_DEFAULT_LIMIT", "EF_SEARCH_PER_CANDIDATE"]
+)
+def test_a_search_knob_of_zero_is_refused_at_startup(name, monkeypatch):
+    """Zero reaches Postgres as an ef_search or LIMIT it rejects, so it fails before any query."""
+    monkeypatch.setenv(name, "0")
+
+    with pytest.raises(ValidationError, match=name):
+        RetrievalConfig()
 
 
 def test_combined_config_carries_the_retrieval_tunables():

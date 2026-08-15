@@ -127,7 +127,7 @@ def query_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _embed(texts: list[str], **kwargs: Any) -> list[list[float]]:
         return [toy_embed(text) for text in texts]
 
-    monkeypatch.setattr("app.retrieval.pipeline.embed", _embed)
+    monkeypatch.setattr("app.retrieval.search.embed", _embed)
 
 
 @pytest.fixture(autouse=True)
@@ -139,4 +139,4 @@ def identity_rerank(monkeypatch: pytest.MonkeyPatch) -> None:
     ) -> tuple[SearchResult, ...]:
         return results[:limit]
 
-    monkeypatch.setattr("app.retrieval.pipeline.rerank_results", _identity)
+    monkeypatch.setattr("app.retrieval.search.rerank_results", _identity)
