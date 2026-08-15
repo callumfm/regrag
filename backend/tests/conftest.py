@@ -84,12 +84,13 @@ def _create_database_if_missing(url: URL) -> None:
     engine.dispose()
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def test_database() -> None:
     """Bring the test database into existence and up to head before anything connects.
 
-    Migrating every session is what keeps the schema honest: a new revision would otherwise
-    only reach the suite once someone remembered to run alembic against it by hand.
+    Reached through db_engine rather than autouse, so a run of the pure-unit tests still
+    needs no server. Migrating every session is what keeps the schema honest: a new revision
+    would otherwise only reach the suite once someone ran alembic against it by hand.
     """
     url = make_url(config.SQLALCHEMY_DATABASE_URI)
     _create_database_if_missing(url)

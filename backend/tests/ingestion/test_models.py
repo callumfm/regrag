@@ -104,6 +104,17 @@ def test_report_covers_every_stage_with_its_counts_and_failures(run: IngestRunRe
     }
 
 
+def test_a_report_of_a_run_that_did_nothing_counts_nothing() -> None:
+    """Every stage still appears, so a reader of an aborted run sees zeros rather than gaps."""
+    assert IngestRunResult(run_id=1).report() == {
+        "discover": {"documents": 0, "dropped": 0, "failed": {}},
+        "fetch": {"documents": 0, "new": 0, "updated": 0, "reused": 0, "failed": {}},
+        "parse": {"documents": 0, "parsed": 0, "failed": {}},
+        "chunk": {"chunks": 0, "added": 0, "deleted": 0, "kept": 0, "updated": 0, "failed": {}},
+        "embed": {"chunks": 0, "embedded": 0, "already_embedded": 0, "failed": {}},
+    }
+
+
 def test_report_leaves_out_the_run_s_own_columns(run: IngestRunResult) -> None:
     """Both are columns already, and corpus_version is stamped after the row is written."""
     assert "run_id" not in run.report()

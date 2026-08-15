@@ -102,23 +102,30 @@ def test_abort_on_http_error(monkeypatch, capsys):
     assert "ingest aborted" in capsys.readouterr().err
 
 
-async def test_ingest_builds_a_client_that_paces_eurlex(monkeypatch):
-    """Pacing is the client's job now, so the one caller that must ask for it is pinned here."""
-    built = {}
+async def test_ingest_hands_the_pipeline_a_paced_client(monkeypatch):
+    """The CLI is where the crawl delays are attached, so pin both the delays it asks for and
+    that the real client it gets back carries the hook they produce."""
+    built: dict = {}
+    clients: list[httpx.AsyncClient] = []
+    real_client = cli.http_client
 
-    def fake_client(**kwargs):
+    def spy(**kwargs):
         built.update(kwargs)
-        return contextlib.nullcontext(httpx.AsyncClient())
+        return real_client(**kwargs)
 
     @contextlib.asynccontextmanager
     async def fake_session(**_):
         yield None
 
-    async def fake_ingest_call(*_, **__):
+    async def capture(_session, *, client, **__):
+        clients.append(client)
         return IngestRunResult(run_id=1)
 
-    monkeypatch.setattr(cli, "http_client", fake_client)
+    monkeypatch.setattr(cli, "http_client", spy)
     monkeypatch.setattr(cli, "get_session", fake_session)
-    monkeypatch.setattr(cli, "ingest", fake_ingest_call)
+    monkeypatch.setattr(cli, "ingest", capture)
     await cli._ingest(["mrv"])
+
+    (client,) = clients
     assert built["delays"] == config.CRAWL_DELAYS
+    assert client.event_hooks["request"]

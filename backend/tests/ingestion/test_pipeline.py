@@ -10,16 +10,14 @@ from sqlalchemy.exc import ProgrammingError
 from app.core.storage import StorageError
 from app.ingestion import pipeline
 from app.ingestion.celex import consolidated_stem
-from app.ingestion.chunk.tree import chunk_document
-from app.ingestion.enums import DocChange, IngestRunStatus, SectionKind, Stage
-from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError
+from app.ingestion.enums import DocChange, IngestRunStatus, Stage
+from app.ingestion.exceptions import CorpusShrankError, MalformedDiscoveryError, ParseError
+from app.ingestion.fetch import stage as fetch_stage
 from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_raw_documents
 from app.ingestion.fetch.storage import document_key
 from app.ingestion.models import IngestRunResult
-from app.ingestion.parse.html.document import parse_eurlex_html
-from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.pipeline import ingest
 from app.ingestion.schemas import IngestRun
 from tests.conftest import (
@@ -162,22 +160,17 @@ async def test_a_stage_failure_is_answerable_from_the_run_row(
     assert run.result["fetch"]["new"] == 1
 
 
-async def test_a_run_aborted_before_any_stage_ran_records_every_stage_as_zero(
+async def test_a_run_aborted_before_any_stage_ran_still_stores_a_report(
     db_session, local_store, corpus_client
 ):
-    """Nothing ran, so every count is zero; the ABORTED status is what says the run stopped."""
+    """The row owes a reader a status and a report; the counts are test_models' to pin."""
     client, _ = corpus_client({"mrv": httpx.Response(500, text="down")}, {})
     with pytest.raises(httpx.HTTPStatusError):
         await ingest(db_session, client=client, topics=["mrv"], store=local_store)
 
     run = (await db_session.scalars(select(IngestRun))).one()
-    assert run.result == {
-        "discover": {"documents": 0, "dropped": 0, "failed": {}},
-        "fetch": {"documents": 0, "new": 0, "updated": 0, "reused": 0, "failed": {}},
-        "parse": {"documents": 0, "parsed": 0, "failed": {}},
-        "chunk": {"chunks": 0, "added": 0, "deleted": 0, "kept": 0, "updated": 0, "failed": {}},
-        "embed": {"chunks": 0, "embedded": 0, "already_embedded": 0, "failed": {}},
-    }
+    assert run.status is IngestRunStatus.ABORTED
+    assert run.result == IngestRunResult(run_id=run.id).report()
 
 
 async def test_malformed_sparql_payload_raises_discovery_error(
@@ -438,13 +431,22 @@ async def test_unparseable_document_is_recorded_and_others_persist(
 async def test_a_freshly_downloaded_document_is_parsed_without_reading_it_back(
     db_session, local_store, corpus_client, monkeypatch
 ):
-    """The download already holds the bytes, so parse must not pay a second storage round trip."""
+    """The download already holds the bytes, so parse must not pay a second storage round trip.
+
+    Asserted over the whole loop rather than the fetch stage: fetch alone never reads the store
+    for a document it just downloaded, so only a run that goes on to parse can catch the reread.
+    """
     reads: list[str] = []
-    monkeypatch.setattr(local_store, "get", lambda key: reads.append(key))
+
+    def record(key: str) -> bytes:
+        reads.append(key)
+        raise AssertionError(f"parse read {key} back from the store")
+
+    monkeypatch.setattr(local_store, "get", record)
     report = await ingest_mrv(db_session, local_store, corpus_client)
 
-    assert reads == []
     assert report.ok
+    assert reads == []
 
 
 async def test_a_source_document_lost_from_the_store_is_downloaded_again(
@@ -574,39 +576,6 @@ async def ingest_fueleu(db_session, local_store, corpus_client) -> IngestRunResu
     return await ingest(db_session, client=client, topics=["fueleu"], store=local_store)
 
 
-async def test_fueleu_chunks_have_correct_article_boundaries(
-    db_session, local_store, corpus_client
-):
-    report = await ingest_fueleu(db_session, local_store, corpus_client)
-    assert report.ok
-
-    rows = await chunk_rows(db_session, "32023R1805")
-    boundaries = [(row.article, row.paragraph) for row in rows if row.article]
-    assert boundaries == [("4", str(n)) for n in range(1, 5)] + [
-        ("5", str(n)) for n in range(1, 11)
-    ]
-
-
-async def test_fueleu_chunks_carry_their_citations(db_session, local_store, corpus_client):
-    await ingest_fueleu(db_session, local_store, corpus_client)
-
-    rows = await chunk_rows(db_session, "32023R1805")
-    citations = {row.citation for row in rows}
-    assert "Article 4(1)" in citations
-    assert "Annex II" in citations
-
-
-async def test_fueleu_annex_table_is_persisted_as_its_own_chunk(
-    db_session, local_store, corpus_client
-):
-    await ingest_fueleu(db_session, local_store, corpus_client)
-
-    rows = await chunk_rows(db_session, "32023R1805")
-    tables = [row for row in rows if row.kind is SectionKind.TABLE]
-    assert len(tables) == 1
-    assert tables[0].citation == "Annex II"
-
-
 async def test_fueleu_chunks_are_stamped_and_topic_tagged(db_session, local_store, corpus_client):
     report = await ingest_fueleu(db_session, local_store, corpus_client)
 
@@ -627,19 +596,6 @@ async def test_single_topic_run_leaves_another_topics_chunks_alone(
     await ingest_mrv(db_session, local_store, corpus_client)
 
     assert {row.id for row in await chunk_rows(db_session, "32023R1805")} == before
-
-
-async def test_fueleu_chunk_count_matches_chunk_document(db_session, local_store, corpus_client):
-    """Persisted order matches chunk_document for a fresh corpus only: ids are first-insert order,
-    so after any partial change replacement rows sort above untouched ones."""
-    await ingest_fueleu(db_session, local_store, corpus_client)
-
-    expected = chunk_document(
-        ParsedDocument(celex="32023R1805", topic="fueleu", sections=parse_eurlex_html(FUELEU_HTML))
-    )
-    rows = await chunk_rows(db_session, "32023R1805")
-    assert len(rows) == len(expected)
-    assert [row.text for row in rows] == [c.text for c in expected]
 
 
 async def test_a_run_embeds_every_chunk_it_stored(db_session, local_store, corpus_client):
@@ -677,6 +633,49 @@ async def test_a_document_that_fails_does_not_stop_the_documents_after_it(
     assert committed(report, DocChange.NEW) == ["32023R2449"]
     assert report.chunks.added > 0
     assert not report.ok
+
+
+async def test_every_ingestion_error_is_recorded_against_its_own_document(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """The loop catches the whole IngestionError family, not only the ones fetch raises itself."""
+
+    def unparseable(*args, **kwargs):
+        raise ParseError("unrecognised EUR-Lex dialect")
+
+    monkeypatch.setattr(fetch_stage, "_reuse_previous_version", unparseable)
+    report = await ingest_mrv(db_session, local_store, corpus_client)
+
+    assert sorted(report.failures[Stage.FETCH]) == ["32015R0757", "32023R2449"]
+    assert set(report.failures[Stage.FETCH].values()) == {
+        "ParseError: unrecognised EUR-Lex dialect"
+    }
+
+
+async def test_a_row_that_will_not_flush_fails_only_its_own_document(
+    db_session, local_store, corpus_client, monkeypatch
+):
+    """A database error on one row skips that document without poisoning the run's transaction.
+
+    Asserted here rather than over the fetch stage alone: only the real loop commits, which is
+    what makes the surviving document's rows readable afterwards rather than merely pending.
+    """
+    real = fetch_stage._download_new_version
+
+    async def unstorable(client, store, discovered, run):
+        document, content = await real(client, store, discovered, run)
+        if discovered.celex == "32015R0757":
+            document.size_bytes = 2**40
+        return document, content
+
+    monkeypatch.setattr(fetch_stage, "_download_new_version", unstorable)
+    report = await ingest_mrv(db_session, local_store, corpus_client)
+
+    assert list(report.failures[Stage.FETCH]) == ["32015R0757"]
+    assert committed(report, DocChange.NEW) == ["32023R2449"]
+    assert list(await get_raw_documents(db_session, RawDocsQuery(include_topics=["mrv"]))) == [
+        "32023R2449"
+    ]
 
 
 async def test_a_document_that_fails_to_parse_leaves_no_row_behind(

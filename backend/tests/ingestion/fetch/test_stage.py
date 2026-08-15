@@ -8,8 +8,7 @@ import pytest
 from app.core.storage import StorageError
 from app.ingestion.discover.stage import discover_topics
 from app.ingestion.enums import DocChange, IngestRunStatus
-from app.ingestion.exceptions import DocumentFailed, ParseError
-from app.ingestion.fetch import stage
+from app.ingestion.exceptions import DocumentFailed
 from app.ingestion.fetch.models import RawDocsQuery
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.fetch.service import get_raw_documents
@@ -305,54 +304,6 @@ async def test_a_store_outage_fails_the_run_rather_than_refetching_the_corpus(
     assert sorted(failed) == ["32015R0757", "32023R2449"]
     assert changes == {}
     assert calls == []
-
-
-async def test_per_doc_failure_continues_and_is_recorded(db_session, local_store, corpus_client):
-    docs = mrv_docs({"32023R2449": httpx.Response(400, text="bad")})
-    client, _ = corpus_client({"mrv": MRV_SPARQL}, docs)
-    changes, failed, _ = await fetch(db_session, client, ["mrv"], local_store)
-
-    assert celexes(changes, DocChange.NEW) == ["32015R0757"]
-    assert "32023R2449" in failed
-    assert "32023R2449" not in await get_raw_documents(
-        db_session, RawDocsQuery(include_topics=["mrv"])
-    )
-
-
-async def test_any_ingestion_error_is_recorded_per_document(
-    db_session, local_store, corpus_client, monkeypatch
-):
-    """The per-document loop catches the whole IngestionError family, not just resolution."""
-    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-
-    def unparseable(*args, **kwargs):
-        raise ParseError("unrecognised EUR-Lex dialect")
-
-    monkeypatch.setattr(stage, "_reuse_previous_version", unparseable)
-    _, failed, _ = await fetch(db_session, client, ["mrv"], local_store)
-
-    assert sorted(failed) == ["32015R0757", "32023R2449"]
-    assert set(failed.values()) == {"ParseError: unrecognised EUR-Lex dialect"}
-
-
-async def test_a_row_that_will_not_flush_fails_only_its_own_document(
-    db_session, local_store, corpus_client, monkeypatch
-):
-    """A database error on one row must skip that document, not poison the run's transaction."""
-    real = stage._download_new_version
-
-    async def unstorable(client, store, discovered, run):
-        document, content = await real(client, store, discovered, run)
-        if discovered.celex == "32015R0757":
-            document.size_bytes = 2**40
-        return document, content
-
-    monkeypatch.setattr(stage, "_download_new_version", unstorable)
-    client, _ = corpus_client({"mrv": MRV_SPARQL}, mrv_docs())
-    changes, failed, _ = await fetch(db_session, client, ["mrv"], local_store)
-
-    assert list(failed) == ["32015R0757"]
-    assert celexes(changes, DocChange.NEW) == ["32023R2449"]
 
 
 async def test_duplicate_celex_across_topics_ingested_once(db_session, local_store, corpus_client):

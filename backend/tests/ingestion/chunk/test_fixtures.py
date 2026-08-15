@@ -84,5 +84,5 @@ def test_an_act_whose_sole_annex_is_unnumbered_still_addresses_every_chunk() -> 
         '<div class="oj-normal">Template body.</div></div>'
         "</body></html>"
     )
-    document = ParsedDocument(celex="32024R2031", topic="fueleu_chunks", sections=sections)
+    document = ParsedDocument(celex="32024R2031", topic="fueleu", sections=sections)
     assert [c.citation for c in chunk_document(document)] == ["Article 1", "Annex"]
