@@ -135,36 +135,18 @@ async def test_an_aborted_runs_rows_are_still_held(db_session: AsyncSession, mak
     assert previous["32015R0757"].resolved_celex == "02015R0757-20250101"
 
 
-async def test_an_aborted_run_does_not_stand_for_the_corpus(
-    db_session: AsyncSession, make_document
+@pytest.mark.parametrize("status", [IngestRunStatus.ABORTED, IngestRunStatus.FAILED])
+async def test_a_run_that_did_not_succeed_does_not_stand_for_the_corpus(
+    db_session: AsyncSession, make_document, status: IngestRunStatus
 ):
-    """The fingerprint describes a whole corpus, so a prefix must not be the topic's latest."""
+    """An aborted run holds a prefix and a failed one holds holes; neither is a topic's latest."""
     complete = IngestRun(status=IngestRunStatus.SUCCESS)
-    aborted = IngestRun(status=IngestRunStatus.ABORTED)
+    incomplete = IngestRun(status=status)
     db_session.add_all(
         [
             make_document(complete, "32015R0757", topic="mrv"),
             make_document(complete, "32023R2449", topic="mrv"),
-            make_document(aborted, "32015R0757", topic="mrv"),
-        ]
-    )
-    await db_session.flush()
-
-    assert set(await get_raw_documents(db_session, RawDocsQuery())) == {
-        "32015R0757",
-        "32023R2449",
-    }
-
-
-async def test_a_failed_run_does_not_stand_for_the_corpus(db_session: AsyncSession, make_document):
-    """A FAILED run holds a corpus with holes, so the fingerprint must look past it."""
-    complete = IngestRun(status=IngestRunStatus.SUCCESS)
-    failed = IngestRun(status=IngestRunStatus.FAILED)
-    db_session.add_all(
-        [
-            make_document(complete, "32015R0757", topic="mrv"),
-            make_document(complete, "32023R2449", topic="mrv"),
-            make_document(failed, "32015R0757", topic="mrv"),
+            make_document(incomplete, "32015R0757", topic="mrv"),
         ]
     )
     await db_session.flush()

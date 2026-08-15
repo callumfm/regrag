@@ -109,6 +109,11 @@ def test_the_env_file_is_absolute_so_the_working_directory_cannot_change_it(env,
     assert env_file.is_absolute()
 
 
+def test_the_suite_runs_against_a_database_of_its_own():
+    """Tests commit destructive deletes, so reaching the dev database would cost a corpus."""
+    assert Config().DB_NAME == "regrag_test"
+
+
 def test_ingest_defaults_match_the_shipped_tunables():
     ingest = IngestConfig()
 

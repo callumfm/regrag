@@ -41,38 +41,59 @@ def test_year_candidates_are_plausible_four_digit_years(value: str, expected: in
 
 
 @pytest.mark.parametrize(
-    ("kind", "pair", "expected", "citation"),
+    ("kind", "pair", "expected"),
     [
-        ("Regulation", ("765", "2008"), ("765", "2008"), "Regulation (EC) No 765/2008"),
-        ("Regulation", ("2913", "92"), ("2913", "92"), "Regulation (EEC) No 2913/92"),
-        ("Regulation", ("2015", "757"), ("757", "2015"), "Regulation (EU) No 2015/757"),
-        ("Regulation", ("2018", "2066"), ("2066", "2018"), "Regulation (EU) 2018/2066"),
-        ("Decision", ("1600", "2002"), ("1600", "2002"), "Decision No 1600/2002/EC"),
+        pytest.param(
+            "Regulation", ("765", "2008"), ("765", "2008"), id="Regulation (EC) No 765/2008"
+        ),
+        pytest.param(
+            "Regulation", ("2913", "92"), ("2913", "92"), id="Regulation (EEC) No 2913/92"
+        ),
+        pytest.param(
+            "Regulation", ("2015", "757"), ("757", "2015"), id="Regulation (EU) No 2015/757"
+        ),
+        pytest.param(
+            "Regulation", ("2018", "2066"), ("2066", "2018"), id="Regulation (EU) 2018/2066"
+        ),
+        pytest.param("Decision", ("1600", "2002"), ("1600", "2002"), id="Decision No 1600/2002/EC"),
     ],
 )
-def test_the_half_that_cannot_be_a_year_is_the_act_number(kind, pair, expected, citation) -> None:
+def test_the_half_that_cannot_be_a_year_is_the_act_number(kind, pair, expected) -> None:
     """Where only one half is year-shaped, nothing else needs consulting."""
     assert celex.order_number_and_year(kind, *pair) == expected
 
 
 @pytest.mark.parametrize(
-    ("kind", "pair", "expected", "citation"),
+    ("kind", "pair", "expected"),
     [
-        ("Regulation", ("95", "93"), ("95", "93"), "Regulation (EEC) No 95/93"),
-        ("Regulation", ("2003", "2003"), ("2003", "2003"), "Regulation (EC) No 2003/2003"),
-        ("Regulation", ("1907", "2006"), ("1907", "2006"), "Regulation (EC) 1907/2006"),
-        ("Regulation", ("17", "62"), ("17", "62"), "Regulation 17/62"),
-        ("Regulation", ("2015", "1998"), ("1998", "2015"), "Regulation (EU) No 2015/1998"),
-        ("Regulation", ("2019", "2020"), ("2020", "2019"), "Regulation (EU) 2019/2020"),
-        ("Directive", ("2003", "87"), ("87", "2003"), "Directive 2003/87/EC"),
-        ("Directive", ("92", "43"), ("43", "92"), "Council Directive 92/43/EEC"),
-        ("Directive", ("70", "50"), ("50", "70"), "Commission Directive No 70/50/EEC"),
-        ("Decision", ("2002", "584"), ("584", "2002"), "Council Framework Decision 2002/584/JHA"),
+        pytest.param("Regulation", ("95", "93"), ("95", "93"), id="Regulation (EEC) No 95/93"),
+        pytest.param(
+            "Regulation", ("2003", "2003"), ("2003", "2003"), id="Regulation (EC) No 2003/2003"
+        ),
+        pytest.param(
+            "Regulation", ("1907", "2006"), ("1907", "2006"), id="Regulation (EC) 1907/2006"
+        ),
+        pytest.param("Regulation", ("17", "62"), ("17", "62"), id="Regulation 17/62"),
+        pytest.param(
+            "Regulation", ("2015", "1998"), ("1998", "2015"), id="Regulation (EU) No 2015/1998"
+        ),
+        pytest.param(
+            "Regulation", ("2019", "2020"), ("2020", "2019"), id="Regulation (EU) 2019/2020"
+        ),
+        pytest.param("Directive", ("2003", "87"), ("87", "2003"), id="Directive 2003/87/EC"),
+        pytest.param("Directive", ("92", "43"), ("43", "92"), id="Council Directive 92/43/EEC"),
+        pytest.param(
+            "Directive", ("70", "50"), ("50", "70"), id="Commission Directive No 70/50/EEC"
+        ),
+        pytest.param(
+            "Decision",
+            ("2002", "584"),
+            ("584", "2002"),
+            id="Council Framework Decision 2002/584/JHA",
+        ),
     ],
 )
-def test_two_year_shaped_halves_are_split_by_kind_and_scheme(
-    kind, pair, expected, citation
-) -> None:
+def test_two_year_shaped_halves_are_split_by_kind_and_scheme(kind, pair, expected) -> None:
     """Directives and decisions were always year-first; regulations only from 2015 on."""
     assert celex.order_number_and_year(kind, *pair) == expected
 
