@@ -46,6 +46,5 @@ async def follow_reference(
         DocumentChunk.references,
     )
     stmt = _targeted(stmt, target).order_by(*order)
-
     rows = await session.execute(stmt)
     return tuple(RetrievedChunk.model_validate(row, from_attributes=True) for row in rows)

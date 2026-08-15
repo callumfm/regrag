@@ -85,7 +85,6 @@ async def hybrid_search(
     A full outer join keeps chunks only one leg found, whose missing term contributes nothing.
     """
     await _tune_hnsw_walk(session, candidates)
-
     by_vector = _vector_candidates(embedding, filters, candidates).cte("by_vector")
     by_text = _text_candidates(query, filters, candidates).cte("by_text")
     score = (
@@ -112,7 +111,6 @@ async def hybrid_search(
         .order_by(score.desc(), DocumentChunk.id)
         .limit(limit)
     )
-
     rows = await session.execute(stmt)
     return tuple(SearchResult.model_validate(row, from_attributes=True) for row in rows)
 
