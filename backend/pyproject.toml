@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.19.1",
     "boto3>=1.43.70",
-    "fastapi[standard]>=0.139",
+    "fastapi[standard]>=0.141.1",
     "httpx>=0.28",
     "litellm>=1.96.2",
     "openai>=1.0",
