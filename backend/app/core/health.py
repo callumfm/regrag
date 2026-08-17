@@ -3,11 +3,12 @@
 from enum import StrEnum
 
 from fastapi import APIRouter
-from pydantic import BaseModel, computed_field
+from pydantic import computed_field
 from sqlalchemy import text
 
 from app import __version__
 from app.core.db.session import SessionDep
+from app.core.models import AppModel
 
 
 class ServiceStatus(StrEnum):
@@ -20,7 +21,7 @@ class HealthStatus(StrEnum):
     DEGRADED = "degraded"
 
 
-class HealthResponse(BaseModel):
+class HealthResponse(AppModel):
     version: str = __version__
     database: ServiceStatus
 

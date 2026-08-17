@@ -106,7 +106,7 @@ async def hybrid_search(
         .limit(limit)
     )
     rows = await session.execute(stmt)
-    return tuple(SearchResult.model_validate(row, from_attributes=True) for row in rows)
+    return tuple(SearchResult.model_validate(row) for row in rows)
 
 
 async def search(session: AsyncSession, request: SearchRequest) -> tuple[SearchResult, ...]:

@@ -17,7 +17,7 @@ async def chunk_at(session: AsyncSession, celex: str, citation: str) -> Retrieve
         DocumentChunk.celex == celex, DocumentChunk.citation == citation
     )
     row = (await session.execute(stmt)).one()
-    return RetrievedChunk.model_validate(row, from_attributes=True)
+    return RetrievedChunk.model_validate(row)
 
 
 async def test_expand_sections_reaches_the_paragraph_relevance_cannot(
@@ -80,7 +80,7 @@ async def test_expand_sections_passes_an_unsplit_chunk_outside_an_article_throug
         )
     ).first()
     assert row is not None, "the fixture no longer stores a whole annex chunk"
-    chunk = RetrievedChunk.model_validate(row, from_attributes=True)
+    chunk = RetrievedChunk.model_validate(row)
 
     assert await expand_sections(db_session, [chunk]) == (chunk,)
 
@@ -100,7 +100,7 @@ async def test_expand_sections_reunites_a_section_split_for_length(
         )
     ).first()
     assert row is not None, "the fixture no longer stores a split annex section"
-    later_part = RetrievedChunk.model_validate(row, from_attributes=True)
+    later_part = RetrievedChunk.model_validate(row)
 
     expanded = await expand_sections(db_session, [later_part])
 

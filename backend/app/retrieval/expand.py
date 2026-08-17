@@ -57,6 +57,6 @@ async def expand_sections(
     )
     sections: dict[SectionKey, list[RetrievedChunk]] = {key: [] for key in keys}
     for row in await session.execute(stmt):
-        chunk = RetrievedChunk.model_validate(row, from_attributes=True)
+        chunk = RetrievedChunk.model_validate(row)
         sections[SectionKey.from_chunk(chunk)].append(chunk)
     return tuple(chunk for key in keys for chunk in sections[key])

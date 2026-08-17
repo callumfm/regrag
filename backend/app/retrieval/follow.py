@@ -39,4 +39,4 @@ async def follow_reference(
     order = ANNEX_ORDER if target.annex is not None else ARTICLE_ORDER
     stmt = _targeted(select(*CHUNK_COLUMNS), target).order_by(*order)
     rows = await session.execute(stmt)
-    return tuple(RetrievedChunk.model_validate(row, from_attributes=True) for row in rows)
+    return tuple(RetrievedChunk.model_validate(row) for row in rows)

@@ -1,12 +1,12 @@
 """Chat request and SSE payload values."""
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from app.core.models import ErrorResponse, FrozenModel
+from app.core.models import AppModel, ErrorResponse, FrozenModel
 from app.retrieval.models import RetrievedChunk
 
 
-class ChatRequest(BaseModel):
+class ChatRequest(AppModel):
     """The question a caller asks."""
 
     question: str = Field(min_length=1, max_length=2000)

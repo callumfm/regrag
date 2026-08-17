@@ -4,10 +4,10 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from app.core.config import config
-from app.core.models import FrozenModel
+from app.core.models import AppModel, FrozenModel
 from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.embed.models import EmbedOutcome
 from app.ingestion.enums import DocChange, IngestRunStatus, Stage
@@ -23,7 +23,7 @@ class DocumentOutcome(FrozenModel):
     error: str = ""
 
 
-class StageReport(BaseModel):
+class StageReport(AppModel):
     """One stage as its two readers take it: the entry its row stores, and the line it logs."""
 
     stage: Stage
@@ -55,7 +55,7 @@ class StageReport(BaseModel):
         return f"[{self.stage}] {self.total} {self.unit}: {buckets}, {len(self.failed)} failed"
 
 
-class IngestRunResult(BaseModel):
+class IngestRunResult(AppModel):
     """Outcome of one ingest run: its discovery diff, its documents, and its embedding pass."""
 
     run_id: int
@@ -172,7 +172,7 @@ class IngestRunResult(BaseModel):
         )
 
 
-class IngestRunUpdate(BaseModel):
+class IngestRunUpdate(AppModel):
     """Partial update body for an ingest run."""
 
     status: IngestRunStatus | None = None

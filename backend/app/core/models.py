@@ -5,13 +5,19 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 
-class FrozenModel(BaseModel):
+class AppModel(BaseModel):
+    """Base for every model: builds from ORM rows and Row objects as well as dicts."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FrozenModel(AppModel):
     """Base for immutable, hashable domain values."""
 
     model_config = ConfigDict(frozen=True)
 
 
-class ErrorResponse(BaseModel):
+class ErrorResponse(AppModel):
     """The single JSON shape every error response uses."""
 
     error: str
