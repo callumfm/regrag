@@ -24,6 +24,7 @@ def _result(chunk_id: int) -> SearchResult:
         celex="32015R0757",
         topic="mrv",
         citation=f"Article {chunk_id}",
+        article=str(chunk_id),
         title=None,
         text=f"text of chunk {chunk_id}",
         references=(),

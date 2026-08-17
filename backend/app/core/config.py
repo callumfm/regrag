@@ -185,10 +185,12 @@ class RetrievalConfig(BaseConfig):
     RERANK_MODEL: which cross-encoder rescores the fused results.
     RERANK_TIMEOUT: seconds to wait for the cross-encoder.
     RERANK_POOL: fused results the cross-encoder rescores.
+    EXPAND_ARTICLES: article expansion's off switch; a paragraph rarely restates its
+        own subject, so the article is the unit that answers.
     """
 
     SEARCH_CANDIDATES: int = Field(default=50, ge=1)
-    SEARCH_DEFAULT_LIMIT: int = Field(default=10, ge=1)
+    SEARCH_DEFAULT_LIMIT: int = Field(default=5, ge=1)
     EF_SEARCH_PER_CANDIDATE: int = Field(default=4, ge=1)
     RRF_K: int = 60
 
@@ -196,6 +198,8 @@ class RetrievalConfig(BaseConfig):
     RERANK_MODEL: str = "voyage/rerank-2.5"
     RERANK_TIMEOUT: int = 30
     RERANK_POOL: int = 30
+
+    EXPAND_ARTICLES: bool = True
 
 
 class Config(

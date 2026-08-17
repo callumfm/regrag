@@ -3,12 +3,13 @@
 from collections.abc import Iterator
 from typing import Any
 
+import pytest
 from langchain_core.language_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
-from app.retrieval.models import SearchResult
+from app.retrieval.models import RetrievedChunk, SearchResult
 
 
 def make_result(**overrides: Any) -> SearchResult:
@@ -18,6 +19,7 @@ def make_result(**overrides: Any) -> SearchResult:
         "celex": "32023R1805",
         "topic": "fueleu",
         "citation": "Article 4(1)",
+        "article": "4",
         "title": "Greenhouse gas intensity limit",
         "text": "The greenhouse gas intensity of the energy used on board.",
         "score": 0.9,
@@ -67,3 +69,13 @@ class ReasoningChatModel(GenericFakeChatModel):
 def reasoning_chat_model() -> ReasoningChatModel:
     """A chat model whose chunks carry content blocks rather than strings."""
     return ReasoningChatModel(messages=iter([AIMessage(content="unused")]))
+
+
+@pytest.fixture(autouse=True)
+def no_article_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expansion is a database walk covered in tests/retrieval; here it hands back its input."""
+
+    async def _identity(session: Any, chunks: Any) -> tuple[RetrievedChunk, ...]:
+        return tuple(chunks)
+
+    monkeypatch.setattr("app.chat.graph.expand_articles", _identity)

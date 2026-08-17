@@ -1,6 +1,6 @@
 """System prompt and numbered-context formatting for the chat graph."""
 
-from app.retrieval.models import SearchResult
+from app.retrieval.models import RetrievedChunk
 
 SYSTEM_PROMPT = (
     "You are RegRag, an assistant answering questions about EU maritime regulation. "
@@ -10,7 +10,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def format_context(sources: tuple[SearchResult, ...]) -> str:
+def format_context(sources: tuple[RetrievedChunk, ...]) -> str:
     """The retrieved chunks as numbered blocks the citation markers refer to."""
     blocks = [
         f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
@@ -19,6 +19,6 @@ def format_context(sources: tuple[SearchResult, ...]) -> str:
     return "\n\n".join(blocks)
 
 
-def build_user_message(question: str, sources: tuple[SearchResult, ...]) -> str:
+def build_user_message(question: str, sources: tuple[RetrievedChunk, ...]) -> str:
     """The full user turn: context blocks first, then the question."""
     return f"Context:\n\n{format_context(sources)}\n\nQuestion: {question}"

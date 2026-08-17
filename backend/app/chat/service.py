@@ -12,7 +12,7 @@ from app.chat.models import ChatSource, ChatToken
 from app.core.exceptions import DomainError
 from app.core.logger import request_id_var
 from app.core.models import ErrorResponse
-from app.retrieval.models import SearchResult
+from app.retrieval.models import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def _event(name: str, payload: Any) -> ServerSentEvent:
     return ServerSentEvent(event=name, data=json.dumps(payload))
 
 
-def _sources_event(sources: tuple[SearchResult, ...]) -> ServerSentEvent:
+def _sources_event(sources: tuple[RetrievedChunk, ...]) -> ServerSentEvent:
     """The sources event binding [n] markers to the retrieved chunks."""
     payload = [
         ChatSource.from_result(marker, result).model_dump()

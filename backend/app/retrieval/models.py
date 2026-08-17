@@ -55,6 +55,8 @@ class RetrievedChunk(FrozenModel):
     celex: str
     topic: str
     citation: str
+    article: str | None
+    """None outside an article, which is an annex or the act's own front matter."""
     title: str | None
     text: str
     references: tuple[Reference, ...] = ()

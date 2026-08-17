@@ -137,13 +137,14 @@ def test_retrieval_defaults_match_the_shipped_tunables():
     retrieval = RetrievalConfig()
 
     assert retrieval.SEARCH_CANDIDATES == 50
-    assert retrieval.SEARCH_DEFAULT_LIMIT == 10
+    assert retrieval.SEARCH_DEFAULT_LIMIT == 5
     assert retrieval.EF_SEARCH_PER_CANDIDATE == 4
     assert retrieval.RRF_K == 60
     assert retrieval.RERANK_ENABLED is True
     assert retrieval.RERANK_MODEL == "voyage/rerank-2.5"
     assert retrieval.RERANK_TIMEOUT == 30
     assert retrieval.RERANK_POOL == 30
+    assert retrieval.EXPAND_ARTICLES is True
 
 
 @pytest.mark.parametrize(

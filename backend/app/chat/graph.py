@@ -11,7 +11,8 @@ from app.chat.prompts import SYSTEM_PROMPT, build_user_message
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import wrap_provider_errors
-from app.retrieval.models import SearchRequest, SearchResult
+from app.retrieval.models import RetrievedChunk, SearchRequest
+from app.retrieval.related import expand_articles
 from app.retrieval.search import search
 
 
@@ -19,7 +20,7 @@ class ChatState(TypedDict):
     """What flows through the graph for one question."""
 
     question: str
-    sources: tuple[SearchResult, ...]
+    sources: tuple[RetrievedChunk, ...]
     answer: str
 
 
@@ -39,11 +40,14 @@ def chat_model() -> ChatLiteLLM:
 
 
 async def retrieve(state: ChatState) -> dict:
-    """The corpus's best answers, from a node-scoped session so no connection is
-    held while the model streams."""
+    """The corpus's best answers, widened to whole articles, from a node-scoped session
+    so no connection is held while the model streams."""
     async with get_session() as session:
         results = await search(session, SearchRequest(query=state["question"]))
-    return {"sources": results}
+        sources: tuple[RetrievedChunk, ...] = results
+        if config.EXPAND_ARTICLES:
+            sources = await expand_articles(session, results)
+    return {"sources": sources}
 
 
 @wrap_provider_errors

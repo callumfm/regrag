@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field
 
 from app.core.models import ErrorResponse, FrozenModel
-from app.retrieval.models import SearchResult
+from app.retrieval.models import RetrievedChunk
 
 
 class ChatRequest(BaseModel):
@@ -22,7 +22,7 @@ class ChatSource(FrozenModel):
     title: str | None
 
     @classmethod
-    def from_result(cls, marker: int, result: SearchResult) -> "ChatSource":
+    def from_result(cls, marker: int, result: RetrievedChunk) -> "ChatSource":
         """The event payload for one retrieved chunk at one marker position."""
         return cls(
             marker=marker,

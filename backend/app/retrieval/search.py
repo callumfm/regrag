@@ -100,6 +100,7 @@ async def hybrid_search(
             DocumentChunk.celex,
             DocumentChunk.topic,
             DocumentChunk.citation,
+            DocumentChunk.article,
             DocumentChunk.title,
             DocumentChunk.text,
             DocumentChunk.references,

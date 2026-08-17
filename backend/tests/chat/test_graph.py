@@ -100,3 +100,43 @@ async def test_real_chat_model_streams_text_chunks():
     ]
     assert all(isinstance(text, str) for text in texts)
     assert "".join(texts)
+
+
+async def test_retrieve_widens_what_search_found_to_whole_articles(monkeypatch):
+    """The graph hands search's hits to expansion, so the prompt sees whole articles."""
+    widened = (make_result(id=2, citation="Article 4(2)", text="The limit is 91,16 gCO2e/MJ."),)
+
+    async def fake_search(session, request):
+        return (make_result(),)
+
+    async def fake_expand(session, chunks):
+        assert tuple(chunks) == (make_result(),)
+        return widened
+
+    monkeypatch.setattr("app.chat.graph.search", fake_search)
+    monkeypatch.setattr("app.chat.graph.expand_articles", fake_expand)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+
+    state = await chat_graph.ainvoke({"question": QUESTION})
+
+    assert state["sources"] == widened
+
+
+async def test_retrieve_leaves_search_alone_when_expansion_is_off(monkeypatch):
+    """The off switch has to skip the widening query, not just discard its result."""
+    found = (make_result(),)
+
+    async def fake_search(session, request):
+        return found
+
+    async def refuse(session, chunks):
+        raise AssertionError("expansion ran with EXPAND_ARTICLES off")
+
+    monkeypatch.setattr(config, "EXPAND_ARTICLES", False)
+    monkeypatch.setattr("app.chat.graph.search", fake_search)
+    monkeypatch.setattr("app.chat.graph.expand_articles", refuse)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+
+    state = await chat_graph.ainvoke({"question": QUESTION})
+
+    assert state["sources"] == found
