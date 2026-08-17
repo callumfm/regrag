@@ -28,7 +28,7 @@ retrieve = "app.retrieval.cli:main"
 dev = [
     "pytest>=9.0",
     "ruff>=0.16",
-    "ty>=0.0.1a24",
+    "ty>=0.0.71",
 ]
 
 [tool.pytest.ini_options]
