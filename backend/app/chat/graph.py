@@ -24,12 +24,17 @@ class ChatState(TypedDict):
 
 
 def chat_model() -> ChatLiteLLM:
-    """A chat client built per call, so config is read at call time like embed's."""
+    """A chat client built per call, so config is read at call time like embed's.
+
+    streaming, or litellm answers in one blocking call and the SSE stream carries
+    the whole answer in a single token event.
+    """
     return ChatLiteLLM(
         model=config.CHAT_MODEL,
         api_key=config.ANTHROPIC_API_KEY,
         max_tokens=config.CHAT_MAX_TOKENS,
         request_timeout=config.CHAT_TIMEOUT,
+        streaming=True,
     )
 
 

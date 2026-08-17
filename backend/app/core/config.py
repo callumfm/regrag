@@ -143,7 +143,7 @@ class ChatConfig(BaseConfig):
     """Chat model configuration for the chat graph."""
 
     ANTHROPIC_API_KEY: str = ""
-    CHAT_MODEL: str = "anthropic/claude-sonnet-5"
+    CHAT_MODEL: str = "anthropic/claude-haiku-4-5"
     CHAT_TIMEOUT: int = 60
     CHAT_MAX_TOKENS: int = 2048
 

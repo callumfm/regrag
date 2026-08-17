@@ -164,7 +164,7 @@ def test_combined_config_carries_the_retrieval_tunables():
 
 def test_chat_defaults():
     chat = ChatConfig()
-    assert chat.CHAT_MODEL == "anthropic/claude-sonnet-5"
+    assert chat.CHAT_MODEL == "anthropic/claude-haiku-4-5"
     assert chat.CHAT_TIMEOUT == 60
     assert chat.CHAT_MAX_TOKENS == 2048
     assert chat.ANTHROPIC_API_KEY == ""
