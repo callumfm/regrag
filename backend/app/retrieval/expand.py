@@ -3,66 +3,38 @@ arrives with the text that gives it meaning."""
 
 from collections.abc import Sequence
 
-from sqlalchemy import ColumnElement, Row, or_, select, tuple_
+from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.models import FrozenModel
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.retrieval.models import CHUNK_COLUMNS, RetrievedChunk
 
 
-def _section_key(row: Row) -> tuple:
-    """The section a chunk was cut from: its article, the split it is a part of, or itself.
+class SectionKey(FrozenModel):
+    """Which section a chunk was cut from: its article, the split it is a part of, or itself."""
 
-    Parts of one split share position - part, since the chunker emits them back to back.
-    """
-    if row.article is not None:
-        return ("article", row.celex, row.article)
-    if row.parts > 1:
-        return ("split", row.celex, row.position - row.part)
-    return ("chunk", row.id)
+    celex: str
+    article: str | None = None
+    split_start: int | None = None
+    chunk_id: int | None = None
 
+    @classmethod
+    def from_chunk(cls, chunk: RetrievedChunk) -> "SectionKey":
+        if chunk.article is not None:
+            return cls(celex=chunk.celex, article=chunk.article)
+        if chunk.parts > 1:
+            return cls(celex=chunk.celex, split_start=chunk.position - chunk.part + 1)
+        return cls(celex=chunk.celex, chunk_id=chunk.id)
 
-async def _section_keys(session: AsyncSession, ids: Sequence[int]) -> list[tuple]:
-    """The section each hit belongs to, in the order the hits ranked and without repeats."""
-    stmt = select(
-        DocumentChunk.id,
-        DocumentChunk.celex,
-        DocumentChunk.article,
-        DocumentChunk.position,
-        DocumentChunk.part,
-        DocumentChunk.parts,
-    ).where(DocumentChunk.id.in_(ids))
-    found = {row.id: _section_key(row) for row in await session.execute(stmt)}
-    return list(dict.fromkeys(found[chunk_id] for chunk_id in ids if chunk_id in found))
-
-
-def _matching(keys: Sequence[tuple]) -> list[ColumnElement[bool]]:
-    """One clause per kind of section named, each matching on the columns that kind is keyed by."""
-    articles = [key[1:] for key in keys if key[0] == "article"]
-    splits = [key[1:] for key in keys if key[0] == "split"]
-    chunks = [key[1] for key in keys if key[0] == "chunk"]
-    clauses: list[ColumnElement[bool]] = []
-    if articles:
-        clauses.append(tuple_(DocumentChunk.celex, DocumentChunk.article).in_(articles))
-    if splits:
-        group = DocumentChunk.position - DocumentChunk.part
-        clauses.append(tuple_(DocumentChunk.celex, group).in_(splits))
-    if chunks:
-        clauses.append(DocumentChunk.id.in_(chunks))
-    return clauses
-
-
-async def _sections(session: AsyncSession, keys: Sequence[tuple]) -> dict[tuple, list[Row]]:
-    """Every chunk of each named section, grouped by section and in the order the parser read it."""
-    stmt = (
-        select(*CHUNK_COLUMNS, DocumentChunk.position, DocumentChunk.part, DocumentChunk.parts)
-        .where(or_(*_matching(keys)))
-        .order_by(DocumentChunk.position, DocumentChunk.part)
-    )
-    grouped: dict[tuple, list[Row]] = {key: [] for key in keys}
-    for row in await session.execute(stmt):
-        grouped[_section_key(row)].append(row)
-    return grouped
+    def query_filter(self) -> ColumnElement[bool]:
+        """Matches every stored chunk of this section."""
+        if self.article is not None:
+            return and_(DocumentChunk.celex == self.celex, DocumentChunk.article == self.article)
+        if self.split_start is not None:
+            start = DocumentChunk.position - DocumentChunk.part + 1
+            return and_(DocumentChunk.celex == self.celex, start == self.split_start)
+        return DocumentChunk.id == self.chunk_id
 
 
 async def expand_sections(
@@ -76,10 +48,15 @@ async def expand_sections(
     """
     if not chunks:
         return ()
-    keys = await _section_keys(session, [chunk.id for chunk in chunks])
-    sections = await _sections(session, keys)
-    return tuple(
-        RetrievedChunk.model_validate(row, from_attributes=True)
-        for key in keys
-        for row in sections[key]
+
+    keys = list(dict.fromkeys(SectionKey.from_chunk(chunk) for chunk in chunks))
+    stmt = (
+        select(*CHUNK_COLUMNS)
+        .where(or_(*(key.query_filter() for key in keys)))
+        .order_by(DocumentChunk.position, DocumentChunk.part)
     )
+    sections: dict[SectionKey, list[RetrievedChunk]] = {key: [] for key in keys}
+    for row in await session.execute(stmt):
+        chunk = RetrievedChunk.model_validate(row, from_attributes=True)
+        sections[SectionKey.from_chunk(chunk)].append(chunk)
+    return tuple(chunk for key in keys for chunk in sections[key])

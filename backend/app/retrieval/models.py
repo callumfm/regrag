@@ -6,18 +6,6 @@ from app.core.models import FrozenModel
 from app.ingestion.chunk.models import Reference
 from app.ingestion.chunk.schemas import DocumentChunk
 
-CHUNK_COLUMNS = (
-    DocumentChunk.id,
-    DocumentChunk.celex,
-    DocumentChunk.topic,
-    DocumentChunk.citation,
-    DocumentChunk.article,
-    DocumentChunk.title,
-    DocumentChunk.text,
-    DocumentChunk.references,
-)
-"""The columns a RetrievedChunk is built from: a chunk without the vectors it is found by."""
-
 
 class SearchFilters(FrozenModel):
     """Which slice of the corpus a search may draw from."""
@@ -72,6 +60,13 @@ class RetrievedChunk(FrozenModel):
     title: str | None
     text: str
     references: tuple[Reference, ...] = ()
+    position: int
+    part: int
+    parts: int
+
+
+CHUNK_COLUMNS = tuple(getattr(DocumentChunk, name) for name in RetrievedChunk.model_fields)
+"""The columns a RetrievedChunk is built from: a chunk without the vectors it is found by."""
 
 
 class SearchResult(RetrievedChunk):

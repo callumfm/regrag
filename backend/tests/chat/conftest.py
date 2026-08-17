@@ -25,6 +25,9 @@ def make_result(**overrides: Any) -> SearchResult:
         "score": 0.9,
         "vector_rank": 1,
         "text_rank": 1,
+        "position": 1,
+        "part": 1,
+        "parts": 1,
     }
     return SearchResult(**{**defaults, **overrides})
 

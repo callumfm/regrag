@@ -59,6 +59,9 @@ def test_a_retrieved_chunk_cites_nothing_unless_told_otherwise() -> None:
         article="3",
         title=None,
         text="x",
+        position=1,
+        part=1,
+        parts=1,
     )
 
     assert chunk.references == ()

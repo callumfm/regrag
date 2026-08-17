@@ -92,7 +92,7 @@ async def test_expand_sections_reunites_a_section_split_for_length(
     """A table cut in two leaves its halves adrift; one half must bring back the other."""
     row = (
         await db_session.execute(
-            select(*CHUNK_COLUMNS, DocumentChunk.parts)
+            select(*CHUNK_COLUMNS)
             .where(
                 DocumentChunk.annex.is_not(None), DocumentChunk.parts > 1, DocumentChunk.part > 1
             )
@@ -104,7 +104,7 @@ async def test_expand_sections_reunites_a_section_split_for_length(
 
     expanded = await expand_sections(db_session, [later_part])
 
-    assert len(expanded) == row.parts
+    assert len(expanded) == later_part.parts
     assert later_part in expanded
 
 
