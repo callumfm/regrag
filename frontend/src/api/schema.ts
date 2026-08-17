@@ -32,7 +32,7 @@ export interface paths {
         put?: never;
         /**
          * Chat
-         * @description Stream a cited answer to the question over SSE.
+         * @description Stream a cited answer to the question over SSE: sources, tokens, done; or error.
          */
         post: operations["chat_chat_post"];
         delete?: never;
@@ -178,8 +178,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChatSource"][] | components["schemas"]["ChatToken"] | components["schemas"]["ErrorResponse"];
-                    "text/event-stream": unknown;
+                    "text/event-stream": components["schemas"]["ChatSource"][] | components["schemas"]["ChatToken"] | components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */

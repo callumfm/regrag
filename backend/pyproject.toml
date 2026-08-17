@@ -19,7 +19,6 @@ dependencies = [
     "python-json-logger>=3.3",
     "selectolax>=0.4.11",
     "sqlalchemy[asyncio]>=2.0",
-    "sse-starlette>=2.1",
     "tenacity>=9.1",
 ]
 

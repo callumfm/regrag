@@ -1,15 +1,14 @@
 """Chat stream orchestration: graph output translated into SSE events."""
 
-import json
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from sse_starlette.sse import ServerSentEvent
+from fastapi.sse import ServerSentEvent
 
-from app.chat.graph import chat_graph
+from app.chat.graph import ChatState, chat_graph
 from app.chat.models import ChatSource, ChatToken
-from app.core.exceptions import DomainError
+from app.core.exceptions import DomainError, describe
 from app.core.logger import request_id_var
 from app.core.models import ErrorResponse
 from app.retrieval.models import RetrievedChunk
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def _event(name: str, payload: Any) -> ServerSentEvent:
     """One SSE event carrying a JSON payload."""
-    return ServerSentEvent(event=name, data=json.dumps(payload))
+    return ServerSentEvent(event=name, data=payload)
 
 
 def _sources_event(sources: tuple[RetrievedChunk, ...]) -> ServerSentEvent:
@@ -33,13 +32,12 @@ def _sources_event(sources: tuple[RetrievedChunk, ...]) -> ServerSentEvent:
 
 def _error_event(exc: Exception) -> ServerSentEvent:
     """The error event in the app's one error shape, logged like the JSON handlers."""
+    error, message = describe(exc)
     if isinstance(exc, DomainError):
-        logger.warning("chat stream failed: %s", exc.message)
-        name, message = type(exc).__name__, exc.message
+        logger.warning("chat stream failed: %s", message)
     else:
         logger.exception("chat stream failed unexpectedly")
-        name, message = "InternalError", "An unexpected error occurred"
-    body = ErrorResponse(error=name, message=message, request_id=request_id_var.get())
+    body = ErrorResponse(error=error, message=message, request_id=request_id_var.get())
     return _event("error", body.model_dump(exclude_none=True))
 
 
@@ -59,7 +57,7 @@ async def chat_events(question: str) -> AsyncGenerator[ServerSentEvent, None]:
     """Sources once, then tokens, then done; an error event ends a failed stream."""
     try:
         async for mode, data in chat_graph.astream(
-            {"question": question}, stream_mode=["updates", "messages"]
+            ChatState(question=question), stream_mode=["updates", "messages"]
         ):
             if event := _event_for(mode, data):
                 yield event

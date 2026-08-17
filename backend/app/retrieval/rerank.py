@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 @llm_retry
-@wrap_provider_errors
+@wrap_provider_errors("rerank call")
 async def _rerank(query: str, documents: list[str]) -> list[RerankResponseResult]:
     """The cross-encoder's ranking of the documents, which the provider returns best-first."""
     response = await litellm.arerank(

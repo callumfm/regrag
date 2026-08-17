@@ -3,13 +3,14 @@
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from app.core.config import config
-from app.core.exceptions import error_response
+from app.core.exceptions import describe, error_response
 from app.core.logger import request_id_var
 
 logger = logging.getLogger(__name__)
@@ -27,27 +28,46 @@ async def request_id_middleware(request: Request, call_next):
         request_id_var.reset(token)
 
 
-async def process_time_middleware(request: Request, call_next):
-    """Time the request and emit one access-log line."""
-    start = time.perf_counter()
-    response = await call_next(request)
-    duration_ms = int((time.perf_counter() - start) * 1000)
-    response.headers["X-Process-Time"] = f"{duration_ms}ms"
+def _elapsed_ms(start: float) -> int:
+    return int((time.perf_counter() - start) * 1000)
+
+
+def _log_access(request: Request, status_code: int, duration_ms: int) -> None:
+    """The one access-log line per request."""
     logger.info(
         "%s %s %s - %sms",
         request.method,
         request.scope["path"],
-        response.status_code,
+        status_code,
         duration_ms,
         extra={
             "method": request.method,
             "path": request.scope["path"],
             "route": getattr(request.scope.get("route"), "path", None),
-            "status": response.status_code,
+            "status": status_code,
             "duration_ms": duration_ms,
             "client_ip": request.client.host if request.client else None,
         },
     )
+
+
+async def process_time_middleware(request: Request, call_next):
+    """Stamp the time to the response's headers, and log the request once its body has
+    been sent: a streamed answer does its work after the headers go out, so that is
+    the first point its duration is known."""
+    start = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Process-Time"] = f"{_elapsed_ms(start)}ms"
+    body = response.body_iterator
+
+    async def logged_body() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in body:
+                yield chunk
+        finally:
+            _log_access(request, response.status_code, _elapsed_ms(start))
+
+    response.body_iterator = logged_body()
     return response
 
 
@@ -55,13 +75,10 @@ async def exception_middleware(request: Request, call_next):
     """Convert unhandled exceptions into the shared 500 error shape."""
     try:
         return await call_next(request)
-    except Exception:
+    except Exception as exc:
         logger.exception("Unhandled error on %s %s", request.method, request.scope["path"])
-        return error_response(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            error="InternalServerError",
-            message="An unexpected error occurred",
-        )
+        error, message = describe(exc)
+        return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, error=error, message=message)
 
 
 def register_middleware(app: FastAPI) -> None:

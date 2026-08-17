@@ -3,7 +3,7 @@
 import functools
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from enum import StrEnum
 from operator import itemgetter
 from typing import Any
@@ -70,25 +70,29 @@ llm_retry = transient_retry(_is_transient)
 """Decorator retrying transient provider failures with exponential backoff."""
 
 
-def wrap_provider_errors(fn: Callable) -> Callable:
-    """Translate the wrapped call's provider failure into an LLMError named after the
-    function: ty types Callable without __name__, hence the suppression below."""
-    label = f"{fn.__name__.lstrip('_')} call"  # ty: ignore[unresolved-attribute]
+def wrap_provider_errors[**P, R](
+    label: str,
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Coroutine[Any, Any, R]]]:
+    """Translate the wrapped call's provider failure into an LLMError reading
+    "<label> failed", with the provider's own text kept to the log."""
 
-    @functools.wraps(fn)
-    async def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return await fn(*args, **kwargs)
-        except ProviderError as exc:
-            logger.warning("%s failed: %s", label, exc)
-            raise LLMError(
-                f"{label} failed", transient=isinstance(exc, TRANSIENT_PROVIDER_ERRORS)
-            ) from exc
+    def decorate(fn: Callable[P, Awaitable[R]]) -> Callable[P, Coroutine[Any, Any, R]]:
+        @functools.wraps(fn)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                return await fn(*args, **kwargs)
+            except ProviderError as exc:
+                logger.warning("%s failed: %s", label, exc)
+                raise LLMError(
+                    f"{label} failed", transient=isinstance(exc, TRANSIENT_PROVIDER_ERRORS)
+                ) from exc
 
-    return wrapper
+        return wrapper
+
+    return decorate
 
 
-@wrap_provider_errors
+@wrap_provider_errors("embedding call")
 async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]]:
     """Embed texts in one provider call, in input order. Retries are the caller's."""
     if not texts:
@@ -107,5 +111,5 @@ async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]
             len(response.data),
             len(texts),
         )
-        raise LLMError("embed call failed")
+        raise LLMError("embedding call failed")
     return [item["embedding"] for item in sorted(response.data, key=itemgetter("index"))]

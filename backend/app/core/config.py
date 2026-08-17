@@ -140,12 +140,19 @@ class EmbeddingConfig(BaseConfig):
 
 
 class ChatConfig(BaseConfig):
-    """Chat model configuration for the chat graph."""
+    """Chat model configuration for the chat graph.
+
+    CHAT_SOURCES: search hits the answer draws on, each widened to its section.
+    CHAT_CONTEXT_CHARS: the most context the prompt carries; whole sections are dropped
+        from the least relevant end to fit, the top hit's section always arriving whole.
+    """
 
     ANTHROPIC_API_KEY: str = ""
     CHAT_MODEL: str = "anthropic/claude-haiku-4-5"
     CHAT_TIMEOUT: int = 60
     CHAT_MAX_TOKENS: int = 2048
+    CHAT_SOURCES: int = Field(default=5, ge=1)
+    CHAT_CONTEXT_CHARS: int = Field(default=30_000, ge=1)
 
 
 class IngestConfig(BaseConfig):
@@ -185,12 +192,12 @@ class RetrievalConfig(BaseConfig):
     RERANK_MODEL: which cross-encoder rescores the fused results.
     RERANK_TIMEOUT: seconds to wait for the cross-encoder.
     RERANK_POOL: fused results the cross-encoder rescores.
-    EXPAND_SECTIONS: article expansion's off switch; a paragraph rarely restates its
-        own subject, so the article is the unit that answers.
+    EXPAND_SECTIONS: section expansion's off switch; a paragraph rarely restates its
+        own subject, so the section is the unit that answers.
     """
 
     SEARCH_CANDIDATES: int = Field(default=50, ge=1)
-    SEARCH_DEFAULT_LIMIT: int = Field(default=5, ge=1)
+    SEARCH_DEFAULT_LIMIT: int = Field(default=10, ge=1)
     EF_SEARCH_PER_CANDIDATE: int = Field(default=4, ge=1)
     RRF_K: int = 60
 

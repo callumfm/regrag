@@ -140,6 +140,18 @@ async def test_embed_wraps_provider_error_without_leaking_provider_text(monkeypa
         await embed(["text"], input_type=EmbedInput.DOCUMENT)
 
     assert provider_message not in str(exc_info.value)
+    assert str(exc_info.value) == "embedding call failed"
+
+
+async def test_wrap_provider_errors_names_the_call_by_its_label_not_its_function():
+    @llm.wrap_provider_errors("frobnicate call")
+    async def _internal_helper_name() -> None:
+        raise openai.APIConnectionError(
+            message="upstream", request=httpx.Request("POST", "http://provider.example")
+        )
+
+    with pytest.raises(LLMError, match="^frobnicate call failed$"):
+        await _internal_helper_name()
 
 
 def test_importing_llm_without_cost_map_pin_makes_no_network_connection():

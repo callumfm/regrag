@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from sqlalchemy import ColumnElement, and_, case, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import config
 from app.core.models import FrozenModel
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.retrieval.models import CHUNK_COLUMNS, RetrievedChunk
@@ -40,12 +41,15 @@ class SectionKey(FrozenModel):
 async def expand_sections(
     session: AsyncSession, chunks: Sequence[RetrievedChunk]
 ) -> tuple[RetrievedChunk, ...]:
-    """Each chunk widened to the section it was cut from, at the rank it was found.
+    """Each chunk widened to the section it was cut from, at the rank it was found;
+    the chunks as given when EXPAND_SECTIONS is off.
 
     A paragraph rarely restates its own subject — "the limit referred to in paragraph 1"
     is unreachable by relevance — and a section split for length leaves its halves adrift
     of each other. Retrieval ranks the pieces; the section is the unit that answers.
     """
+    if not config.EXPAND_SECTIONS:
+        return tuple(chunks)
     if not chunks:
         return ()
 

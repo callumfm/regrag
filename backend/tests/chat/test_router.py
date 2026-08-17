@@ -6,7 +6,8 @@ import httpx
 import pytest
 
 from app.core.llm import LLMError
-from tests.chat.conftest import THINKING, fake_chat_model, make_result, reasoning_chat_model
+from tests.chat.conftest import THINKING, fake_chat_model, reasoning_chat_model
+from tests.conftest import search_result
 
 
 def read_events(response: httpx.Response) -> list[tuple[str, dict]]:
@@ -25,7 +26,7 @@ def read_events(response: httpx.Response) -> list[tuple[str, dict]]:
 @pytest.fixture
 def two_results(monkeypatch):
     async def fake_search(session, request):
-        return (make_result(), make_result(id=2, citation="Article 5(1)"))
+        return (search_result(), search_result(id=2, citation="Article 5(1)"))
 
     monkeypatch.setattr("app.chat.graph.search", fake_search)
 
@@ -99,7 +100,7 @@ def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
 
     [(name, payload)] = events
     assert name == "error"
-    assert payload["error"] == "InternalError"
+    assert payload["error"] == "InternalServerError"
     assert payload["message"] == "An unexpected error occurred"
     assert "secret internals" not in json.dumps(payload)
 
@@ -107,3 +108,12 @@ def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
 def test_empty_question_is_rejected(client):
     response = client.post("/chat", json={"question": ""})
     assert response.status_code == 422
+
+
+def test_the_frames_are_documented_as_an_event_stream(client):
+    """The generated client types the frame payloads from the one media type sent."""
+    content = client.get("/openapi.json").json()["paths"]["/chat"]["post"]["responses"]["200"]
+    (media_type,) = content["content"]
+    assert media_type == "text/event-stream"
+    payloads = content["content"][media_type]["schema"]["anyOf"]
+    assert {"$ref": "#/components/schemas/ChatToken"} in payloads

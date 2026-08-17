@@ -137,7 +137,7 @@ def test_retrieval_defaults_match_the_shipped_tunables():
     retrieval = RetrievalConfig()
 
     assert retrieval.SEARCH_CANDIDATES == 50
-    assert retrieval.SEARCH_DEFAULT_LIMIT == 5
+    assert retrieval.SEARCH_DEFAULT_LIMIT == 10
     assert retrieval.EF_SEARCH_PER_CANDIDATE == 4
     assert retrieval.RRF_K == 60
     assert retrieval.RERANK_ENABLED is True
@@ -168,6 +168,8 @@ def test_chat_defaults():
     assert chat.CHAT_MODEL == "anthropic/claude-haiku-4-5"
     assert chat.CHAT_TIMEOUT == 60
     assert chat.CHAT_MAX_TOKENS == 2048
+    assert chat.CHAT_SOURCES == 5
+    assert chat.CHAT_CONTEXT_CHARS == 30_000
     assert chat.ANTHROPIC_API_KEY == ""
 
 
