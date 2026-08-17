@@ -3,7 +3,7 @@ arrives with the text that gives it meaning."""
 
 from collections.abc import Sequence
 
-from sqlalchemy import ColumnElement, and_, or_, select
+from sqlalchemy import ColumnElement, and_, case, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import FrozenModel
@@ -50,13 +50,12 @@ async def expand_sections(
         return ()
 
     keys = list(dict.fromkeys(SectionKey.from_chunk(chunk) for chunk in chunks))
+    filters = [key.query_filter() for key in keys]
+    rank = case(*((matches, position) for position, matches in enumerate(filters)))
     stmt = (
         select(*CHUNK_COLUMNS)
-        .where(or_(*(key.query_filter() for key in keys)))
-        .order_by(DocumentChunk.position, DocumentChunk.part)
+        .where(or_(*filters))
+        .order_by(rank, DocumentChunk.position, DocumentChunk.part)
     )
-    sections: dict[SectionKey, list[RetrievedChunk]] = {key: [] for key in keys}
-    for row in await session.execute(stmt):
-        chunk = RetrievedChunk.model_validate(row)
-        sections[SectionKey.from_chunk(chunk)].append(chunk)
-    return tuple(chunk for key in keys for chunk in sections[key])
+    rows = await session.execute(stmt)
+    return tuple(RetrievedChunk.model_validate(row) for row in rows)
