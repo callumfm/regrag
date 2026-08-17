@@ -5,7 +5,7 @@ from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from app.chat.prompts import SYSTEM_PROMPT, build_user_message, fit_context
+from app.chat.prompts import SYSTEM_PROMPT, build_user_message
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import llm_retry, wrap_provider_errors
@@ -39,14 +39,14 @@ def chat_model() -> ChatLiteLLM:
 
 
 async def retrieve(state: ChatState) -> dict[str, tuple[RetrievedChunk, ...]]:
-    """The corpus's best answers, widened to their sections and cut to the context
-    budget, from a node-scoped session so no connection is held while the model streams."""
+    """The corpus's best answers, widened to their sections, from a node-scoped session
+    so no connection is held while the model streams."""
     async with get_session(auto_commit=False) as session:
         hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
         sources: tuple[RetrievedChunk, ...] = hits
         if config.EXPAND_SECTIONS:
-            sources = await expand_sections(session, hits)
-    return {"sources": fit_context(sources, config.CHAT_CONTEXT_CHARS)}
+            sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
+    return {"sources": sources}
 
 
 @llm_retry

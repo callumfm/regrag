@@ -143,8 +143,8 @@ class ChatConfig(BaseConfig):
     """Chat model configuration for the chat graph.
 
     CHAT_SOURCES: search hits the answer draws on, each widened to its section.
-    CHAT_CONTEXT_CHARS: the most context the prompt carries; whole sections are dropped
-        from the least relevant end to fit, the top hit's section always arriving whole.
+    CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt; a guardrail
+        against a run of long articles, not a target, so it should rarely bite.
     """
 
     ANTHROPIC_API_KEY: str = ""
@@ -152,7 +152,7 @@ class ChatConfig(BaseConfig):
     CHAT_TIMEOUT: int = 60
     CHAT_MAX_TOKENS: int = 2048
     CHAT_SOURCES: int = Field(default=5, ge=1)
-    CHAT_CONTEXT_CHARS: int = Field(default=30_000, ge=1)
+    CHAT_CONTEXT_CHUNKS: int = Field(default=15, ge=1)
 
 
 class IngestConfig(BaseConfig):

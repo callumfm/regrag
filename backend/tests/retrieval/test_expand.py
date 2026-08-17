@@ -10,6 +10,9 @@ from app.retrieval.models import CHUNK_COLUMNS, RetrievedChunk
 
 pytestmark = pytest.mark.anyio
 
+NO_LIMIT = 1000
+"""More chunks than any test corpus section holds, for the tests not about the cap."""
+
 
 async def chunk_at(session: AsyncSession, celex: str, citation: str) -> RetrievedChunk:
     """One stored chunk as a caller sees it, so expansion is driven by real rows."""
@@ -27,7 +30,7 @@ async def test_expand_sections_reaches_the_paragraph_relevance_cannot(
     """Article 4(2) never restates its own subject, so only its article carries it here."""
     hit = await chunk_at(db_session, "32023R1805", "Article 4(1)")
 
-    expanded = await expand_sections(db_session, [hit])
+    expanded = await expand_sections(db_session, [hit], limit=NO_LIMIT)
 
     assert [chunk.citation for chunk in expanded] == [
         "Article 4(1)",
@@ -45,7 +48,7 @@ async def test_expand_sections_widens_each_hit_once(
     first = await chunk_at(db_session, "32023R1805", "Article 4(1)")
     third = await chunk_at(db_session, "32023R1805", "Article 4(3)")
 
-    expanded = await expand_sections(db_session, [first, third])
+    expanded = await expand_sections(db_session, [first, third], limit=NO_LIMIT)
 
     assert [chunk.citation for chunk in expanded] == [
         "Article 4(1)",
@@ -53,6 +56,21 @@ async def test_expand_sections_widens_each_hit_once(
         "Article 4(3)",
         "Article 4(4)",
     ]
+
+
+async def test_expand_sections_cuts_the_tail_of_the_lowest_ranked_section(
+    db_session: AsyncSession,
+    corpus: list[DocumentChunk],
+) -> None:
+    """The cap is a guardrail on context size; what it costs is the end of the last article."""
+    fifth = await chunk_at(db_session, "32023R1805", "Article 5(1)")
+    fourth = await chunk_at(db_session, "32023R1805", "Article 4(1)")
+    whole = await expand_sections(db_session, [fifth, fourth], limit=NO_LIMIT)
+
+    capped = await expand_sections(db_session, [fifth, fourth], limit=len(whole) - 1)
+
+    assert capped == whole[:-1]
+    assert capped[-1].article == "4"
 
 
 async def test_expand_sections_keeps_each_article_at_the_rank_it_was_found(
@@ -63,7 +81,7 @@ async def test_expand_sections_keeps_each_article_at_the_rank_it_was_found(
     fifth = await chunk_at(db_session, "32023R1805", "Article 5(1)")
     fourth = await chunk_at(db_session, "32023R1805", "Article 4(1)")
 
-    expanded = await expand_sections(db_session, [fifth, fourth])
+    expanded = await expand_sections(db_session, [fifth, fourth], limit=NO_LIMIT)
     articles = list(dict.fromkeys(chunk.article for chunk in expanded))
 
     assert articles == ["5", "4"]
@@ -82,7 +100,7 @@ async def test_expand_sections_passes_an_unsplit_chunk_outside_an_article_throug
     assert row is not None, "the fixture no longer stores a whole annex chunk"
     chunk = RetrievedChunk.model_validate(row)
 
-    assert await expand_sections(db_session, [chunk]) == (chunk,)
+    assert await expand_sections(db_session, [chunk], limit=NO_LIMIT) == (chunk,)
 
 
 async def test_expand_sections_reunites_a_section_split_for_length(
@@ -102,7 +120,7 @@ async def test_expand_sections_reunites_a_section_split_for_length(
     assert row is not None, "the fixture no longer stores a split annex section"
     later_part = RetrievedChunk.model_validate(row)
 
-    expanded = await expand_sections(db_session, [later_part])
+    expanded = await expand_sections(db_session, [later_part], limit=NO_LIMIT)
 
     assert len(expanded) == later_part.parts
     assert later_part in expanded
@@ -112,4 +130,4 @@ async def test_expand_sections_on_nothing_asks_the_database_nothing(
     empty_session: AsyncSession,
 ) -> None:
     """No hits means no article keys, so the widening query never runs."""
-    assert await expand_sections(empty_session, []) == ()
+    assert await expand_sections(empty_session, [], limit=NO_LIMIT) == ()

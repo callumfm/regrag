@@ -38,9 +38,10 @@ class SectionKey(FrozenModel):
 
 
 async def expand_sections(
-    session: AsyncSession, chunks: Sequence[RetrievedChunk]
+    session: AsyncSession, chunks: Sequence[RetrievedChunk], *, limit: int
 ) -> tuple[RetrievedChunk, ...]:
-    """Each chunk widened to the section it was cut from, at the rank it was found.
+    """Each chunk widened to the section it was cut from, at the rank it was found,
+    at most `limit` chunks in all: the tail of the lowest-ranked section goes first.
 
     A paragraph rarely restates its own subject — "the limit referred to in paragraph 1"
     is unreachable by relevance — and a section split for length leaves its halves adrift
@@ -56,6 +57,7 @@ async def expand_sections(
         select(*CHUNK_COLUMNS)
         .where(or_(*filters))
         .order_by(rank, DocumentChunk.position, DocumentChunk.part)
+        .limit(limit)
     )
     rows = await session.execute(stmt)
     return tuple(RetrievedChunk.model_validate(row) for row in rows)

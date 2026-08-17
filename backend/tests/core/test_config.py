@@ -169,7 +169,7 @@ def test_chat_defaults():
     assert chat.CHAT_TIMEOUT == 60
     assert chat.CHAT_MAX_TOKENS == 2048
     assert chat.CHAT_SOURCES == 5
-    assert chat.CHAT_CONTEXT_CHARS == 30_000
+    assert chat.CHAT_CONTEXT_CHUNKS == 15
     assert chat.ANTHROPIC_API_KEY == ""
 
 

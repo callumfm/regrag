@@ -165,8 +165,9 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, m
     """The graph hands search's hits to expansion, so the prompt sees whole sections."""
     widened = (search_result(id=2, citation="Article 4(2)", text="The limit is 91,16 gCO2e/MJ."),)
 
-    async def fake_expand(session, chunks):
+    async def fake_expand(session, chunks, *, limit):
         assert tuple(chunks) == (search_result(),)
+        assert limit == config.CHAT_CONTEXT_CHUNKS
         return widened
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
@@ -181,7 +182,7 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, m
 async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, monkeypatch):
     """The off switch skips the widening query, not just its result."""
 
-    async def refuse(session, chunks):
+    async def refuse(session, chunks, *, limit):
         raise AssertionError("expansion ran with EXPAND_SECTIONS off")
 
     monkeypatch.setattr("app.chat.graph.expand_sections", refuse)
@@ -190,22 +191,3 @@ async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, mo
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
     assert state["sources"] == (search_result(),)
-
-
-async def test_retrieve_cuts_the_widened_sections_to_the_context_budget(one_result, monkeypatch):
-    """Sources and prompt share one budget, so the markers the client sees are the
-    markers the model cites."""
-    article_4 = (search_result(id=1), search_result(id=2, citation="Article 4(2)", position=2))
-    article_5 = (search_result(id=3, article="5", citation="Article 5(1)", position=3),)
-
-    async def fake_expand(session, chunks):
-        return article_4 + article_5
-
-    monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
-    monkeypatch.setattr(config, "CHAT_CONTEXT_CHARS", sum(len(c.text) for c in article_4))
-    monkeypatch.setattr("app.chat.graph.expand_sections", fake_expand)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
-
-    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
-
-    assert state["sources"] == article_4
