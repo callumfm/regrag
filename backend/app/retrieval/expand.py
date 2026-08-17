@@ -49,8 +49,8 @@ async def expand_sections(
     if not chunks:
         return ()
 
-    keys = list(dict.fromkeys(SectionKey.from_chunk(chunk) for chunk in chunks))
-    filters = [key.query_filter() for key in keys]
+    unique_keys = list(dict.fromkeys(SectionKey.from_chunk(chunk) for chunk in chunks))
+    filters = [key.query_filter() for key in unique_keys]
     rank = case(*((matches, position) for position, matches in enumerate(filters)))
     stmt = (
         select(*CHUNK_COLUMNS)
