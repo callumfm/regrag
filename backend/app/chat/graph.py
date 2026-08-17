@@ -12,7 +12,7 @@ from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import wrap_provider_errors
 from app.retrieval.models import RetrievedChunk, SearchRequest
-from app.retrieval.related import expand_articles
+from app.retrieval.related import expand_sections
 from app.retrieval.search import search
 
 
@@ -45,8 +45,8 @@ async def retrieve(state: ChatState) -> dict:
     async with get_session() as session:
         results = await search(session, SearchRequest(query=state["question"]))
         sources: tuple[RetrievedChunk, ...] = results
-        if config.EXPAND_ARTICLES:
-            sources = await expand_articles(session, results)
+        if config.EXPAND_SECTIONS:
+            sources = await expand_sections(session, results)
     return {"sources": sources}
 
 

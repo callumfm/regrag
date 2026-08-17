@@ -114,7 +114,7 @@ async def test_retrieve_widens_what_search_found_to_whole_articles(monkeypatch):
         return widened
 
     monkeypatch.setattr("app.chat.graph.search", fake_search)
-    monkeypatch.setattr("app.chat.graph.expand_articles", fake_expand)
+    monkeypatch.setattr("app.chat.graph.expand_sections", fake_expand)
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
 
     state = await chat_graph.ainvoke({"question": QUESTION})
@@ -130,11 +130,11 @@ async def test_retrieve_leaves_search_alone_when_expansion_is_off(monkeypatch):
         return found
 
     async def refuse(session, chunks):
-        raise AssertionError("expansion ran with EXPAND_ARTICLES off")
+        raise AssertionError("expansion ran with EXPAND_SECTIONS off")
 
-    monkeypatch.setattr(config, "EXPAND_ARTICLES", False)
+    monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
     monkeypatch.setattr("app.chat.graph.search", fake_search)
-    monkeypatch.setattr("app.chat.graph.expand_articles", refuse)
+    monkeypatch.setattr("app.chat.graph.expand_sections", refuse)
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
 
     state = await chat_graph.ainvoke({"question": QUESTION})

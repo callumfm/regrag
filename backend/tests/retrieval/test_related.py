@@ -8,7 +8,7 @@ from app.ingestion.chunk.models import Reference
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
-from app.retrieval.related import CHUNK_COLUMNS, expand_articles, follow_reference
+from app.retrieval.related import CHUNK_COLUMNS, expand_sections, follow_reference
 
 pytestmark = pytest.mark.anyio
 
@@ -250,14 +250,14 @@ async def chunk_at(session: AsyncSession, celex: str, citation: str) -> Retrieve
     return RetrievedChunk.model_validate(row, from_attributes=True)
 
 
-async def test_expand_articles_reaches_the_paragraph_relevance_cannot(
+async def test_expand_sections_reaches_the_paragraph_relevance_cannot(
     db_session: AsyncSession,
     corpus: list[DocumentChunk],
 ) -> None:
     """Article 4(2) never restates its own subject, so only its article carries it here."""
     hit = await chunk_at(db_session, "32023R1805", "Article 4(1)")
 
-    expanded = await expand_articles(db_session, [hit])
+    expanded = await expand_sections(db_session, [hit])
 
     assert [chunk.citation for chunk in expanded] == [
         "Article 4(1)",
@@ -267,7 +267,7 @@ async def test_expand_articles_reaches_the_paragraph_relevance_cannot(
     ]
 
 
-async def test_expand_articles_widens_each_hit_once(
+async def test_expand_sections_widens_each_hit_once(
     db_session: AsyncSession,
     corpus: list[DocumentChunk],
 ) -> None:
@@ -275,7 +275,7 @@ async def test_expand_articles_widens_each_hit_once(
     first = await chunk_at(db_session, "32023R1805", "Article 4(1)")
     third = await chunk_at(db_session, "32023R1805", "Article 4(3)")
 
-    expanded = await expand_articles(db_session, [first, third])
+    expanded = await expand_sections(db_session, [first, third])
 
     assert [chunk.citation for chunk in expanded] == [
         "Article 4(1)",
@@ -285,7 +285,7 @@ async def test_expand_articles_widens_each_hit_once(
     ]
 
 
-async def test_expand_articles_keeps_each_article_at_the_rank_it_was_found(
+async def test_expand_sections_keeps_each_article_at_the_rank_it_was_found(
     db_session: AsyncSession,
     corpus: list[DocumentChunk],
 ) -> None:
@@ -293,32 +293,53 @@ async def test_expand_articles_keeps_each_article_at_the_rank_it_was_found(
     fifth = await chunk_at(db_session, "32023R1805", "Article 5(1)")
     fourth = await chunk_at(db_session, "32023R1805", "Article 4(1)")
 
-    expanded = await expand_articles(db_session, [fifth, fourth])
+    expanded = await expand_sections(db_session, [fifth, fourth])
     articles = list(dict.fromkeys(chunk.article for chunk in expanded))
 
     assert articles == ["5", "4"]
 
 
-async def test_expand_articles_passes_a_chunk_outside_an_article_through(
+async def test_expand_sections_passes_an_unsplit_chunk_outside_an_article_through(
     db_session: AsyncSession,
     corpus: list[DocumentChunk],
 ) -> None:
-    """An annex has no paragraphs to widen to, so it arrives as it came."""
-    annex = (
+    """A whole annex section has nothing to widen to, so it arrives as it came."""
+    row = (
         await db_session.execute(
-            select(*CHUNK_COLUMNS).where(
-                DocumentChunk.celex == "32023R1805", DocumentChunk.annex.is_not(None)
-            )
+            select(*CHUNK_COLUMNS).where(DocumentChunk.annex.is_not(None), DocumentChunk.parts == 1)
         )
     ).first()
-    assert annex is not None, "the fixture no longer stores an annex chunk"
-    chunk = RetrievedChunk.model_validate(annex, from_attributes=True)
+    assert row is not None, "the fixture no longer stores a whole annex chunk"
+    chunk = RetrievedChunk.model_validate(row, from_attributes=True)
 
-    assert await expand_articles(db_session, [chunk]) == (chunk,)
+    assert await expand_sections(db_session, [chunk]) == (chunk,)
 
 
-async def test_expand_articles_on_nothing_asks_the_database_nothing(
+async def test_expand_sections_reunites_a_section_split_for_length(
+    db_session: AsyncSession,
+    corpus: list[DocumentChunk],
+) -> None:
+    """A table cut in two leaves its halves adrift; one half must bring back the other."""
+    row = (
+        await db_session.execute(
+            select(*CHUNK_COLUMNS, DocumentChunk.parts)
+            .where(
+                DocumentChunk.annex.is_not(None), DocumentChunk.parts > 1, DocumentChunk.part > 1
+            )
+            .order_by(DocumentChunk.position)
+        )
+    ).first()
+    assert row is not None, "the fixture no longer stores a split annex section"
+    later_part = RetrievedChunk.model_validate(row, from_attributes=True)
+
+    expanded = await expand_sections(db_session, [later_part])
+
+    assert len(expanded) == row.parts
+    assert later_part in expanded
+
+
+async def test_expand_sections_on_nothing_asks_the_database_nothing(
     empty_session: AsyncSession,
 ) -> None:
     """No hits means no article keys, so the widening query never runs."""
-    assert await expand_articles(empty_session, []) == ()
+    assert await expand_sections(empty_session, []) == ()

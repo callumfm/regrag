@@ -78,4 +78,4 @@ def no_article_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _identity(session: Any, chunks: Any) -> tuple[RetrievedChunk, ...]:
         return tuple(chunks)
 
-    monkeypatch.setattr("app.chat.graph.expand_articles", _identity)
+    monkeypatch.setattr("app.chat.graph.expand_sections", _identity)
