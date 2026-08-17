@@ -1750,7 +1750,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.19.1" },
     { name = "boto3", specifier = ">=1.43.70" },
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.139" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "litellm", specifier = ">=1.96.2" },
     { name = "openai", specifier = ">=1.0" },
