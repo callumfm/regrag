@@ -169,12 +169,27 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, m
         assert tuple(chunks) == (search_result(),)
         return widened
 
+    monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
     monkeypatch.setattr("app.chat.graph.expand_sections", fake_expand)
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
     assert state["sources"] == widened
+
+
+async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, monkeypatch):
+    """The off switch skips the widening query, not just its result."""
+
+    async def refuse(session, chunks):
+        raise AssertionError("expansion ran with EXPAND_SECTIONS off")
+
+    monkeypatch.setattr("app.chat.graph.expand_sections", refuse)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+
+    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
+
+    assert state["sources"] == (search_result(),)
 
 
 async def test_retrieve_cuts_the_widened_sections_to_the_context_budget(one_result, monkeypatch):
@@ -186,6 +201,7 @@ async def test_retrieve_cuts_the_widened_sections_to_the_context_budget(one_resu
     async def fake_expand(session, chunks):
         return article_4 + article_5
 
+    monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
     monkeypatch.setattr(config, "CHAT_CONTEXT_CHARS", sum(len(c.text) for c in article_4))
     monkeypatch.setattr("app.chat.graph.expand_sections", fake_expand)
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())

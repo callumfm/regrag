@@ -43,7 +43,9 @@ async def retrieve(state: ChatState) -> dict[str, tuple[RetrievedChunk, ...]]:
     budget, from a node-scoped session so no connection is held while the model streams."""
     async with get_session(auto_commit=False) as session:
         hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
-        sources = await expand_sections(session, hits)
+        sources: tuple[RetrievedChunk, ...] = hits
+        if config.EXPAND_SECTIONS:
+            sources = await expand_sections(session, hits)
     return {"sources": fit_context(sources, config.CHAT_CONTEXT_CHARS)}
 
 

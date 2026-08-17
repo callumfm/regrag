@@ -4,11 +4,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import config
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.retrieval.expand import expand_sections
 from app.retrieval.models import CHUNK_COLUMNS, RetrievedChunk
-from tests.conftest import retrieved_chunk
 
 pytestmark = pytest.mark.anyio
 
@@ -115,13 +113,3 @@ async def test_expand_sections_on_nothing_asks_the_database_nothing(
 ) -> None:
     """No hits means no article keys, so the widening query never runs."""
     assert await expand_sections(empty_session, []) == ()
-
-
-async def test_expand_sections_hands_back_its_input_when_switched_off(
-    empty_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The off switch skips the widening query, not just its result."""
-    monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
-    hits = [retrieved_chunk(id=404)]
-
-    assert await expand_sections(empty_session, hits) == tuple(hits)

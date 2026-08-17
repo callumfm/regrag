@@ -53,5 +53,5 @@ def reasoning_chat_model() -> ReasoningChatModel:
 @pytest.fixture(autouse=True)
 def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
     """Expansion is a database walk covered in tests/retrieval; here it is switched off,
-    so retrieval hands the graph exactly what the faked search found."""
+    so the graph works from exactly what the faked search found."""
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
