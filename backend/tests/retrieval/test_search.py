@@ -98,12 +98,12 @@ async def test_hybrid_search_sizes_the_walk_from_the_candidates_it_is_given(
     """The knob and the tuning drifted apart while ef_search was frozen at import."""
     await hybrid_search(
         db_session,
-        toy_embed("energy"),
-        "energy",
-        NO_FILTERS,
+        query="energy",
+        embedding=toy_embed("energy"),
+        filters=NO_FILTERS,
+        limit=5,
         candidates=100,
         rrf_k=config.RRF_K,
-        limit=5,
     )
 
     expected = str(100 * config.EF_SEARCH_PER_CANDIDATE)

@@ -4,6 +4,19 @@ from pydantic import Field, model_validator
 
 from app.core.models import FrozenModel
 from app.ingestion.chunk.models import Reference
+from app.ingestion.chunk.schemas import DocumentChunk
+
+CHUNK_COLUMNS = (
+    DocumentChunk.id,
+    DocumentChunk.celex,
+    DocumentChunk.topic,
+    DocumentChunk.citation,
+    DocumentChunk.article,
+    DocumentChunk.title,
+    DocumentChunk.text,
+    DocumentChunk.references,
+)
+"""The columns a RetrievedChunk is built from: a chunk without the vectors it is found by."""
 
 
 class SearchFilters(FrozenModel):
@@ -56,7 +69,6 @@ class RetrievedChunk(FrozenModel):
     topic: str
     citation: str
     article: str | None
-    """None outside an article, which is an annex or the act's own front matter."""
     title: str | None
     text: str
     references: tuple[Reference, ...] = ()

@@ -11,8 +11,8 @@ from app.chat.prompts import SYSTEM_PROMPT, build_user_message
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import wrap_provider_errors
+from app.retrieval.expand import expand_sections
 from app.retrieval.models import RetrievedChunk, SearchRequest
-from app.retrieval.related import expand_sections
 from app.retrieval.search import search
 
 
