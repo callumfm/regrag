@@ -16,20 +16,6 @@ articles it relied on rather than a paraphrase to take on trust.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    subgraph ingest [Ingest]
-        direction LR
-        cellar[(EUR-Lex<br/>CELLAR)] --> discover --> fetch --> parse --> chunk --> embed
-    end
-    embed --> db[(PostgreSQL<br/>pgvector)]
-    subgraph query [Query]
-        direction LR
-        question([question]) --> search[hybrid search<br/>vector + full-text, RRF] --> rerank --> answer([cited articles])
-    end
-    db --> search
-```
-
 - **Discovery** queries CELLAR for every act with FuelEU or MRV as its legal
   basis, then resolves each to its latest consolidated version by CELEX number.
 - **Ingestion** runs incrementally: unchanged documents are neither
