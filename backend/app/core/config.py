@@ -146,7 +146,6 @@ class ChatConfig(BaseConfig):
     CHAT_MODEL: str = "anthropic/claude-sonnet-5"
     CHAT_TIMEOUT: int = 60
     CHAT_MAX_TOKENS: int = 2048
-    CHAT_CONTEXT_CHUNKS: int = 10
 
 
 class IngestConfig(BaseConfig):

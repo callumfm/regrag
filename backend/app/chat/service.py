@@ -8,7 +8,7 @@ from typing import Any
 from sse_starlette.sse import ServerSentEvent
 
 from app.chat.graph import chat_graph
-from app.chat.models import ChatSource, numbered
+from app.chat.models import ChatSource, ChatToken
 from app.core.exceptions import DomainError
 from app.core.logger import request_id_var
 from app.core.models import ErrorResponse
@@ -25,7 +25,8 @@ def _event(name: str, payload: Any) -> ServerSentEvent:
 def _sources_event(sources: tuple[SearchResult, ...]) -> ServerSentEvent:
     """The sources event binding [n] markers to the retrieved chunks."""
     payload = [
-        ChatSource.from_result(marker, result).model_dump() for marker, result in numbered(sources)
+        ChatSource.from_result(marker, result).model_dump()
+        for marker, result in enumerate(sources, start=1)
     ]
     return _event("sources", payload)
 
@@ -44,14 +45,13 @@ def _error_event(exc: Exception) -> ServerSentEvent:
 
 def _event_for(mode: str, data: Any) -> ServerSentEvent | None:
     """The SSE event one stream item maps to, if any: sources from the retrieve
-    update, a token from each non-empty message chunk. data is untyped because
-    langgraph does not type astream's list-mode yields."""
+    update, a token from each message chunk carrying text."""
     if mode == "updates" and "retrieve" in data:
         return _sources_event(data["retrieve"]["sources"])
     if mode == "messages":
         chunk, _ = data
-        if isinstance(chunk.content, str) and chunk.content:
-            return _event("token", {"text": chunk.content})
+        if text := chunk.text:
+            return _event("token", ChatToken(text=text).model_dump())
     return None
 
 

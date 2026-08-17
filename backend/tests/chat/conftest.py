@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from langchain_core.language_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
@@ -46,3 +46,24 @@ class RecordingChatModel(GenericFakeChatModel):
 def fake_chat_model(answer: str = "Ships must comply [1].") -> RecordingChatModel:
     """A chat model that streams one canned answer."""
     return RecordingChatModel(messages=iter([AIMessage(content=answer)]))
+
+
+THINKING = "weighing the context"
+
+
+class ReasoningChatModel(GenericFakeChatModel):
+    """Streams block-list content, as litellm returns it once the model reasons."""
+
+    def _stream(
+        self, messages: list[BaseMessage], *args: Any, **kwargs: Any
+    ) -> Iterator[ChatGenerationChunk]:
+        for block in (
+            {"type": "thinking", "thinking": THINKING},
+            {"type": "text", "text": "Ships must comply [1]."},
+        ):
+            yield ChatGenerationChunk(message=AIMessageChunk(content=[block]))
+
+
+def reasoning_chat_model() -> ReasoningChatModel:
+    """A chat model whose chunks carry content blocks rather than strings."""
+    return ReasoningChatModel(messages=iter([AIMessage(content="unused")]))

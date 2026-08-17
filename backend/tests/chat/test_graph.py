@@ -35,7 +35,7 @@ async def test_graph_retrieves_then_answers(monkeypatch):
 
     assert state["answer"] == "Yes, Article 4 [1]."
     assert state["sources"] == (make_result(),)
-    assert calls == [SearchRequest(query=QUESTION, limit=config.CHAT_CONTEXT_CHUNKS)]
+    assert calls == [SearchRequest(query=QUESTION)]
 
 
 async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
@@ -86,7 +86,8 @@ async def test_provider_failure_becomes_transient_llm_error(monkeypatch):
 
 
 @pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="needs a real Anthropic key")
-async def test_real_chat_model_streams_string_chunks():
+async def test_real_chat_model_streams_text_chunks():
+    """chunk.text is what the stream reads, whether content is a string or block list."""
     model = ChatLiteLLM(
         model=config.CHAT_MODEL,
         api_key=os.environ["ANTHROPIC_API_KEY"],
@@ -94,8 +95,8 @@ async def test_real_chat_model_streams_string_chunks():
         request_timeout=30,
     )
     texts = [
-        chunk.content
+        chunk.text
         async for chunk in model.astream([HumanMessage("Reply with the single word OK.")])
     ]
     assert all(isinstance(text, str) for text in texts)
-    assert "".join(texts)  # ty: ignore[no-matching-overload]
+    assert "".join(texts)

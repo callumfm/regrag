@@ -53,6 +53,44 @@ export interface components {
             /** Question */
             question: string;
         };
+        /**
+         * ChatSource
+         * @description One context block as the sources event reports it, binding marker to chunk.
+         */
+        ChatSource: {
+            /** Marker */
+            marker: number;
+            /** Chunk Id */
+            chunk_id: number;
+            /** Celex */
+            celex: string;
+            /** Citation */
+            citation: string;
+            /** Title */
+            title: string | null;
+        };
+        /**
+         * ChatToken
+         * @description The token event's payload: one fragment of the streamed answer.
+         */
+        ChatToken: {
+            /** Text */
+            text: string;
+        };
+        /**
+         * ErrorResponse
+         * @description The single JSON shape every error response uses.
+         */
+        ErrorResponse: {
+            /** Error */
+            error: string;
+            /** Message */
+            message: string;
+            /** Request Id */
+            request_id?: string | null;
+            /** Detail */
+            detail?: unknown[] | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -140,7 +178,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ChatSource"][] | components["schemas"]["ChatToken"] | components["schemas"]["ErrorResponse"];
+                    "text/event-stream": unknown;
                 };
             };
             /** @description Validation Error */

@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from app.core.models import FrozenModel
+from app.core.models import ErrorResponse, FrozenModel
 from app.retrieval.models import SearchResult
 
 
@@ -10,11 +10,6 @@ class ChatRequest(BaseModel):
     """The question a caller asks."""
 
     question: str = Field(min_length=1, max_length=2000)
-
-
-def numbered(sources: tuple[SearchResult, ...]) -> tuple[tuple[int, SearchResult], ...]:
-    """Each source with its 1-based marker; prompt context and the sources event share this."""
-    return tuple(enumerate(sources, start=1))
 
 
 class ChatSource(FrozenModel):
@@ -36,3 +31,13 @@ class ChatSource(FrozenModel):
             citation=result.citation,
             title=result.title,
         )
+
+
+class ChatToken(FrozenModel):
+    """The token event's payload: one fragment of the streamed answer."""
+
+    text: str
+
+
+ChatEvent = tuple[ChatSource, ...] | ChatToken | ErrorResponse
+"""What an SSE frame's data holds, by event name: sources, token, error. done carries {}."""

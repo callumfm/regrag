@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.core.llm import LLMError
-from tests.chat.conftest import fake_chat_model, make_result
+from tests.chat.conftest import THINKING, fake_chat_model, make_result, reasoning_chat_model
 
 
 def read_events(response: httpx.Response) -> list[tuple[str, dict]]:
@@ -47,6 +47,17 @@ def test_stream_orders_sources_then_tokens_then_done(client, two_results, monkey
     assert answer == "Two words [1]."
 
 
+def test_block_list_content_streams_text_without_reasoning(client, two_results, monkeypatch):
+    monkeypatch.setattr("app.chat.graph.chat_model", reasoning_chat_model)
+
+    with client.stream("POST", "/chat", json={"question": "q"}) as response:
+        events = read_events(response)
+
+    answer = "".join(payload["text"] for name, payload in events if name == "token")
+    assert answer == "Ships must comply [1]."
+    assert THINKING not in json.dumps(events)
+
+
 def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch):
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
@@ -62,7 +73,7 @@ def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch)
 
 
 def test_stream_failure_emits_an_error_event(client, monkeypatch):
-    async def failing_search(session, query, **kwargs):
+    async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
     monkeypatch.setattr("app.chat.graph.search", failing_search)
@@ -78,7 +89,7 @@ def test_stream_failure_emits_an_error_event(client, monkeypatch):
 
 
 def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
-    async def exploding_search(session, query, **kwargs):
+    async def exploding_search(session, request):
         raise RuntimeError("secret internals")
 
     monkeypatch.setattr("app.chat.graph.search", exploding_search)

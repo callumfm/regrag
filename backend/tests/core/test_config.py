@@ -167,7 +167,6 @@ def test_chat_defaults():
     assert chat.CHAT_MODEL == "anthropic/claude-sonnet-5"
     assert chat.CHAT_TIMEOUT == 60
     assert chat.CHAT_MAX_TOKENS == 2048
-    assert chat.CHAT_CONTEXT_CHUNKS == 10
     assert chat.ANTHROPIC_API_KEY == ""
 
 

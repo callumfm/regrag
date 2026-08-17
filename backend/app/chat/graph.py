@@ -1,10 +1,11 @@
 """Two-node chat graph: retrieve corpus context, synthesize a cited answer."""
 
+from typing import TypedDict
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from typing_extensions import TypedDict
 
 from app.chat.prompts import SYSTEM_PROMPT, build_user_message
 from app.core.config import config
@@ -36,8 +37,7 @@ async def retrieve(state: ChatState) -> dict:
     """The corpus's best answers, from a node-scoped session so no connection is
     held while the model streams."""
     async with get_session() as session:
-        request = SearchRequest(query=state["question"], limit=config.CHAT_CONTEXT_CHUNKS)
-        results = await search(session, request)
+        results = await search(session, SearchRequest(query=state["question"]))
     return {"sources": results}
 
 
@@ -53,8 +53,7 @@ async def synthesize(state: ChatState) -> dict:
 
 
 def build_graph() -> CompiledStateGraph:
-    """The compiled retrieve → synthesize graph: ty doesn't match a TypedDict
-    against langgraph's StateLike protocol, hence the two suppressions below."""
+    """The compiled retrieve → synthesize graph."""
     graph = StateGraph(ChatState)  # ty: ignore[invalid-argument-type]
     graph.add_node("retrieve", retrieve)
     graph.add_node("synthesize", synthesize)

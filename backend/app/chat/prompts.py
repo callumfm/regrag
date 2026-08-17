@@ -1,6 +1,5 @@
 """System prompt and numbered-context formatting for the chat graph."""
 
-from app.chat.models import numbered
 from app.retrieval.models import SearchResult
 
 SYSTEM_PROMPT = (
@@ -15,7 +14,7 @@ def format_context(sources: tuple[SearchResult, ...]) -> str:
     """The retrieved chunks as numbered blocks the citation markers refer to."""
     blocks = [
         f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
-        for marker, source in numbered(sources)
+        for marker, source in enumerate(sources, start=1)
     ]
     return "\n\n".join(blocks)
 
