@@ -24,7 +24,7 @@ def read_events(response: httpx.Response) -> list[tuple[str, dict]]:
 
 @pytest.fixture
 def two_results(monkeypatch):
-    async def fake_search(session, query, **kwargs):
+    async def fake_search(session, request):
         return (make_result(), make_result(id=2, citation="Article 5(1)"))
 
     monkeypatch.setattr("app.chat.graph.search", fake_search)

@@ -12,6 +12,7 @@ from langchain_litellm import ChatLiteLLM
 from app.chat.graph import chat_graph
 from app.core.config import config
 from app.core.llm import LLMError
+from app.retrieval.models import SearchRequest
 from tests.chat.conftest import RecordingChatModel, fake_chat_model, make_result
 
 pytestmark = pytest.mark.anyio
@@ -20,10 +21,10 @@ QUESTION = "What is the GHG intensity limit?"
 
 
 async def test_graph_retrieves_then_answers(monkeypatch):
-    calls: list[tuple[str, int]] = []
+    calls: list[SearchRequest] = []
 
-    async def fake_search(session, query, **kwargs):
-        calls.append((query, kwargs["limit"]))
+    async def fake_search(session, request):
+        calls.append(request)
         return (make_result(),)
 
     model = fake_chat_model("Yes, Article 4 [1].")
@@ -34,11 +35,11 @@ async def test_graph_retrieves_then_answers(monkeypatch):
 
     assert state["answer"] == "Yes, Article 4 [1]."
     assert state["sources"] == (make_result(),)
-    assert calls == [(QUESTION, config.CHAT_CONTEXT_CHUNKS)]
+    assert calls == [SearchRequest(query=QUESTION, limit=config.CHAT_CONTEXT_CHUNKS)]
 
 
 async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
-    async def fake_search(session, query, **kwargs):
+    async def fake_search(session, request):
         return (make_result(text="A very specific clause."),)
 
     model = fake_chat_model()
@@ -71,7 +72,7 @@ async def test_provider_failure_becomes_transient_llm_error(monkeypatch):
                 body=None,
             )
 
-    async def fake_search(session, query, **kwargs):
+    async def fake_search(session, request):
         return (make_result(),)
 
     model = FailingModel(messages=iter([]))

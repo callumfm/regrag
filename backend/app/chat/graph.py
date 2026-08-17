@@ -10,8 +10,8 @@ from app.chat.prompts import SYSTEM_PROMPT, build_user_message
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import wrap_provider_errors
-from app.retrieval.models import SearchResult
-from app.retrieval.pipeline import search
+from app.retrieval.models import SearchRequest, SearchResult
+from app.retrieval.search import search
 
 
 class ChatState(TypedDict):
@@ -36,7 +36,8 @@ async def retrieve(state: ChatState) -> dict:
     """The corpus's best answers, from a node-scoped session so no connection is
     held while the model streams."""
     async with get_session() as session:
-        results = await search(session, state["question"], limit=config.CHAT_CONTEXT_CHUNKS)
+        request = SearchRequest(query=state["question"], limit=config.CHAT_CONTEXT_CHUNKS)
+        results = await search(session, request)
     return {"sources": results}
 
 
