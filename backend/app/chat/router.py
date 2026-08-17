@@ -12,8 +12,8 @@ from app.chat.service import chat_events
 router = APIRouter(tags=["chat"])
 
 CHAT_RESPONSES: dict[int | str, dict[str, Any]] = {200: {"model": ChatEvent}}
-"""The frames carry names, so their payloads are documented here rather than read from
-the yield type; the response class files them under text/event-stream."""
+"""What a frame's data holds, for the OpenAPI schema: FastAPI cannot read it from the
+yielded ServerSentEvent, and the response class files it under text/event-stream."""
 
 
 @router.post("/chat", response_class=EventSourceResponse, responses=CHAT_RESPONSES)
