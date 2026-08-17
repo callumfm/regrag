@@ -1,3 +1,5 @@
+"""Following a stored cross-reference to the division it names."""
+
 from collections.abc import Callable
 
 import pytest

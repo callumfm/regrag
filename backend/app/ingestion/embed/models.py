@@ -1,11 +1,12 @@
 """Embed-stage values: what one run's embedding pass changed."""
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from app.core.models import AppModel
 from app.ingestion.exceptions import failure_reason
 
 
-class EmbedFailure(BaseModel):
+class EmbedFailure(AppModel):
     """Chunks one document could not embed, and the first error that stopped them."""
 
     chunks: int = 0
@@ -16,7 +17,7 @@ class EmbedFailure(BaseModel):
         return f"{self.chunks} {unit}: {self.reason}"
 
 
-class EmbedOutcome(BaseModel):
+class EmbedOutcome(AppModel):
     """How many chunk vectors a run filled in, how many were already there, and what would not."""
 
     embedded: int = 0

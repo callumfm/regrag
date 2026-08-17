@@ -139,6 +139,22 @@ class EmbeddingConfig(BaseConfig):
     EMBED_TIMEOUT: int = 30
 
 
+class ChatConfig(BaseConfig):
+    """Chat model configuration for the chat graph.
+
+    CHAT_SOURCES: search hits the answer draws on, each widened to its section.
+    CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt; a guardrail
+        against a run of long articles, not a target, so it should rarely bite.
+    """
+
+    ANTHROPIC_API_KEY: str = ""
+    CHAT_MODEL: str = "anthropic/claude-haiku-4-5"
+    CHAT_TIMEOUT: int = 60
+    CHAT_MAX_TOKENS: int = 2048
+    CHAT_SOURCES: int = Field(default=5, ge=1)
+    CHAT_CONTEXT_CHUNKS: int = Field(default=15, ge=1)
+
+
 class IngestConfig(BaseConfig):
     """Ingestion tunables.
 
@@ -176,6 +192,8 @@ class RetrievalConfig(BaseConfig):
     RERANK_MODEL: which cross-encoder rescores the fused results.
     RERANK_TIMEOUT: seconds to wait for the cross-encoder.
     RERANK_POOL: fused results the cross-encoder rescores.
+    EXPAND_SECTIONS: section expansion's off switch; a paragraph rarely restates its
+        own subject, so the section is the unit that answers.
     """
 
     SEARCH_CANDIDATES: int = Field(default=50, ge=1)
@@ -188,9 +206,17 @@ class RetrievalConfig(BaseConfig):
     RERANK_TIMEOUT: int = 30
     RERANK_POOL: int = 30
 
+    EXPAND_SECTIONS: bool = True
+
 
 class Config(
-    AppConfig, PostgresConfig, EmbeddingConfig, IngestConfig, RetrievalConfig, StorageConfig
+    AppConfig,
+    PostgresConfig,
+    EmbeddingConfig,
+    ChatConfig,
+    IngestConfig,
+    RetrievalConfig,
+    StorageConfig,
 ):
     """Combined configuration class for core app functionality."""
 

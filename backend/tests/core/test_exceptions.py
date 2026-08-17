@@ -9,7 +9,7 @@ from httpx import Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, describe
 
 
 class _Payload(BaseModel):
@@ -134,3 +134,17 @@ def test_validation_error_strips_ctx(client: TestClient) -> None:
 
 def test_unknown_route_uses_shared_schema(client: TestClient) -> None:
     assert_error_shape(client.get("/nope"), 404, "HTTPException")
+
+
+def test_describe_lets_a_domain_error_speak_for_itself() -> None:
+    assert describe(NotFoundError("Regulation", "fueleu")) == (
+        "NotFoundError",
+        "Regulation 'fueleu' not found",
+    )
+
+
+def test_describe_keeps_anything_else_generic() -> None:
+    assert describe(RuntimeError("secret internal detail")) == (
+        "InternalServerError",
+        "An unexpected error occurred",
+    )

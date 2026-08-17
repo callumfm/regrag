@@ -2,9 +2,11 @@
 
 import re
 import uuid
+from collections.abc import Iterator
 
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
 from app.core import middleware
@@ -61,6 +63,30 @@ def test_access_log_skips_cors_preflight(client: TestClient, log_lines: list[str
     )
     assert response.status_code == 200
     assert log_lines == []
+
+
+def test_access_log_waits_for_a_streamed_body(
+    app: FastAPI, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stream's work happens after its headers, so the line is written when the body ends."""
+    order: list[str] = []
+    monkeypatch.setattr(
+        middleware.logger, "info", lambda msg, *args, **kwargs: order.append(msg % args)
+    )
+
+    def body() -> Iterator[bytes]:
+        order.append("first chunk")
+        yield b"chunk"
+        order.append("last chunk")
+
+    @app.get("/stream")
+    def stream() -> StreamingResponse:
+        return StreamingResponse(body(), media_type="text/plain")
+
+    client.get("/stream")
+
+    assert order[:2] == ["first chunk", "last chunk"]
+    assert order[2].startswith("GET /stream 200")
 
 
 def test_gzip_compresses_large_responses(app: FastAPI, client: TestClient) -> None:

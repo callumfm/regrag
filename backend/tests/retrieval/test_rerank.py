@@ -10,6 +10,7 @@ from app.core.llm import LLMError
 from app.retrieval import rerank as rerank_module
 from app.retrieval.models import SearchResult
 from app.retrieval.rerank import _rerank, rerank_results
+from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -19,14 +20,13 @@ def _response(scores: list[tuple[int, float]]) -> RerankResponse:
 
 
 def _result(chunk_id: int) -> SearchResult:
-    return SearchResult(
+    """The chunk_id-th hit of a fused ranking, its score falling with its rank."""
+    return search_result(
         id=chunk_id,
-        celex="32015R0757",
-        topic="mrv",
         citation=f"Article {chunk_id}",
-        title=None,
+        article=str(chunk_id),
         text=f"text of chunk {chunk_id}",
-        references=(),
+        position=chunk_id,
         score=1.0 / chunk_id,
         vector_rank=chunk_id,
         text_rank=None,

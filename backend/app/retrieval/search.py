@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import config
 from app.core.llm import EmbedInput, embed, llm_retry
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.retrieval.models import SearchFilters, SearchRequest, SearchResult
+from app.retrieval.models import CHUNK_COLUMNS, SearchFilters, SearchRequest, SearchResult
 from app.retrieval.rerank import rerank_results
 
 EF_SEARCH_MAX = 1000
@@ -72,13 +72,13 @@ def _text_candidates(query: str, filters: SearchFilters, limit: int) -> Select:
 
 async def hybrid_search(
     session: AsyncSession,
-    embedding: Sequence[float],
-    query: str,
-    filters: SearchFilters,
     *,
+    query: str,
+    embedding: Sequence[float],
+    filters: SearchFilters,
+    limit: int,
     candidates: int,
     rrf_k: int,
-    limit: int,
 ) -> tuple[SearchResult, ...]:
     """The corpus's best answers, both legs fused by 1/(rrf_k + rank) in one round trip.
 
@@ -96,13 +96,7 @@ async def hybrid_search(
     )
     stmt = (
         select(
-            DocumentChunk.id,
-            DocumentChunk.celex,
-            DocumentChunk.topic,
-            DocumentChunk.citation,
-            DocumentChunk.title,
-            DocumentChunk.text,
-            DocumentChunk.references,
+            *CHUNK_COLUMNS,
             score,
             by_vector.c.rank.label("vector_rank"),
             by_text.c.rank.label("text_rank"),
@@ -112,7 +106,7 @@ async def hybrid_search(
         .limit(limit)
     )
     rows = await session.execute(stmt)
-    return tuple(SearchResult.model_validate(row, from_attributes=True) for row in rows)
+    return tuple(SearchResult.model_validate(row) for row in rows)
 
 
 async def search(session: AsyncSession, request: SearchRequest) -> tuple[SearchResult, ...]:
@@ -122,12 +116,12 @@ async def search(session: AsyncSession, request: SearchRequest) -> tuple[SearchR
     pool = max(limit, config.RERANK_POOL) if config.RERANK_ENABLED else limit
     results = await hybrid_search(
         session,
-        embedding,
-        request.query,
-        request.filters,
+        query=request.query,
+        embedding=embedding,
+        filters=request.filters,
+        limit=pool,
         candidates=config.SEARCH_CANDIDATES,
         rrf_k=config.RRF_K,
-        limit=pool,
     )
     if config.RERANK_ENABLED:
         results = await rerank_results(request.query, results, limit=limit)

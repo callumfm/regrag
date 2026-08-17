@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings
 from app.core.config import (
     BACKEND_ROOT,
     BaseConfig,
+    ChatConfig,
     Config,
     EmbeddingConfig,
     Environment,
@@ -143,6 +144,7 @@ def test_retrieval_defaults_match_the_shipped_tunables():
     assert retrieval.RERANK_MODEL == "voyage/rerank-2.5"
     assert retrieval.RERANK_TIMEOUT == 30
     assert retrieval.RERANK_POOL == 30
+    assert retrieval.EXPAND_SECTIONS is True
 
 
 @pytest.mark.parametrize(
@@ -159,3 +161,17 @@ def test_a_search_knob_of_zero_is_refused_at_startup(name, monkeypatch):
 def test_combined_config_carries_the_retrieval_tunables():
     assert Config().RERANK_POOL == 30
     assert Config().RERANK_ENABLED is True
+
+
+def test_chat_defaults():
+    chat = ChatConfig()
+    assert chat.CHAT_MODEL == "anthropic/claude-haiku-4-5"
+    assert chat.CHAT_TIMEOUT == 60
+    assert chat.CHAT_MAX_TOKENS == 2048
+    assert chat.CHAT_SOURCES == 5
+    assert chat.CHAT_CONTEXT_CHUNKS == 15
+    assert chat.ANTHROPIC_API_KEY == ""
+
+
+def test_config_includes_chat_settings():
+    assert "CHAT_MODEL" in Config.model_fields

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
+from app.chat.graph import synthesize
 from app.core.clock import utc_now
 from app.core.config import BACKEND_ROOT, EMBED_DIMENSIONS, R2Config, config
 from app.core.db.session import async_session_factory
@@ -33,8 +34,9 @@ from app.ingestion.parse.html.document import parse_eurlex_html
 from app.ingestion.parse.models import ParsedDocument
 from app.ingestion.schemas import IngestRun
 from app.main import configure_app
+from app.retrieval.models import RetrievedChunk, SearchResult
 
-RETRIED = (run_acts_by_topic_query, _download_version_html, embed_batch)
+RETRIED = (run_acts_by_topic_query, _download_version_html, embed_batch, synthesize)
 
 PARSE_FIXTURES = Path(__file__).parent / "ingestion" / "parse" / "fixtures"
 FUELEU_HTML = (PARSE_FIXTURES / "32023R1805.html").read_text()
@@ -368,3 +370,29 @@ def chunk(**overrides: Any) -> Chunk:
         "paragraph": "1",
     }
     return Chunk(**{**defaults, **overrides})
+
+
+RETRIEVED_CHUNK: dict[str, Any] = {
+    "id": 1,
+    "celex": "32023R1805",
+    "topic": "fueleu",
+    "citation": "Article 4(1)",
+    "article": "4",
+    "title": "Greenhouse gas intensity limit",
+    "text": "The greenhouse gas intensity of the energy used on board.",
+    "position": 1,
+    "part": 1,
+    "parts": 1,
+}
+"""One retrieved chunk's fields with sane defaults, the base of the retrieval factories."""
+
+
+def retrieved_chunk(**overrides: Any) -> RetrievedChunk:
+    """A retrieved chunk with sane defaults, overridable per field."""
+    return RetrievedChunk(**{**RETRIEVED_CHUNK, **overrides})
+
+
+def search_result(**overrides: Any) -> SearchResult:
+    """A scored search hit with sane defaults, overridable per field."""
+    defaults: dict[str, Any] = {**RETRIEVED_CHUNK, "score": 0.9, "vector_rank": 1, "text_rank": 1}
+    return SearchResult(**{**defaults, **overrides})

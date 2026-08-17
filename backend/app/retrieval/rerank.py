@@ -6,28 +6,23 @@ import litellm
 from litellm.types.rerank import RerankResponseResult
 
 from app.core.config import config
-from app.core.llm import TRANSIENT_PROVIDER_ERRORS, LLMError, ProviderError, llm_retry
+from app.core.llm import LLMError, llm_retry, wrap_provider_errors
 from app.retrieval.models import SearchResult
 
 logger = logging.getLogger(__name__)
 
 
 @llm_retry
+@wrap_provider_errors("rerank call")
 async def _rerank(query: str, documents: list[str]) -> list[RerankResponseResult]:
     """The cross-encoder's ranking of the documents, which the provider returns best-first."""
-    try:
-        response = await litellm.arerank(
-            model=config.RERANK_MODEL,
-            query=query,
-            documents=documents,
-            api_key=config.VOYAGE_API_KEY,
-            timeout=config.RERANK_TIMEOUT,
-        )
-    except ProviderError as exc:
-        logger.warning("rerank call failed: %s", exc)
-        raise LLMError(
-            "rerank call failed", transient=isinstance(exc, TRANSIENT_PROVIDER_ERRORS)
-        ) from exc
+    response = await litellm.arerank(
+        model=config.RERANK_MODEL,
+        query=query,
+        documents=documents,
+        api_key=config.VOYAGE_API_KEY,
+        timeout=config.RERANK_TIMEOUT,
+    )
     return response.results or []
 
 

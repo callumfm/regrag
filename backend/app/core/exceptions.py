@@ -39,6 +39,14 @@ class NotFoundError(DomainError):
         self.identifier = identifier
 
 
+def describe(exc: Exception) -> tuple[str, str]:
+    """The (error, message) pair an exception reports: a DomainError speaks for itself,
+    anything else is the one generic failure whose detail stays in the log."""
+    if isinstance(exc, DomainError):
+        return type(exc).__name__, exc.message
+    return "InternalServerError", "An unexpected error occurred"
+
+
 def error_response(
     status_code: int,
     *,
@@ -110,9 +118,9 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
 
 async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
     """Map any DomainError subclass to a JSON response using its status_code."""
-    name = type(exc).__name__
-    logger.warning("%s on %s %s: %s", name, request.method, request.url.path, exc.message)
-    return error_response(exc.status_code, error=name, message=exc.message)
+    name, message = describe(exc)
+    logger.warning("%s on %s %s: %s", name, request.method, request.url.path, message)
+    return error_response(exc.status_code, error=name, message=message)
 
 
 async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:

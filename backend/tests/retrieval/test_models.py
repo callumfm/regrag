@@ -2,7 +2,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.ingestion.chunk.models import Reference
-from app.retrieval.models import ReferenceTarget, RetrievedChunk, SearchRequest
+from app.retrieval.models import ReferenceTarget, SearchRequest
+from tests.conftest import retrieved_chunk
 
 
 def test_a_bare_act_is_refused_rather_than_dumped() -> None:
@@ -51,8 +52,4 @@ def test_a_request_may_leave_the_limit_to_config() -> None:
 
 def test_a_retrieved_chunk_cites_nothing_unless_told_otherwise() -> None:
     """Every database path fills references, so a hand-built chunk need not spell out none."""
-    chunk = RetrievedChunk(
-        id=1, celex="32015R0757", topic="mrv", citation="Article 3", title=None, text="x"
-    )
-
-    assert chunk.references == ()
+    assert retrieved_chunk().references == ()

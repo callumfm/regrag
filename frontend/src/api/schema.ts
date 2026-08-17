@@ -21,10 +21,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat
+         * @description Stream a cited answer to the question over SSE: sources, tokens, done; or error.
+         */
+        post: operations["chat_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ChatRequest
+         * @description The question a caller asks.
+         */
+        ChatRequest: {
+            /** Question */
+            question: string;
+        };
+        /**
+         * ChatSource
+         * @description One context block as the sources event reports it, binding marker to chunk.
+         */
+        ChatSource: {
+            /** Marker */
+            marker: number;
+            /** Chunk Id */
+            chunk_id: number;
+            /** Celex */
+            celex: string;
+            /** Citation */
+            citation: string;
+            /** Title */
+            title: string | null;
+        };
+        /**
+         * ChatToken
+         * @description The token event's payload: one fragment of the streamed answer.
+         */
+        ChatToken: {
+            /** Text */
+            text: string;
+        };
+        /**
+         * ErrorResponse
+         * @description The single JSON shape every error response uses.
+         */
+        ErrorResponse: {
+            /** Error */
+            error: string;
+            /** Message */
+            message: string;
+            /** Request Id */
+            request_id?: string | null;
+            /** Detail */
+            detail?: unknown[] | null;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -46,6 +117,19 @@ export interface components {
          * @enum {string}
          */
         ServiceStatus: "ok" | "error";
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
+        };
     };
     responses: never;
     parameters: never;
@@ -71,6 +155,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    chat_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ChatSource"][] | components["schemas"]["ChatToken"] | components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

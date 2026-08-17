@@ -14,7 +14,7 @@ def test_section_rejects_a_kind_that_is_not_a_section_kind():
 
 def test_section_rejects_a_child_that_is_not_a_section():
     with pytest.raises(ValidationError):
-        Section(kind=SectionKind.ARTICLE, children=("not a section",))  # ty: ignore[invalid-argument-type]
+        Section(kind=SectionKind.ARTICLE, children=("not a section",))
 
 
 def test_section_defaults_to_an_empty_leaf():
