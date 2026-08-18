@@ -7,11 +7,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chat.enums import ChatOutcome
 from app.chat.observability import service
-from app.chat.observability.enums import ChatOutcome
+from app.chat.observability.models import StreamStats
 from app.chat.observability.schemas import ChatRun
 from app.chat.observability.service import chat_run, log_run, record_run
-from app.chat.observability.stats import StreamStats
 from app.core.config import config
 from app.core.logger import request_id_var
 from tests.chat.conftest import USAGE

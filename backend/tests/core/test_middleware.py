@@ -1,4 +1,4 @@
-"""Tests for the request middleware: request IDs, timing, access log, gzip."""
+"""Tests for the request middleware: request IDs, access log, gzip."""
 
 import uuid
 from collections.abc import Iterator

@@ -3,28 +3,19 @@
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.messages.ai import UsageMetadata
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from app.chat.enums import ChatNode
+from app.chat.models import ChatState
 from app.chat.prompts import SYSTEM_PROMPT, build_user_message
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import llm_retry, wrap_provider_errors
-from app.core.models import AppModel
 from app.retrieval.expand import expand_sections
 from app.retrieval.models import RetrievedChunk, SearchRequest
 from app.retrieval.search import search
-
-
-class ChatState(AppModel):
-    """What flows through the graph for one question."""
-
-    question: str
-    sources: tuple[RetrievedChunk, ...] = ()
-    answer: str = ""
-    usage: UsageMetadata | None = None
 
 
 def chat_model() -> ChatLiteLLM:
@@ -56,8 +47,7 @@ async def retrieve(state: ChatState) -> dict[str, tuple[RetrievedChunk, ...]]:
 @llm_retry
 @wrap_provider_errors("chat call")
 async def synthesize(state: ChatState) -> dict[str, Any]:
-    """One streamed model call answering from the context with [n] citations, and
-    the tokens it cost.
+    """One streamed model call answering from the context with [n] citations.
 
     A transient provider failure is retried like embed and rerank; one that strikes
     mid-stream restarts the answer, so its tokens reach the client twice.
@@ -73,11 +63,11 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
 def build_graph() -> CompiledStateGraph[ChatState]:
     """The compiled retrieve → synthesize graph."""
     graph = StateGraph(ChatState)
-    graph.add_node("retrieve", retrieve)
-    graph.add_node("synthesize", synthesize)
-    graph.add_edge(START, "retrieve")
-    graph.add_edge("retrieve", "synthesize")
-    graph.add_edge("synthesize", END)
+    graph.add_node(ChatNode.RETRIEVE, retrieve)
+    graph.add_node(ChatNode.SYNTHESIZE, synthesize)
+    graph.add_edge(START, ChatNode.RETRIEVE)
+    graph.add_edge(ChatNode.RETRIEVE, ChatNode.SYNTHESIZE)
+    graph.add_edge(ChatNode.SYNTHESIZE, END)
     return graph.compile()
 
 

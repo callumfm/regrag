@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
+from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.exceptions import describe, error_response
 from app.core.logger import request_id_var
@@ -26,10 +27,6 @@ async def request_id_middleware(request: Request, call_next):
         return response
     finally:
         request_id_var.reset(token)
-
-
-def _elapsed_ms(start: float) -> int:
-    return int((time.perf_counter() - start) * 1000)
 
 
 def _log_access(request: Request, status_code: int, duration_ms: int) -> None:
@@ -63,7 +60,7 @@ async def access_log_middleware(request: Request, call_next):
             async for chunk in body:
                 yield chunk
         finally:
-            _log_access(request, response.status_code, _elapsed_ms(start))
+            _log_access(request, response.status_code, elapsed_ms(start))
 
     response.body_iterator = logged_body()
     return response

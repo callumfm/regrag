@@ -10,21 +10,21 @@ from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
-from app.chat.observability.enums import ChatOutcome
-from app.chat.observability.stats import StreamStats
+from app.chat.enums import ChatOutcome
+from app.chat.observability.models import StreamStats
 from app.core.config import config
+from tests.conftest import search_result
 
 USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
 
 
 class RecordingChatModel(GenericFakeChatModel):
     """Streams a canned answer with real message chunks, recording each prompt once:
-    the fake's _stream is built on its _generate, so that is the one place to record.
-    Usage is reported the way litellm reports it: on the message when invoked, as a
-    usage-only final chunk when streamed."""
+    the fake's _stream is built on its _generate, so that is the one place to record."""
 
     received: list[list[BaseMessage]] = Field(default_factory=list)
     usage: UsageMetadata | None = None
+    """Reported as litellm does: on the invoked message, or as a final usage-only chunk."""
 
     def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> ChatResult:
         self.received.append(list(messages))
@@ -67,6 +67,14 @@ class ReasoningChatModel(GenericFakeChatModel):
 def reasoning_chat_model() -> ReasoningChatModel:
     """A chat model whose chunks carry content blocks rather than strings."""
     return ReasoningChatModel(messages=iter([AIMessage(content="unused")]))
+
+
+@pytest.fixture
+def two_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_search(session, request):
+        return (search_result(), search_result(id=2, citation="Article 5(1)"))
+
+    monkeypatch.setattr("app.chat.graph.search", fake_search)
 
 
 @pytest.fixture(autouse=True)

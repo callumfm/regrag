@@ -2,21 +2,12 @@
 
 import pytest
 
-from app.chat.observability.enums import ChatOutcome
+from app.chat.enums import ChatOutcome
 from app.chat.service import chat_events
 from app.core.llm import LLMError
 from tests.chat.conftest import USAGE, fake_chat_model
-from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture
-def two_results(monkeypatch):
-    async def fake_search(session, request):
-        return (search_result(), search_result(id=2, citation="Article 5(1)"))
-
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
 
 
 async def test_finished_stream_records_timings_sources_and_usage(

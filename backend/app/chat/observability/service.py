@@ -2,9 +2,9 @@
 
 import logging
 
-from app.chat.observability.enums import ChatOutcome
+from app.chat.enums import ChatOutcome
+from app.chat.observability.models import StreamStats
 from app.chat.observability.schemas import ChatRun
-from app.chat.observability.stats import StreamStats
 from app.core.config import config
 from app.core.db.crud import create_record
 from app.core.db.session import get_session

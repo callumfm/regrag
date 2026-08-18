@@ -20,4 +20,4 @@ yielded ServerSentEvent, and the response class files it under text/event-stream
 async def chat(request: ChatRequest) -> AsyncIterator[ServerSentEvent]:
     """Stream a cited answer to the question over SSE: sources, tokens, done; or error."""
     async for event in chat_events(request.question):
-        yield event
+        yield ServerSentEvent(event=event.event, data=event.data)
