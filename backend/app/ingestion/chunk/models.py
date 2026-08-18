@@ -10,6 +10,18 @@ from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
 
 
+def format_citation(
+    article: str | None = None, paragraph: str | None = None, annex: str | None = None
+) -> str:
+    """A division as a lawyer would cite it: 'Article 6(2)', 'Annex I'; empty outside any."""
+    if article is not None:
+        suffix = f"({paragraph})" if paragraph else ""
+        return f"Article {article}{suffix}"
+    if annex is not None:
+        return f"Annex {annex}".rstrip()
+    return ""
+
+
 class Reference(FrozenModel):
     """One cross-reference; instrument is None when the target is this document."""
 
@@ -51,13 +63,8 @@ class Chunk(Locator):
     @computed_field
     @property
     def citation(self) -> str:
-        """The locator as a lawyer would cite it: 'Article 6(2)', 'Annex I'."""
-        if self.article is not None:
-            suffix = f"({self.paragraph})" if self.paragraph else ""
-            return f"Article {self.article}{suffix}"
-        if self.annex is not None:
-            return f"Annex {self.annex}".rstrip()
-        return self.title or ""
+        """The locator as a lawyer would cite it, or its title outside any division."""
+        return format_citation(self.article, self.paragraph, self.annex) or self.title or ""
 
     @property
     def content_hash(self) -> str:

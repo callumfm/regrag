@@ -3,28 +3,17 @@ from collections.abc import Callable
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.evals.enums import EvalKind
-from app.evals.models import EvalCase
-from app.evals.service import unresolved_references
+from app.evals.models import UnresolvedReference
+from app.evals.service import find_unresolved_references
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import ReferenceTarget
+from tests.evals.conftest import REFERENCE, eval_case, eval_dataset, out_of_corpus_case
 
 pytestmark = pytest.mark.anyio
 
-STORED = ReferenceTarget(celex="32023R1805", article="4")
 STORED_ANNEX = ReferenceTarget(celex="32023R1805", annex="IV")
 MISSING = ReferenceTarget(celex="32023R1805", article="999")
-
-
-def case(id: str, kind: EvalKind = EvalKind.IN_CORPUS, *references: ReferenceTarget) -> EvalCase:
-    return EvalCase(
-        id=id,
-        kind=kind,
-        question="q?",
-        answer="a" if kind is EvalKind.IN_CORPUS else None,
-        references=references,
-    )
 
 
 async def test_a_reference_a_stored_chunk_answers_to_is_resolved(
@@ -38,8 +27,8 @@ async def test_a_reference_a_stored_chunk_answers_to_is_resolved(
     )
     await db_session.flush()
 
-    unresolved = await unresolved_references(
-        db_session, (case("ok", EvalKind.IN_CORPUS, STORED, STORED_ANNEX),)
+    unresolved = await find_unresolved_references(
+        db_session, eval_dataset(eval_case(references=(REFERENCE, STORED_ANNEX)))
     )
 
     assert unresolved == ()
@@ -51,13 +40,15 @@ async def test_a_reference_no_chunk_answers_to_is_reported_with_its_case(
     db_session.add(make_chunk_row(ingest_run))
     await db_session.flush()
 
-    unresolved = await unresolved_references(
+    unresolved = await find_unresolved_references(
         db_session,
-        (case("ok", EvalKind.IN_CORPUS, STORED), case("stale", EvalKind.IN_CORPUS, MISSING)),
+        eval_dataset(eval_case(id="ok"), eval_case(id="stale", references=(MISSING,))),
     )
 
-    assert unresolved == (("stale", MISSING),)
+    assert unresolved == (UnresolvedReference(case_id="stale", target=MISSING),)
 
 
 async def test_out_of_corpus_cases_have_nothing_to_resolve(db_session: AsyncSession) -> None:
-    assert await unresolved_references(db_session, (case("ooc", EvalKind.OUT_OF_CORPUS),)) == ()
+    unresolved = await find_unresolved_references(db_session, eval_dataset(out_of_corpus_case()))
+
+    assert unresolved == ()

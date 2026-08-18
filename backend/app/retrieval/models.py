@@ -3,7 +3,7 @@
 from pydantic import Field, model_validator
 
 from app.core.models import FrozenModel
-from app.ingestion.chunk.models import Reference
+from app.ingestion.chunk.models import Reference, format_citation
 from app.ingestion.chunk.schemas import DocumentChunk
 
 SNIPPET = 160
@@ -51,6 +51,11 @@ class ReferenceTarget(FrozenModel):
             paragraph=reference.paragraph,
             annex=reference.annex,
         )
+
+    @property
+    def citation(self) -> str:
+        """The division as a citation names it: 'Article 6(2)', 'Annex I'."""
+        return format_citation(self.article, self.paragraph, self.annex)
 
     @model_validator(mode="after")
     def _addresses_a_division(self) -> "ReferenceTarget":

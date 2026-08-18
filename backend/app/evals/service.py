@@ -1,22 +1,23 @@
 """Eval checks against the corpus."""
 
-from collections.abc import Sequence
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.evals.models import EvalCase
-from app.retrieval.follow import follow_reference
-from app.retrieval.models import ReferenceTarget
+from app.evals.models import EvalDataset, UnresolvedReference
+from app.retrieval.follow import reference_exists
 
 
-async def unresolved_references(
-    session: AsyncSession, cases: Sequence[EvalCase]
-) -> tuple[tuple[str, ReferenceTarget], ...]:
-    """Every case reference no stored chunk answers to, with its case id; empty when the dataset
-    still matches the corpus. A reference goes stale when an act is re-ingested renumbered."""
+async def find_unresolved_references(
+    session: AsyncSession, dataset: EvalDataset
+) -> tuple[UnresolvedReference, ...]:
+    """Look up every case's references in the corpus and return those that find no stored chunk.
+
+    A reference resolves when a chunk is stored for its celex + article/annex. It stops resolving
+    when the act is re-ingested renumbered or the case was authored with a typo; a run would then
+    score that case as a retrieval miss for the wrong reason, so this check runs first.
+    """
     unresolved = []
-    for case in cases:
+    for case in dataset.cases:
         for target in case.references:
-            if not await follow_reference(session, target):
-                unresolved.append((case.id, target))
+            if not await reference_exists(session, target):
+                unresolved.append(UnresolvedReference(case_id=case.id, target=target))
     return tuple(unresolved)

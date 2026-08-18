@@ -21,6 +21,14 @@ def test_an_unnumbered_annex_addresses_a_division() -> None:
     assert ReferenceTarget(celex="32015R0757", annex="").annex == ""
 
 
+def test_a_target_is_cited_as_a_lawyer_would_cite_it() -> None:
+    target = ReferenceTarget(celex="32015R0757", article="6", paragraph="2")
+
+    assert target.citation == "Article 6(2)"
+    assert ReferenceTarget(celex="32015R0757", annex="I").citation == "Annex I"
+    assert ReferenceTarget(celex="32015R0757", annex="").citation == "Annex"
+
+
 def test_a_reference_naming_no_instrument_targets_the_citing_act() -> None:
     reference = Reference(raw="Article 11a", article="11a")
 

@@ -3,11 +3,11 @@
 import argparse
 import asyncio
 
+from app.core.config import config
 from app.core.db.session import get_session
 from app.core.logger import setup_logging
-from app.evals.dataset import load_golden
-from app.evals.service import unresolved_references
-from app.retrieval.models import ReferenceTarget
+from app.evals.models import EvalDataset, UnresolvedReference
+from app.evals.service import find_unresolved_references
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,24 +17,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _check() -> tuple[tuple[str, ReferenceTarget], ...]:
+async def _check_dataset_references() -> tuple[UnresolvedReference, ...]:
     async with get_session(auto_commit=False) as session:
-        return await unresolved_references(session, load_golden())
-
-
-def _describe(target: ReferenceTarget) -> str:
-    division = f"Annex {target.annex}" if target.annex is not None else f"Article {target.article}"
-    return f"{target.celex} {division}"
+        return await find_unresolved_references(session, EvalDataset.load(config.EVAL_DATASET_PATH))
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    build_parser().parse_args(argv)
     setup_logging()
-    if args.command == "check":
-        unresolved = asyncio.run(_check())
-        for case_id, target in unresolved:
-            print(f"{case_id}: no stored chunk for {_describe(target)}")
-        if unresolved:
-            return 1
-        print("every case reference resolves")
+    unresolved = asyncio.run(_check_dataset_references())
+    for item in unresolved:
+        print(f"{item.case_id}: no stored chunk for {item.target.celex} {item.target.citation}")
+    if unresolved:
+        return 1
+    print("every case reference resolves")
     return 0
