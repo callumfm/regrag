@@ -102,6 +102,19 @@ async def test_rerank_results_reorders_and_cuts_to_the_limit(monkeypatch):
     assert [result.id for result in reranked] == [3, 1]
 
 
+async def test_rerank_results_carry_the_cross_encoders_relevance(monkeypatch):
+    async def fake_arerank(**kwargs):
+        return _response([(2, 0.9), (0, 0.5), (1, 0.1)])
+
+    monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
+    fused = (_result(1), _result(2), _result(3))
+
+    reranked = await rerank_results("q", fused, limit=3)
+
+    assert [result.reranker_relevance for result in reranked] == [0.9, 0.5, 0.1]
+    assert [result.rrf_score for result in reranked] == [1 / 3, 1 / 1, 1 / 2]
+
+
 async def test_rerank_results_sends_the_chunk_texts(monkeypatch):
     calls = []
 
@@ -123,7 +136,10 @@ async def test_a_provider_failure_degrades_to_the_fused_order(monkeypatch):
     monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
     fused = (_result(1), _result(2), _result(3))
 
-    assert await rerank_results("q", fused, limit=2) == fused[:2]
+    degraded = await rerank_results("q", fused, limit=2)
+
+    assert degraded == fused[:2]
+    assert all(result.reranker_relevance is None for result in degraded)
 
 
 async def test_empty_results_return_empty_without_calling_the_provider(monkeypatch):

@@ -14,6 +14,19 @@ from app.retrieval.search import search
 SNIPPET = 160
 
 
+def _signal(value: float | None) -> str:
+    return f"{value:.4f}" if value is not None else "-     "
+
+
+def format_result(result: SearchResult) -> str:
+    """One hit on one line: its three retrieval signals, then what and where it is."""
+    return (
+        f"rrf {result.rrf_score:.4f}  cos {_signal(result.cosine_similarity)}  "
+        f"rel {_signal(result.reranker_relevance)}  {result.citation:<16} {result.celex}  "
+        f"{result.text[:SNIPPET]}"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="retrieve", description="RegRag corpus retrieval")
     parser.add_argument("query", help="what to search the corpus for")
@@ -44,9 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"retrieval failed: {exc}", file=sys.stderr)
         return 1
     for result in found:
-        print(
-            f"{result.rrf_score:.4f}  {result.citation:<16} {result.celex}  {result.text[:SNIPPET]}"
-        )
+        print(format_result(result))
     if not found:
         print("no results")
     return 0

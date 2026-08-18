@@ -291,6 +291,33 @@ async def test_a_result_records_which_legs_found_it(
     assert any(result.text_rank is not None for result in found)
 
 
+async def test_a_vector_hit_carries_its_cosine_similarity_to_the_query(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    query = "greenhouse gas emissions"
+    query_vector = toy_embed(query)
+
+    found = await search(db_session, SearchRequest(query=query))
+
+    by_vector = [result for result in found if result.vector_rank is not None]
+    assert by_vector
+    for result in by_vector:
+        expected = sum(a * b for a, b in zip(query_vector, toy_embed(result.text), strict=True))
+        assert result.cosine_similarity == pytest.approx(expected, abs=1e-6)
+
+
+async def test_a_text_only_hit_has_no_cosine_similarity(
+    db_session: AsyncSession, corpus: list[DocumentChunk], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "SEARCH_CANDIDATES", 1)
+
+    found = await search(db_session, SearchRequest(query="Article 11a", limit=5))
+
+    text_only = [result for result in found if result.vector_rank is None]
+    assert text_only
+    assert all(result.cosine_similarity is None for result in text_only)
+
+
 async def test_the_limit_caps_the_results(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
@@ -411,7 +438,8 @@ async def test_the_real_rerank_path_reorders_the_pool(
 
     found = await search(db_session, SearchRequest(query="greenhouse gas emissions", limit=5))
 
-    assert found == tuple(reversed(captured[0]))[:5]
+    assert [result.id for result in found] == [result.id for result in reversed(captured[0])][:5]
+    assert all(result.reranker_relevance is not None for result in found)
 
 
 async def test_a_limit_above_the_rerank_pool_is_honoured(

@@ -70,8 +70,12 @@ CHUNK_COLUMNS = tuple(getattr(DocumentChunk, name) for name in RetrievedChunk.mo
 
 
 class SearchResult(RetrievedChunk):
-    """A retrieved chunk and how it ranked, per leg and fused."""
+    """A retrieved chunk and how it ranked: per leg, fused, and as the cross-encoder judged it."""
 
     rrf_score: float
     vector_rank: int | None
     text_rank: int | None
+    cosine_similarity: float | None
+    """How near the query vector this chunk's vector sat; None when only the text leg found it."""
+    reranker_relevance: float | None = None
+    """The cross-encoder's relevance to the query; None when it did not run or degraded."""

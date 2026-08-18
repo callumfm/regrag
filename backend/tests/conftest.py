@@ -399,5 +399,6 @@ def search_result(**overrides: Any) -> SearchResult:
         "rrf_score": 0.9,
         "vector_rank": 1,
         "text_rank": 1,
+        "cosine_similarity": 0.8,
     }
     return SearchResult(**{**defaults, **overrides})
