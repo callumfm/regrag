@@ -47,9 +47,25 @@ class ChatSource(FrozenModel):
 
 
 class ChatToken(FrozenModel):
-    """The token event's payload: one fragment of the streamed answer."""
+    """One fragment of the answer as the model streams it; the token event's payload."""
 
     text: str
+
+
+class Retrieved(FrozenModel):
+    """The retrieve node finished: these chunks are the [n] the answer will cite."""
+
+    sources: tuple[RetrievedChunk, ...]
+
+
+class Synthesized(FrozenModel):
+    """The synthesize node finished; usage is what the model call cost."""
+
+    usage: UsageMetadata | None
+
+
+GraphItem = Retrieved | ChatToken | Synthesized
+"""The three moments of a graph run that the chat stream reacts to."""
 
 
 class ChatEventBase(FrozenModel):
