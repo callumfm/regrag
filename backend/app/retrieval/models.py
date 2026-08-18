@@ -11,8 +11,11 @@ SNIPPET = 160
 
 
 def _signal(value: float | None) -> str:
-    """A signal as a fixed-width figure, or a dash holding its place when it is absent."""
-    return f"{value:.4f}" if value is not None else "-     "
+    """A signal as a fixed-width figure, or a dash holding its place when it is absent.
+
+    Width 7, so a negative similarity keeps the columns after it in line.
+    """
+    return f"{value:>7.4f}" if value is not None else f"{'-':>7}"
 
 
 class SearchFilters(FrozenModel):
