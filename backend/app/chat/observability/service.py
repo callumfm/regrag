@@ -2,9 +2,12 @@
 
 import logging
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.chat.enums import ChatOutcome
 from app.chat.observability.models import RequestStats
 from app.chat.observability.schemas import ChatRequest
+from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.crud import create_record
 from app.core.db.session import get_session
@@ -35,8 +38,8 @@ def log_request(request: ChatRequest) -> None:
 async def record_request(question: str, stats: RequestStats, outcome: ChatOutcome) -> None:
     """Log the stream's stats and persist them as a chat_requests row.
 
-    Runs after the client has its last event, outside any request scope, so it owns its
-    session — and a failed write is logged, not raised: the answer already went out and
+    Runs once the stream has ended, outside any request scope, so it owns its session —
+    and a failed write is logged, not raised: the answer already went out and
     observability must not turn it into an error.
     """
     usage = stats.usage
@@ -47,7 +50,7 @@ async def record_request(question: str, stats: RequestStats, outcome: ChatOutcom
         model=config.CHAT_MODEL,
         retrieve_ms=stats.retrieve_ms,
         ttft_ms=stats.ttft_ms,
-        total_ms=stats.elapsed_ms(),
+        total_ms=elapsed_ms(stats.start),
         sources=stats.sources,
         input_tokens=usage["input_tokens"] if usage else None,
         output_tokens=usage["output_tokens"] if usage else None,
@@ -56,5 +59,5 @@ async def record_request(question: str, stats: RequestStats, outcome: ChatOutcom
     try:
         async with get_session(auto_commit=False) as session:
             await create_record(session, request)
-    except Exception:
+    except SQLAlchemyError:
         logger.exception("chat request not recorded")

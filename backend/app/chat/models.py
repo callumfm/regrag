@@ -2,7 +2,6 @@
 
 from typing import Annotated, Any, Literal
 
-from langchain_core.messages.ai import UsageMetadata
 from pydantic import ConfigDict, Field
 
 from app.chat.enums import ChatEventName
@@ -22,7 +21,6 @@ class ChatState(AppModel):
     question: str
     sources: tuple[RetrievedChunk, ...] = ()
     answer: str = ""
-    usage: UsageMetadata | None = None
 
 
 class ChatSource(FrozenModel):

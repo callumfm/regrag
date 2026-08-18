@@ -86,6 +86,8 @@ def test_stream_failure_emits_an_error_event(client, monkeypatch):
     assert name == "error"
     assert payload["error"] == "LLMError"
     assert payload["message"] == "embedding call failed"
+    assert payload["request_id"] == response.headers["X-Request-ID"]
+    assert "detail" not in payload
 
 
 def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):

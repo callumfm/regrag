@@ -24,15 +24,11 @@ class RecordingChatModel(GenericFakeChatModel):
 
     received: list[list[BaseMessage]] = Field(default_factory=list)
     usage: UsageMetadata | None = None
-    """Reported as litellm does: on the invoked message, or as a final usage-only chunk."""
+    """Reported as litellm does: a final usage-only chunk after the answer's text."""
 
     def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> ChatResult:
         self.received.append(list(messages))
-        result = super()._generate(messages, *args, **kwargs)
-        message = result.generations[0].message
-        if isinstance(message, AIMessage):
-            message.usage_metadata = self.usage
-        return result
+        return super()._generate(messages, *args, **kwargs)
 
     def _stream(
         self, messages: list[BaseMessage], *args: Any, **kwargs: Any

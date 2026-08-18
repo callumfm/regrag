@@ -1,5 +1,6 @@
 """Tests for exception handlers: one JSON shape everywhere."""
 
+import logging
 from typing import Any
 
 import pytest
@@ -99,6 +100,15 @@ def test_unhandled_error_leaks_nothing(client: TestClient) -> None:
     response = client.get("/boom-unhandled")
     assert_error_shape(response, 500, "InternalServerError")
     assert "secret internal detail" not in response.text
+
+
+def test_unhandled_error_is_access_logged(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The exception handler sits inside the access log, so the 500 it returns is logged."""
+    client.get("/boom-unhandled")
+    [line] = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert "GET /boom-unhandled 500" in line
 
 
 def test_http_exception_304_has_no_body(client: TestClient) -> None:

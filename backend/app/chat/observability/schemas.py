@@ -8,9 +8,11 @@ from app.core.db.schema import BaseSchema
 
 
 class ChatRequest(BaseSchema):
+    """One handled question: its outcome, timings, source count and token usage.
+    A spend cap sums tokens over a recent window; the index keeps that off a full scan."""
+
     __tablename__ = "chat_requests"
     __table_args__ = (Index("ix_chat_requests_created_at", "created_at"),)
-    """A spend cap sums tokens over a recent window; the index keeps that off a full scan."""
 
     id: Mapped[int] = mapped_column(primary_key=True)
     request_id: Mapped[str | None]

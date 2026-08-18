@@ -1,7 +1,5 @@
 """Two-node chat graph: retrieve corpus context, synthesize a cited answer."""
 
-from typing import Any
-
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
@@ -46,7 +44,7 @@ async def retrieve(state: ChatState) -> dict[str, tuple[RetrievedChunk, ...]]:
 
 @llm_retry
 @wrap_provider_errors("chat call")
-async def synthesize(state: ChatState) -> dict[str, Any]:
+async def synthesize(state: ChatState) -> dict[str, str]:
     """One streamed model call answering from the context with [n] citations.
 
     A transient provider failure is retried like embed and rerank; one that strikes
@@ -57,7 +55,7 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
         HumanMessage(build_user_message(state.question, state.sources)),
     ]
     response = await chat_model().ainvoke(messages)
-    return {"answer": response.text, "usage": response.usage_metadata}
+    return {"answer": response.text}
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:
