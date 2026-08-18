@@ -6,6 +6,14 @@ from app.core.models import FrozenModel
 from app.ingestion.chunk.models import Reference
 from app.ingestion.chunk.schemas import DocumentChunk
 
+SNIPPET = 160
+"""How much of a chunk's text a printed line carries before it is cut."""
+
+
+def _signal(value: float | None) -> str:
+    """A signal as a fixed-width figure, or a dash holding its place when it is absent."""
+    return f"{value:.4f}" if value is not None else "-     "
+
 
 class SearchFilters(FrozenModel):
     """Which slice of the corpus a search may draw from."""
@@ -70,12 +78,27 @@ CHUNK_COLUMNS = tuple(getattr(DocumentChunk, name) for name in RetrievedChunk.mo
 
 
 class SearchResult(RetrievedChunk):
-    """A retrieved chunk and how it ranked: per leg, fused, and as the cross-encoder judged it."""
+    """A retrieved chunk and how it ranked: per leg, fused, and as the cross-encoder judged it.
+
+    rrf_score: the two legs' ranks fused by 1/(k + rank), an ordering rather than a measurement.
+    vector_rank: its 1-based place in the vector leg; None when only the text leg found it.
+    text_rank: its 1-based place in the text leg; None when only the vector leg found it.
+    cosine_similarity: how near the query vector this chunk's vector sat, the vector leg's one
+        absolute measure; None when only the text leg found it.
+    reranker_relevance: the cross-encoder's relevance to the query; None when it did not run
+        or degraded.
+    """
 
     rrf_score: float
     vector_rank: int | None
     text_rank: int | None
     cosine_similarity: float | None
-    """How near the query vector this chunk's vector sat; None when only the text leg found it."""
     reranker_relevance: float | None = None
-    """The cross-encoder's relevance to the query; None when it did not run or degraded."""
+
+    def line(self) -> str:
+        """One hit on one line: its three retrieval signals, then what and where it is."""
+        return (
+            f"rrf {self.rrf_score:.4f}  cos {_signal(self.cosine_similarity)}  "
+            f"rel {_signal(self.reranker_relevance)}  {self.citation:<16} {self.celex}  "
+            f"{self.text[:SNIPPET]}"
+        )
