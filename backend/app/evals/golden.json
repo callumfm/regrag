@@ -40,5 +40,40 @@
     "question": "How is the FuelEU penalty for a GHG intensity shortfall worked out, and does it get worse if we miss again the following year?",
     "reference_answer": "The penalty is the absolute value of the ship's compliance balance in gCO2eq converted to VLSFO-equivalent tonnes (41,000 MJ per tonne) and multiplied by EUR 2,400 per tonne, payable by 30 June of the verification period. If the ship has a deficit for two or more consecutive reporting periods, the amount is multiplied by 1 + (n − 1)/10, where n is the number of consecutive periods penalised.",
     "gold": [{"celex": "32023R1805", "article": "23"}, {"celex": "32023R1805", "annex": "IV"}]
+  },
+  {
+    "id": "mrv-scope-small-general-cargo",
+    "kind": "in_corpus",
+    "question": "We operate a 3,000 GT general cargo ship calling at EU ports — is it caught by the EU MRV regulation?",
+    "reference_answer": "Yes, since 1 January 2025. The MRV Regulation applies to ships of 5,000 GT and above, and from 2025 also to general cargo ships and offshore ships between 400 and 5,000 GT, for voyages to, from and within EU ports carrying cargo commercially. It covers CO2 and, for emissions from 2024 onwards, methane and nitrous oxide.",
+    "gold": [{"celex": "32015R0757", "article": "2"}]
+  },
+  {
+    "id": "mrv-monitoring-plan-new-ship-deadline",
+    "kind": "in_corpus",
+    "question": "A ship has just come under EU MRV for the first time — how long do we have to submit its monitoring plan, and who does it go to?",
+    "reference_answer": "For a ship falling within scope for the first time after 1 January 2024, the company must submit a monitoring plan conforming to the Regulation to the administering authority responsible without undue delay and no later than three months after the ship's first call at a port under a Member State's jurisdiction; the administering authority approves it within four months of that first call. Under the original rules a plan for a new ship went to the verifier within two months of the first EU port call.",
+    "gold": [{"celex": "32015R0757", "article": "6"}]
+  },
+  {
+    "id": "mrv-per-voyage-exemption",
+    "kind": "in_corpus",
+    "question": "Do we have to report every single voyage under MRV, or is there an exemption for ferries doing hundreds of trips a year?",
+    "reference_answer": "Per-voyage monitoring (ports and times of departure and arrival, fuel consumed and emission factors, GHG emitted, distance, time at sea, cargo and transport work) is the default, but a ship is exempt from it if all its voyages in the reporting period start or end at a port under a Member State's jurisdiction and it performs more than 300 voyages in that period according to its schedule. Annual monitoring still applies.",
+    "gold": [{"celex": "32015R0757", "article": "9"}]
+  },
+  {
+    "id": "mrv-doc-validity-and-carriage",
+    "kind": "in_corpus",
+    "question": "How long is an MRV document of compliance valid, and from when does a ship need to have one on board?",
+    "reference_answer": "A document of compliance, issued by the verifier once the emissions report satisfies the Regulation, is valid for 18 months after the end of the reporting period. From 30 June of the year following the reporting period, a ship that made voyages in that period must carry a valid document of compliance on board when arriving at, within or departing from a port under a Member State's jurisdiction.",
+    "gold": [{"celex": "32015R0757", "article": "17"}, {"celex": "32015R0757", "article": "18"}]
+  },
+  {
+    "id": "mrv-expulsion-order",
+    "kind": "in_corpus",
+    "question": "What happens to a ship that keeps ignoring its MRV monitoring and reporting obligations year after year?",
+    "reference_answer": "Member States must impose effective, proportionate and dissuasive penalties. If a ship has failed to comply for two or more consecutive reporting periods and other enforcement has failed, the competent authority of the port of entry may issue an expulsion order after hearing the company: every Member State except the flag State must then refuse the ship entry to its ports until the company complies, and a ship flying a Member State's flag is detained by that state. The shipowner has a right to a remedy before a court against the order.",
+    "gold": [{"celex": "32015R0757", "article": "20"}]
   }
 ]
