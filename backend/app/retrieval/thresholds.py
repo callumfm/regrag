@@ -1,4 +1,4 @@
-"""Minimum retrieval score for sources to prevent hallucinations and unnecessary llm calls."""
+"""Minimum retrieval score for sources, to prevent hallucinations and wasted model calls."""
 
 from collections.abc import Sequence
 
@@ -7,18 +7,16 @@ from app.retrieval.models import SearchResult
 
 
 def meets_thresholds(hits: Sequence[SearchResult]) -> bool:
-    """Assert that the retrieved documents meet a minimum score threshold for answer generation."""
+    """Whether the retrieved documents clear every score bar they carry a signal for."""
     if not hits:
         return False
 
-    thresholds = (
-        ("cosine_similarity", config.CHAT_MIN_COSINE_SIMILARITY),
-        ("reranker_relevance", config.CHAT_MIN_RERANKER_RELEVANCE),
-    )
-    for attribute, threshold in thresholds:
-        values = [value for hit in hits if (value := getattr(hit, attribute)) is not None]
+    cosines = [hit.cosine_similarity for hit in hits if hit.cosine_similarity is not None]
+    if cosines and max(cosines) < config.MIN_COSINE_SIMILARITY:
+        return False
 
-        if values and max(values) < threshold:
-            return False
+    relevances = [hit.reranker_relevance for hit in hits if hit.reranker_relevance is not None]
+    if relevances and max(relevances) < config.MIN_RERANKER_RELEVANCE:
+        return False
 
     return True

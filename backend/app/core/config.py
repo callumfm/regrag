@@ -145,11 +145,6 @@ class ChatConfig(BaseConfig):
     CHAT_SOURCES: search hits the answer draws on, each widened to its section.
     CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt; a guardrail
         against a run of long articles, not a target, so it should rarely bite.
-    CHAT_MIN_COSINE_SIMILARITY / CHAT_MIN_RERANKER_RELEVANCE: the refusal gate's bars.
-        A question is refused before any chat-model call unless the nearest hit clears
-        both, each judged only when its signal is present; 0 switches a bar off. Set
-        permissively, from a calibration run over in- and out-of-corpus questions: the
-        gate is for junk and abuse, and a false refusal costs more than one wasted call.
     """
 
     ANTHROPIC_API_KEY: str = ""
@@ -158,8 +153,6 @@ class ChatConfig(BaseConfig):
     CHAT_MAX_TOKENS: int = 2048
     CHAT_SOURCES: int = Field(default=5, ge=1)
     CHAT_CONTEXT_CHUNKS: int = Field(default=15, ge=1)
-    CHAT_MIN_COSINE_SIMILARITY: float = Field(default=0.30, ge=0.0)
-    CHAT_MIN_RERANKER_RELEVANCE: float = Field(default=0.45, ge=0.0)
 
 
 class IngestConfig(BaseConfig):
@@ -201,6 +194,9 @@ class RetrievalConfig(BaseConfig):
     RERANK_POOL: fused results the cross-encoder rescores.
     EXPAND_SECTIONS: section expansion's off switch; a paragraph rarely restates its
         own subject, so the section is the unit that answers.
+    MIN_COSINE_SIMILARITY / MIN_RERANKER_RELEVANCE: the refusal gate's bars, cleared by
+        the best hit per signal rather than by one hit on both. Set permissively: the
+        gate is for junk, and a false refusal costs more than a wasted call.
     """
 
     SEARCH_CANDIDATES: int = Field(default=50, ge=1)
@@ -214,6 +210,9 @@ class RetrievalConfig(BaseConfig):
     RERANK_POOL: int = 30
 
     EXPAND_SECTIONS: bool = True
+
+    MIN_COSINE_SIMILARITY: float = Field(default=0.30, ge=0.0)
+    MIN_RERANKER_RELEVANCE: float = Field(default=0.45, ge=0.0)
 
 
 class Config(

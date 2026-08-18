@@ -13,8 +13,8 @@ RELEVANCE_BAR = 0.6
 @pytest.fixture
 def bars(monkeypatch):
     """Bars set away from their defaults, so a gate that read config at import fails here."""
-    monkeypatch.setattr(config, "CHAT_MIN_COSINE_SIMILARITY", COSINE_BAR)
-    monkeypatch.setattr(config, "CHAT_MIN_RERANKER_RELEVANCE", RELEVANCE_BAR)
+    monkeypatch.setattr(config, "MIN_COSINE_SIMILARITY", COSINE_BAR)
+    monkeypatch.setattr(config, "MIN_RERANKER_RELEVANCE", RELEVANCE_BAR)
 
 
 @pytest.mark.parametrize(
@@ -42,8 +42,8 @@ def test_met_when_the_best_of_each_present_signal_clears_its_bar(signals, verdic
 
 
 def test_a_bar_at_zero_is_off(monkeypatch):
-    monkeypatch.setattr(config, "CHAT_MIN_COSINE_SIMILARITY", 0.0)
-    monkeypatch.setattr(config, "CHAT_MIN_RERANKER_RELEVANCE", 0.0)
+    monkeypatch.setattr(config, "MIN_COSINE_SIMILARITY", 0.0)
+    monkeypatch.setattr(config, "MIN_RERANKER_RELEVANCE", 0.0)
 
     assert (
         meets_thresholds((search_result(cosine_similarity=0.01, reranker_relevance=0.01),)) is True
