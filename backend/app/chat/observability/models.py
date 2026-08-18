@@ -20,3 +20,10 @@ class StreamStats(AppModel):
 
     def elapsed_ms(self) -> int:
         return elapsed_ms(self.start)
+
+    def retrieved(self, sources: int) -> None:
+        self.retrieve_ms, self.sources = self.elapsed_ms(), sources
+
+    def token(self) -> None:
+        if self.ttft_ms is None:
+            self.ttft_ms = self.elapsed_ms()
