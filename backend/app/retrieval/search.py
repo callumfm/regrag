@@ -87,22 +87,22 @@ async def hybrid_search(
     await _tune_hnsw_walk(session, candidates)
     by_vector = _vector_candidates(embedding, filters, candidates).cte("by_vector")
     by_text = _text_candidates(query, filters, candidates).cte("by_text")
-    score = (
+    rrf_score = (
         func.coalesce(1.0 / (rrf_k + by_vector.c.rank), 0.0)
         + func.coalesce(1.0 / (rrf_k + by_text.c.rank), 0.0)
-    ).label("score")
+    ).label("rrf_score")
     joined = by_vector.join(by_text, by_vector.c.id == by_text.c.id, full=True).join(
         DocumentChunk, DocumentChunk.id == func.coalesce(by_vector.c.id, by_text.c.id)
     )
     stmt = (
         select(
             *CHUNK_COLUMNS,
-            score,
+            rrf_score,
             by_vector.c.rank.label("vector_rank"),
             by_text.c.rank.label("text_rank"),
         )
         .select_from(joined)
-        .order_by(score.desc(), DocumentChunk.id)
+        .order_by(rrf_score.desc(), DocumentChunk.id)
         .limit(limit)
     )
     rows = await session.execute(stmt)

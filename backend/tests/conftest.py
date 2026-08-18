@@ -394,5 +394,10 @@ def retrieved_chunk(**overrides: Any) -> RetrievedChunk:
 
 def search_result(**overrides: Any) -> SearchResult:
     """A scored search hit with sane defaults, overridable per field."""
-    defaults: dict[str, Any] = {**RETRIEVED_CHUNK, "score": 0.9, "vector_rank": 1, "text_rank": 1}
+    defaults: dict[str, Any] = {
+        **RETRIEVED_CHUNK,
+        "rrf_score": 0.9,
+        "vector_rank": 1,
+        "text_rank": 1,
+    }
     return SearchResult(**{**defaults, **overrides})

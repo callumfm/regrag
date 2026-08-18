@@ -44,7 +44,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"retrieval failed: {exc}", file=sys.stderr)
         return 1
     for result in found:
-        print(f"{result.score:.4f}  {result.citation:<16} {result.celex}  {result.text[:SNIPPET]}")
+        print(
+            f"{result.rrf_score:.4f}  {result.citation:<16} {result.celex}  {result.text[:SNIPPET]}"
+        )
     if not found:
         print("no results")
     return 0

@@ -27,7 +27,7 @@ def _result(chunk_id: int) -> SearchResult:
         article=str(chunk_id),
         text=f"text of chunk {chunk_id}",
         position=chunk_id,
-        score=1.0 / chunk_id,
+        rrf_score=1.0 / chunk_id,
         vector_rank=chunk_id,
         text_rank=None,
     )

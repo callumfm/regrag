@@ -276,8 +276,8 @@ async def test_results_come_back_in_fused_order(
 ) -> None:
     found = await search(db_session, SearchRequest(query="greenhouse gas emissions"))
 
-    assert [result.score for result in found] == sorted(
-        (result.score for result in found), reverse=True
+    assert [result.rrf_score for result in found] == sorted(
+        (result.rrf_score for result in found), reverse=True
     )
     assert any(result.vector_rank is not None and result.text_rank is not None for result in found)
 
@@ -370,7 +370,7 @@ async def test_the_reranked_order_is_what_the_caller_receives(
 
     found = await search(db_session, SearchRequest(query="greenhouse gas emissions", limit=5))
 
-    assert [result.score for result in found] == sorted(result.score for result in found)
+    assert [result.rrf_score for result in found] == sorted(result.rrf_score for result in found)
 
 
 async def test_disabling_rerank_skips_the_step_and_keeps_the_narrow_pool(

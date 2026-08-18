@@ -72,6 +72,6 @@ CHUNK_COLUMNS = tuple(getattr(DocumentChunk, name) for name in RetrievedChunk.mo
 class SearchResult(RetrievedChunk):
     """A retrieved chunk and how it ranked, per leg and fused."""
 
-    score: float
+    rrf_score: float
     vector_rank: int | None
     text_rank: int | None
