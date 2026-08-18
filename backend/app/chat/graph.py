@@ -1,7 +1,6 @@
 """Two-node chat graph: retrieve corpus context, synthesize a cited answer."""
 
-from collections.abc import AsyncGenerator
-from typing import Any, cast
+from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
@@ -9,7 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatState, ChatToken, GraphItem, Retrieved, Synthesized
+from app.chat.models import ChatState
 from app.chat.prompts import SYSTEM_PROMPT, build_user_message
 from app.core.config import config
 from app.core.db.session import get_session
@@ -73,17 +72,3 @@ def build_graph() -> CompiledStateGraph[ChatState]:
 
 
 chat_graph = build_graph()
-
-
-async def stream_graph(question: str) -> AsyncGenerator[GraphItem, None]:
-    """The graph run as the moments chat reacts to, decoded from LangGraph's (mode, data)
-    items: a node's update carries what it returned, a message carries one model chunk."""
-    stream = chat_graph.astream(ChatState(question=question), stream_mode=["updates", "messages"])
-    async for item in stream:
-        match cast(tuple[str, Any], item):
-            case ("updates", {ChatNode.RETRIEVE: {"sources": sources}}):
-                yield Retrieved(sources=sources)
-            case ("updates", {ChatNode.SYNTHESIZE: {"usage": usage}}):
-                yield Synthesized(usage=usage)
-            case ("messages", (chunk, _)) if text := chunk.text:
-                yield ChatToken(text=text)

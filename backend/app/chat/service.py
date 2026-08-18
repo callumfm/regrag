@@ -2,17 +2,17 @@
 
 import logging
 from collections.abc import AsyncGenerator
+from typing import Any, cast
 
-from app.chat.enums import ChatOutcome
-from app.chat.graph import stream_graph
+from app.chat.enums import ChatNode, ChatOutcome
+from app.chat.graph import chat_graph
 from app.chat.models import (
     ChatEvent,
+    ChatState,
     ChatToken,
     DoneEvent,
     ErrorEvent,
-    Retrieved,
     SourcesEvent,
-    Synthesized,
     TokenEvent,
 )
 from app.chat.observability.models import StreamStats
@@ -40,27 +40,25 @@ async def chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
     However it ends — done, error, or the client leaving — one chat run is recorded."""
     stats = StreamStats()
     outcome = ChatOutcome.ABORTED
-
+    stream = chat_graph.astream(ChatState(question=question), stream_mode=["updates", "messages"])
     try:
-        async for item in stream_graph(question):
-            match item:
-                case Retrieved(sources=sources):
+        async for item in stream:
+            match cast(tuple[str, Any], item):
+                case ("updates", {ChatNode.RETRIEVE: {"sources": sources}}):
                     stats.retrieved(len(sources))
                     yield SourcesEvent.from_results(sources)
 
-                case ChatToken():
-                    stats.token()
-                    yield TokenEvent(data=item)
-
-                case Synthesized(usage=usage):
+                case ("updates", {ChatNode.SYNTHESIZE: {"usage": usage}}):
                     stats.usage = usage
+
+                case ("messages", (chunk, _)) if text := chunk.text:
+                    stats.token()
+                    yield TokenEvent(data=ChatToken(text=text))
 
         yield DoneEvent()
         outcome = ChatOutcome.DONE
-
     except Exception as exc:
         outcome = ChatOutcome.ERROR
         yield error_event(exc)
-
     finally:
         await record_run(stats, outcome)
