@@ -7,11 +7,7 @@ from app.retrieval.models import SearchResult
 
 
 def meets_thresholds(hits: Sequence[SearchResult]) -> bool:
-    """Assert that the retrieved documents meet a minimum score threshold for answer generation.
-
-    The bars are read per call, like the chat client reads its model settings, so a
-    retuned threshold takes hold without a restart. A signal nothing carries is not judged.
-    """
+    """Assert that the retrieved documents meet a minimum score threshold for answer generation."""
     if not hits:
         return False
 
