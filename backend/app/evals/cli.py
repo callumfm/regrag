@@ -5,7 +5,7 @@ import asyncio
 
 from app.core.db.session import get_session
 from app.core.logger import setup_logging
-from app.evals.dataset import load_cases
+from app.evals.dataset import load_golden
 from app.evals.service import unresolved_references
 from app.retrieval.models import ReferenceTarget
 
@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def _check() -> tuple[tuple[str, ReferenceTarget], ...]:
     async with get_session(auto_commit=False) as session:
-        return await unresolved_references(session, load_cases())
+        return await unresolved_references(session, load_golden())
 
 
 def _describe(target: ReferenceTarget) -> str:

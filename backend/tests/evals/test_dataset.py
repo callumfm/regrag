@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.evals.dataset import dataset_hash, load_cases
+from app.evals.dataset import dataset_hash, load_golden
 from app.evals.enums import EvalKind
 from app.evals.models import EvalCase
 from app.retrieval.models import ReferenceTarget
@@ -23,8 +23,8 @@ def test_an_out_of_corpus_case_carries_neither() -> None:
         EvalCase(id="x", kind=EvalKind.OUT_OF_CORPUS, question="q?", answer="a")
 
 
-def test_the_cases_file_loads_with_unique_ids() -> None:
-    cases = load_cases()
+def test_the_golden_file_loads_with_unique_ids() -> None:
+    cases = load_golden()
 
     assert cases
     assert len({case.id for case in cases}) == len(cases)

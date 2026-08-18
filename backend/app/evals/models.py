@@ -1,4 +1,4 @@
-"""Eval values: one authored case of the eval dataset."""
+"""Eval values: one authored case of the golden dataset."""
 
 from pydantic import model_validator
 
