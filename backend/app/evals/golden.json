@@ -1,0 +1,44 @@
+[
+  {
+    "id": "fueleu-scope-third-country-voyage",
+    "kind": "in_corpus",
+    "question": "If my ship sails from Rotterdam to Singapore, how much of that voyage's energy counts under FuelEU?",
+    "reference_answer": "Half of it. For a voyage arriving at or departing from an EU port where the previous or next port of call is in a third country, FuelEU counts one half of the energy used; the whole voyage counts only between two EU ports. The regulation applies to ships above 5,000 GT carrying passengers or cargo commercially, whatever their flag.",
+    "gold": [{"celex": "32023R1805", "article": "2"}]
+  },
+  {
+    "id": "fueleu-ghg-intensity-limit-2030",
+    "kind": "in_corpus",
+    "question": "What GHG intensity does my ship need to stay under in 2030 under FuelEU?",
+    "reference_answer": "From 1 January 2030 the yearly average GHG intensity of energy used on board must be at least 6% below the reference value of 91.16 gCO2eq/MJ, i.e. roughly 85.7 gCO2eq/MJ. The reduction started at 2% in 2025 and rises to 14.5% in 2035, 31% in 2040, 62% in 2045 and 80% in 2050.",
+    "gold": [{"celex": "32023R1805", "article": "4"}]
+  },
+  {
+    "id": "fueleu-rfnbo-subtarget-trigger",
+    "kind": "in_corpus",
+    "question": "Is there a mandatory e-fuel quota under FuelEU, and when could it kick in?",
+    "reference_answer": "Not a fixed one. A 2% RFNBO subtarget applies from 1 January 2034 only if the Commission's monitoring shows the RFNBO share of shipping energy was below 1% in 2031; it does not apply if evidence shows insufficient RFNBO capacity or availability, uneven distribution or too high a price. Until then RFNBO use is rewarded with a multiplier of 2 in the GHG intensity calculation from 2025 to the end of 2033.",
+    "gold": [{"celex": "32023R1805", "article": "5"}]
+  },
+  {
+    "id": "fueleu-ops-short-port-stay",
+    "kind": "in_corpus",
+    "question": "Our container ship is only alongside for about 90 minutes — do we still have to plug into shore power from 2030?",
+    "reference_answer": "No. From 1 January 2030 containerships and passenger ships moored at the quayside in ports covered by Article 9 of Regulation (EU) 2023/1804 must connect to onshore power for all their electrical demand at berth, but the requirement does not apply to ships moored for less than two hours, measured from the recorded times of arrival and departure.",
+    "gold": [{"celex": "32023R1805", "article": "6"}]
+  },
+  {
+    "id": "fueleu-borrowing-limits",
+    "kind": "in_corpus",
+    "question": "Can a ship that missed its GHG intensity target this year borrow compliance from next year, and what are the limits?",
+    "reference_answer": "Yes. A company may borrow an advance compliance surplus from the following reporting period to cover a deficit; the borrowed amount multiplied by 1.1 is then subtracted from the ship's balance in that following period. It cannot borrow more than 2% of the GHG intensity limit multiplied by the ship's energy consumption, and cannot borrow in two consecutive reporting periods.",
+    "gold": [{"celex": "32023R1805", "article": "20"}]
+  },
+  {
+    "id": "fueleu-penalty-consecutive-years",
+    "kind": "in_corpus",
+    "question": "How is the FuelEU penalty for a GHG intensity shortfall worked out, and does it get worse if we miss again the following year?",
+    "reference_answer": "The penalty is the absolute value of the ship's compliance balance in gCO2eq converted to VLSFO-equivalent tonnes (41,000 MJ per tonne) and multiplied by EUR 2,400 per tonne, payable by 30 June of the verification period. If the ship has a deficit for two or more consecutive reporting periods, the amount is multiplied by 1 + (n − 1)/10, where n is the number of consecutive periods penalised.",
+    "gold": [{"celex": "32023R1805", "article": "23"}, {"celex": "32023R1805", "annex": "IV"}]
+  }
+]
