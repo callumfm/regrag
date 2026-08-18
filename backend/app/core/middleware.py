@@ -51,13 +51,11 @@ def _log_access(request: Request, status_code: int, duration_ms: int) -> None:
     )
 
 
-async def process_time_middleware(request: Request, call_next):
-    """Stamp the time to the response's headers, and log the request once its body has
-    been sent: a streamed answer does its work after the headers go out, so that is
-    the first point its duration is known."""
+async def access_log_middleware(request: Request, call_next):
+    """Log the request once its body has been sent: a streamed answer does its work
+    after the headers go out, so that is the first point its duration is known."""
     start = time.perf_counter()
     response = await call_next(request)
-    response.headers["X-Process-Time"] = f"{_elapsed_ms(start)}ms"
     body = response.body_iterator
 
     async def logged_body() -> AsyncIterator[bytes]:
@@ -87,7 +85,7 @@ def register_middleware(app: FastAPI) -> None:
     500, request-ID outermost of the three so the contextvar is set for all
     downstream logging."""
     app.middleware("http")(exception_middleware)
-    app.middleware("http")(process_time_middleware)
+    app.middleware("http")(access_log_middleware)
     app.middleware("http")(request_id_middleware)
     app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.add_middleware(

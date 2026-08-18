@@ -1,6 +1,5 @@
 """Tests for the request middleware: request IDs, timing, access log, gzip."""
 
-import re
 import uuid
 from collections.abc import Iterator
 
@@ -40,11 +39,6 @@ def test_incoming_request_id_is_ignored(client: TestClient) -> None:
     incoming = "attacker-chosen-value"
     response = client.get("/health", headers={"X-Request-ID": incoming})
     assert response.headers["X-Request-ID"] != incoming
-
-
-def test_process_time_header(client: TestClient) -> None:
-    response = client.get("/health")
-    assert re.fullmatch(r"\d+ms", response.headers["X-Process-Time"])
 
 
 def test_access_log_line(client: TestClient, log_lines: list[str]) -> None:

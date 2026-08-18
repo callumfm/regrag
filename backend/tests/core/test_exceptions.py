@@ -101,11 +101,6 @@ def test_unhandled_error_leaks_nothing(client: TestClient) -> None:
     assert "secret internal detail" not in response.text
 
 
-def test_unhandled_error_still_has_process_time(client: TestClient) -> None:
-    response = client.get("/boom-unhandled")
-    assert "X-Process-Time" in response.headers
-
-
 def test_http_exception_304_has_no_body(client: TestClient) -> None:
     response = client.get("/boom-not-modified")
     assert response.status_code == 304

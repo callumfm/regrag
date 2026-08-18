@@ -59,6 +59,15 @@ def test_block_list_content_streams_text_without_reasoning(client, two_results, 
     assert THINKING not in json.dumps(events)
 
 
+def test_stream_tells_proxies_and_browsers_not_to_buffer(client, two_results, monkeypatch):
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+
+    with client.stream("POST", "/chat", json={"question": "q"}) as response:
+        assert response.headers["cache-control"] == "no-cache"
+        assert response.headers["x-accel-buffering"] == "no"
+
+
 def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch):
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)

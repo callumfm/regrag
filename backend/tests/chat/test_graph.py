@@ -14,7 +14,7 @@ from app.chat.graph import ChatState, chat_graph
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
-from tests.chat.conftest import ANSWER, THINKING, RecordingChatModel, fake_chat_model
+from tests.chat.conftest import ANSWER, THINKING, USAGE, RecordingChatModel, fake_chat_model
 from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
@@ -61,6 +61,7 @@ async def test_graph_retrieves_then_answers(one_result, monkeypatch):
 
     assert state["answer"] == "Yes, Article 4 [1]."
     assert state["sources"] == (search_result(),)
+    assert state["usage"] == USAGE
     assert one_result == [SearchRequest(query=QUESTION, limit=config.CHAT_SOURCES)]
 
 
