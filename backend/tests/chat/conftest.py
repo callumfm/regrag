@@ -10,6 +10,8 @@ from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
+from app.chat.observability.enums import ChatOutcome
+from app.chat.observability.stats import StreamStats
 from app.core.config import config
 
 USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
@@ -72,3 +74,16 @@ def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
     """Expansion is a database walk covered in tests/retrieval; here it is switched off,
     so the graph works from exactly what the faked search found."""
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
+
+
+@pytest.fixture(autouse=True)
+def recorded_runs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[StreamStats, ChatOutcome]]:
+    """Capture what chat_events hands to record_run instead of writing chat_runs rows:
+    the write is covered in tests/chat/observability, so no chat test needs the database."""
+    runs: list[tuple[StreamStats, ChatOutcome]] = []
+
+    async def fake_record_run(stats: StreamStats, outcome: ChatOutcome) -> None:
+        runs.append((stats, outcome))
+
+    monkeypatch.setattr("app.chat.service.record_run", fake_record_run)
+    return runs

@@ -1,26 +1,14 @@
-"""Chat stream stats: the one log line written when a stream ends."""
-
-from typing import Any
+"""Chat stream orchestration: every way a stream ends records one run with what it reached."""
 
 import pytest
 
-from app.chat import stats
+from app.chat.observability.enums import ChatOutcome
 from app.chat.service import chat_events
 from app.core.llm import LLMError
 from tests.chat.conftest import USAGE, fake_chat_model
 from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture
-def stats_lines(monkeypatch) -> list[tuple[str, dict[str, Any]]]:
-    """Capture (rendered message, extra) for each stats line the service logs."""
-    lines: list[tuple[str, dict[str, Any]]] = []
-    monkeypatch.setattr(
-        stats.logger, "info", lambda msg, *args, extra: lines.append((msg % args, extra))
-    )
-    return lines
 
 
 @pytest.fixture
@@ -31,8 +19,8 @@ def two_results(monkeypatch):
     monkeypatch.setattr("app.chat.graph.search", fake_search)
 
 
-async def test_finished_stream_logs_timings_sources_and_usage(
-    two_results, monkeypatch, stats_lines
+async def test_finished_stream_records_timings_sources_and_usage(
+    two_results, monkeypatch, recorded_runs
 ):
     model = fake_chat_model("Two words [1].")
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
@@ -40,16 +28,16 @@ async def test_finished_stream_logs_timings_sources_and_usage(
     async for _ in chat_events("q"):
         pass
 
-    [(message, extra)] = stats_lines
-    assert message.startswith("chat done")
-    assert extra["outcome"] == "done"
-    assert extra["sources"] == 2
-    assert extra["input_tokens"] == USAGE["input_tokens"]
-    assert extra["output_tokens"] == USAGE["output_tokens"]
-    assert 0 <= extra["retrieve_ms"] <= extra["ttft_ms"] <= extra["total_ms"]
+    [(stats, outcome)] = recorded_runs
+    assert outcome is ChatOutcome.DONE
+    assert stats.sources == 2
+    assert stats.usage == USAGE
+    assert stats.retrieve_ms is not None
+    assert stats.ttft_ms is not None
+    assert 0 <= stats.retrieve_ms <= stats.ttft_ms <= stats.elapsed_ms()
 
 
-async def test_failed_stream_logs_what_it_reached(monkeypatch, stats_lines):
+async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_runs):
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
@@ -58,16 +46,15 @@ async def test_failed_stream_logs_what_it_reached(monkeypatch, stats_lines):
     async for _ in chat_events("q"):
         pass
 
-    [(message, extra)] = stats_lines
-    assert extra["outcome"] == "error"
-    assert extra["retrieve_ms"] is None
-    assert extra["ttft_ms"] is None
-    assert extra["sources"] == 0
-    assert extra["input_tokens"] is None
-    assert extra["total_ms"] >= 0
+    [(stats, outcome)] = recorded_runs
+    assert outcome is ChatOutcome.ERROR
+    assert stats.retrieve_ms is None
+    assert stats.ttft_ms is None
+    assert stats.sources == 0
+    assert stats.usage is None
 
 
-async def test_abandoned_stream_still_logs(two_results, monkeypatch, stats_lines):
+async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded_runs):
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
 
@@ -75,7 +62,7 @@ async def test_abandoned_stream_still_logs(two_results, monkeypatch, stats_lines
     await anext(events)
     await events.aclose()
 
-    [(_, extra)] = stats_lines
-    assert extra["outcome"] == "aborted"
-    assert extra["sources"] == 2
-    assert extra["ttft_ms"] is None
+    [(stats, outcome)] = recorded_runs
+    assert outcome is ChatOutcome.ABORTED
+    assert stats.sources == 2
+    assert stats.ttft_ms is None
