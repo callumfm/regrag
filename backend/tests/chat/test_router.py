@@ -4,8 +4,10 @@ import json
 
 import httpx
 
+from app.chat.prompts import REFUSAL_ANSWER
 from app.core.llm import LLMError
 from tests.chat.conftest import THINKING, fake_chat_model, reasoning_chat_model
+from tests.conftest import search_result
 
 
 def read_events(response: httpx.Response) -> list[tuple[str, dict]]:
@@ -124,3 +126,22 @@ def test_the_frames_are_documented_as_an_event_stream(client):
     token_event = spec["components"]["schemas"]["TokenEvent"]
     assert token_event["properties"]["event"]["const"] == "token"
     assert set(token_event["required"]) == {"event", "data"}
+
+
+def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
+    async def junk_search(session, request):
+        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+
+    with client.stream("POST", "/chat", json={"question": "best pizza topping?"}) as response:
+        events = read_events(response)
+
+    assert events == [
+        ("sources", []),
+        ("token", {"text": REFUSAL_ANSWER}),
+        ("done", {}),
+    ]
+    assert model.received == []

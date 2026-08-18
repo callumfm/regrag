@@ -4,10 +4,13 @@ import anyio
 import pytest
 
 from app.chat.enums import ChatOutcome
+from app.chat.models import ChatToken, DoneEvent, SourcesEvent, TokenEvent
+from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.service import chat_events
 from app.core.clock import elapsed_ms
 from app.core.llm import LLMError
 from tests.chat.conftest import USAGE, fake_chat_model
+from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -85,3 +88,31 @@ async def test_cancelled_stream_still_records(two_results, monkeypatch, recorded
     [(_, stats, outcome)] = recorded_requests
     assert outcome is ChatOutcome.ABORTED
     assert stats.sources == 2
+
+
+async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
+    monkeypatch, recorded_requests
+):
+    """No context, so no model call: an empty sources event, the refusal as the one token,
+    done — and the ledger says refused, with nothing spent past retrieval."""
+
+    async def junk_search(session, request):
+        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+
+    events = [event async for event in chat_events("best pizza topping?")]
+
+    assert events == [
+        SourcesEvent(data=()),
+        TokenEvent(data=ChatToken(text=REFUSAL_ANSWER)),
+        DoneEvent(),
+    ]
+    assert model.received == []
+    [(_, stats, outcome)] = recorded_requests
+    assert outcome is ChatOutcome.REFUSED
+    assert stats.sources == 0
+    assert stats.usage is None
+    assert stats.retrieve_ms is not None

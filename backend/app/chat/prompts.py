@@ -1,4 +1,4 @@
-"""System prompt and numbered-context formatting for the chat graph."""
+"""The chat graph's fixed wording: system prompt, refusal, numbered-context formatting."""
 
 from collections.abc import Sequence
 
@@ -9,6 +9,11 @@ SYSTEM_PROMPT = (
     "Answer using only the numbered context blocks provided. Cite every claim inline "
     "with the marker of the block it comes from, like [1] or [2][3]. If the context "
     "does not answer the question, say so plainly instead of guessing."
+)
+
+REFUSAL_ANSWER = (
+    "The corpus doesn't cover this. RegRag answers questions about the EU maritime "
+    "regulation it has ingested; try asking about that."
 )
 
 

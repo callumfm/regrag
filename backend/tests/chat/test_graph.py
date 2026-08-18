@@ -10,8 +10,9 @@ import pytest
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.outputs import ChatResult
 
-from app.chat.graph import chat_graph
+from app.chat.graph import chat_graph, covers
 from app.chat.models import ChatState
+from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
@@ -192,3 +193,87 @@ async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, mo
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
     assert state["sources"] == (search_result(),)
+
+
+# The refusal gate
+
+
+@pytest.mark.parametrize(
+    ("signals", "verdict"),
+    [
+        pytest.param([(0.5, 0.7)], True, id="both clear"),
+        pytest.param([(0.2, 0.7)], False, id="cosine low"),
+        pytest.param([(0.5, 0.3)], False, id="relevance low"),
+        pytest.param([(0.5, None)], True, id="unjudged"),
+        pytest.param([(None, 0.7)], True, id="text-only hit"),
+        pytest.param([(None, None)], True, id="no signals"),
+        pytest.param([], False, id="nothing found"),
+        pytest.param([(0.2, 0.7), (0.5, 0.3)], True, id="best of each signal, not the top hit's"),
+    ],
+)
+def test_covers_when_the_best_of_each_present_signal_clears_its_bar(signals, verdict, monkeypatch):
+    monkeypatch.setattr(config, "CHAT_MIN_COSINE_SIMILARITY", 0.3)
+    monkeypatch.setattr(config, "CHAT_MIN_RERANKER_RELEVANCE", 0.45)
+    hits = tuple(
+        search_result(cosine_similarity=cosine, reranker_relevance=relevance)
+        for cosine, relevance in signals
+    )
+
+    assert covers(hits) is verdict
+
+
+def test_a_bar_at_zero_is_off(monkeypatch):
+    monkeypatch.setattr(config, "CHAT_MIN_COSINE_SIMILARITY", 0.0)
+    monkeypatch.setattr(config, "CHAT_MIN_RERANKER_RELEVANCE", 0.0)
+
+    assert covers((search_result(cosine_similarity=0.01, reranker_relevance=0.01),)) is True
+
+
+async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_call(monkeypatch):
+    searches: list[SearchRequest] = []
+
+    async def junk_search(session, request):
+        searches.append(request)
+        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+
+    state = await chat_graph.ainvoke(ChatState(question="What is the best pizza topping?"))
+
+    assert state["answer"] == REFUSAL_ANSWER
+    assert state["sources"] == ()
+    assert model.received == []
+    assert len(searches) == 1
+
+
+async def test_an_empty_search_is_refused_before_any_model_call(monkeypatch):
+    async def nothing(session, request):
+        return ()
+
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.search", nothing)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+
+    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
+
+    assert state["answer"] == REFUSAL_ANSWER
+    assert model.received == []
+
+
+async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
+    async def junk_search(session, request):
+        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+
+    async def refuse_to_expand(session, chunks, *, limit):
+        raise AssertionError("expansion ran for a question the gate refused")
+
+    monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
+    monkeypatch.setattr("app.chat.graph.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.expand_sections", refuse_to_expand)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+
+    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
+
+    assert state["answer"] == REFUSAL_ANSWER
