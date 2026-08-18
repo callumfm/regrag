@@ -9,12 +9,8 @@ from app.retrieval.follow import reference_exists
 async def find_unresolved_references(
     session: AsyncSession, dataset: EvalDataset
 ) -> tuple[UnresolvedReference, ...]:
-    """Look up every case's references in the corpus and return those that find no stored chunk.
-
-    A reference resolves when a chunk is stored for its celex + article/annex. It stops resolving
-    when the act is re-ingested renumbered or the case was authored with a typo; a run would then
-    score that case as a retrieval miss for the wrong reason, so this check runs first.
-    """
+    """Every case reference with no stored chunk for its celex + article/annex, with its case id.
+    Stale after a renumbered re-ingest or a typo; a run would score it as a retrieval miss."""
     unresolved = []
     for case in dataset.cases:
         for target in case.references:
