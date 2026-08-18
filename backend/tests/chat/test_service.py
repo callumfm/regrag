@@ -116,3 +116,4 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
     assert stats.sources == 0
     assert stats.usage is None
     assert stats.retrieve_ms is not None
+    assert stats.ttft_ms is not None

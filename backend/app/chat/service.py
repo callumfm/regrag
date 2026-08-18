@@ -55,6 +55,7 @@ async def chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
 
                 case ("updates", {ChatNode.REFUSE: {"answer": refusal}}):
                     ended = ChatOutcome.REFUSED
+                    stats.token()
                     yield TokenEvent(data=ChatToken(text=refusal))
 
                 case ("messages", (chunk, _)):
