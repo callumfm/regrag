@@ -10,7 +10,7 @@ import pytest
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.outputs import ChatResult
 
-from app.chat.graph import chat_graph, covers
+from app.chat.graph import chat_graph, meets_thresholds
 from app.chat.models import ChatState
 from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
@@ -211,7 +211,7 @@ async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, mo
         pytest.param([(0.2, 0.7), (0.5, 0.3)], True, id="best of each signal, not the top hit's"),
     ],
 )
-def test_covers_when_the_best_of_each_present_signal_clears_its_bar(signals, verdict, monkeypatch):
+def test_met_when_the_best_of_each_present_signal_clears_its_bar(signals, verdict, monkeypatch):
     monkeypatch.setattr(config, "CHAT_MIN_COSINE_SIMILARITY", 0.3)
     monkeypatch.setattr(config, "CHAT_MIN_RERANKER_RELEVANCE", 0.45)
     hits = tuple(
@@ -219,14 +219,16 @@ def test_covers_when_the_best_of_each_present_signal_clears_its_bar(signals, ver
         for cosine, relevance in signals
     )
 
-    assert covers(hits) is verdict
+    assert meets_thresholds(hits) is verdict
 
 
 def test_a_bar_at_zero_is_off(monkeypatch):
     monkeypatch.setattr(config, "CHAT_MIN_COSINE_SIMILARITY", 0.0)
     monkeypatch.setattr(config, "CHAT_MIN_RERANKER_RELEVANCE", 0.0)
 
-    assert covers((search_result(cosine_similarity=0.01, reranker_relevance=0.01),)) is True
+    assert (
+        meets_thresholds((search_result(cosine_similarity=0.01, reranker_relevance=0.01),)) is True
+    )
 
 
 async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_call(monkeypatch):
