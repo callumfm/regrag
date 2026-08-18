@@ -9,7 +9,7 @@ from collections.abc import Iterator, Sequence
 
 from app.core.models import FrozenModel
 from app.ingestion import celex
-from app.ingestion.chunk.models import Reference
+from app.ingestion.chunk.models import Reference, format_citation
 
 QUALIFIER = re.compile(r"^\s+(?:of|to|in)\s+(?:that\s+|the\s+)?$")
 
@@ -51,7 +51,7 @@ def _find_article_mentions(text: str) -> list[DivisionMention]:
             start=member.start(),
             end=run_end,
             reference=Reference(
-                raw=_format_citation("Article", member.group(1), member.group(2)),
+                raw=format_citation(article=member.group(1), paragraph=member.group(2)),
                 article=member.group(1),
                 paragraph=member.group(2),
             ),
@@ -66,9 +66,7 @@ def _find_annex_mentions(text: str) -> list[DivisionMention]:
         DivisionMention(
             start=member.start(),
             end=run_end,
-            reference=Reference(
-                raw=_format_citation("Annex", member.group(1)), annex=member.group(1)
-            ),
+            reference=Reference(raw=format_citation(annex=member.group(1)), annex=member.group(1)),
         )
         for member, run_end in _find_enumerated_members(text, ANNEX_REF, ANNEX_TAIL)
     ]
@@ -87,11 +85,6 @@ def _find_enumerated_members(
             members.append(member)
         for member in members:
             yield member, members[-1].end()
-
-
-def _format_citation(kind: str, number: str, paragraph: str | None = None) -> str:
-    """One member of an enumeration written out in full: 'Article 7(2)'."""
-    return f"{kind} {number}({paragraph})" if paragraph else f"{kind} {number}"
 
 
 INSTRUMENT_REF = re.compile(

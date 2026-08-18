@@ -215,6 +215,15 @@ class RetrievalConfig(BaseConfig):
     MIN_RERANKER_RELEVANCE: float = Field(default=0.45, ge=0.0)
 
 
+class EvalConfig(BaseConfig):
+    """Eval tunables.
+
+    EVAL_DATASET_PATH: the golden dataset, authored cases versioned as JSON in the repo.
+    """
+
+    EVAL_DATASET_PATH: Path = BACKEND_ROOT / "app" / "evals" / "golden.json"
+
+
 class Config(
     AppConfig,
     PostgresConfig,
@@ -223,6 +232,7 @@ class Config(
     IngestConfig,
     RetrievalConfig,
     StorageConfig,
+    EvalConfig,
 ):
     """Combined configuration class for core app functionality."""
 
