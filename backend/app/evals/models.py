@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import TypeAdapter, model_validator
 
+from app.core.config import config
 from app.core.models import FrozenModel
 from app.evals.enums import EvalKind
 from app.retrieval.models import ReferenceTarget
@@ -41,7 +42,7 @@ class EvalDataset(FrozenModel):
     cases: tuple[EvalCase, ...]
 
     @classmethod
-    def load(cls, path: Path) -> "EvalDataset":
+    def load(cls, path: Path = config.EVAL_DATASET_PATH) -> "EvalDataset":
         """Read and validate the JSON file at path."""
         return cls(cases=_cases.validate_json(path.read_bytes()))
 

@@ -1,7 +1,6 @@
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import config
 from app.evals.enums import EvalKind
 from app.evals.models import EvalCase, EvalDataset
 from tests.evals.conftest import REFERENCE, eval_case, eval_dataset
@@ -27,7 +26,7 @@ def test_a_dataset_refuses_duplicate_case_ids() -> None:
 
 
 def test_the_golden_file_validates() -> None:
-    assert EvalDataset.load(config.EVAL_DATASET_PATH).cases
+    assert EvalDataset.load().cases
 
 
 def test_the_hash_follows_the_cases_not_the_file() -> None:

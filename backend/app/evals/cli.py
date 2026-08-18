@@ -3,7 +3,6 @@
 import argparse
 import asyncio
 
-from app.core.config import config
 from app.core.db.session import get_session
 from app.core.logger import setup_logging
 from app.evals.models import EvalDataset, UnresolvedReference
@@ -19,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def _check_dataset_references() -> tuple[UnresolvedReference, ...]:
     async with get_session(auto_commit=False) as session:
-        return await find_unresolved_references(session, EvalDataset.load(config.EVAL_DATASET_PATH))
+        return await find_unresolved_references(session, EvalDataset.load())
 
 
 def main(argv: list[str] | None = None) -> int:
