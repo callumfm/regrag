@@ -75,5 +75,33 @@
     "question": "What happens to a ship that keeps ignoring its MRV monitoring and reporting obligations year after year?",
     "reference_answer": "Member States must impose effective, proportionate and dissuasive penalties. If a ship has failed to comply for two or more consecutive reporting periods and other enforcement has failed, the competent authority of the port of entry may issue an expulsion order after hearing the company: every Member State except the flag State must then refuse the ship entry to its ports until the company complies, and a ship flying a Member State's flag is detained by that state. The shipowner has a right to a remedy before a court against the order.",
     "gold": [{"celex": "32015R0757", "article": "20"}]
+  },
+  {
+    "id": "verifier-accreditation-validity-surveillance",
+    "kind": "in_corpus",
+    "question": "Once a verifier is accredited for EU MRV work, how long does the accreditation last and how is it kept in check?",
+    "reference_answer": "The accreditation certificate issued by the national accreditation body is valid for at most five years. The accreditation body carries out annual surveillance of each accredited verifier, comprising at least an on-site visit and witnessing the work of a representative sample of the verifier's staff, with the first surveillance within 12 months of the certificate being issued; on the basis of that surveillance it decides whether accreditation continues.",
+    "gold": [{"celex": "32023R2917", "article": "51"}, {"celex": "32023R2917", "article": "52"}]
+  },
+  {
+    "id": "fueleu-verifier-materiality",
+    "kind": "in_corpus",
+    "question": "What materiality threshold does a FuelEU verifier apply, and can a misstatement below it still be treated as material?",
+    "reference_answer": "The materiality level for verifying fuel and electricity consumption, distance travelled and time at sea and at berth in a FuelEU report is 5% of the respective total reported for each item in the reporting period. Misstatements or non-conformities below that level can still be treated as material where their scale, nature or the particular circumstances of their occurrence justify it, and the verifier must assess uncorrected ones individually and together for their impact.",
+    "gold": [{"celex": "32024R2027", "article": "18"}, {"celex": "32024R2027", "article": "20"}]
+  },
+  {
+    "id": "mrv-emissions-report-template",
+    "kind": "in_corpus",
+    "question": "What format do we submit the MRV emissions report in — is there a mandatory template?",
+    "reference_answer": "Yes. Companies must submit the emissions report and any partial emissions report using the electronic version of the template available in THETIS-MRV, which contains the information set out in Annex II of Implementing Regulation (EU) 2023/2449.",
+    "gold": [{"celex": "32023R2449", "article": "2"}]
+  },
+  {
+    "id": "mrv-cargo-carried-ropax",
+    "kind": "in_corpus",
+    "question": "How should a ro-pax ferry work out 'cargo carried' for its MRV per-voyage monitoring?",
+    "reference_answer": "For ro-pax ships, cargo carried is the number of passengers together with the mass of the cargo on board, where that mass may be the actual mass or the number of cargo units (trucks, cars, etc.) or occupied lane metres multiplied by default values for their weight.",
+    "gold": [{"celex": "32016R1928", "article": "3"}]
   }
 ]
