@@ -12,6 +12,7 @@ from langchain_core.outputs import ChatResult
 
 from app.chat.graph import chat_graph
 from app.chat.models import ChatState
+from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
@@ -192,3 +193,56 @@ async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, mo
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
     assert state["sources"] == (search_result(),)
+
+
+# The refusal gate
+
+
+async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_call(monkeypatch):
+    searches: list[SearchRequest] = []
+
+    async def junk_search(session, request):
+        searches.append(request)
+        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+
+    state = await chat_graph.ainvoke(ChatState(question="What is the best pizza topping?"))
+
+    assert state["answer"] == REFUSAL_ANSWER
+    assert state["sources"] == ()
+    assert model.received == []
+    assert len(searches) == 1
+
+
+async def test_an_empty_search_is_refused_before_any_model_call(monkeypatch):
+    async def nothing(session, request):
+        return ()
+
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.search", nothing)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+
+    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
+
+    assert state["answer"] == REFUSAL_ANSWER
+    assert model.received == []
+
+
+async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
+    async def junk_search(session, request):
+        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+
+    async def refuse_to_expand(session, chunks, *, limit):
+        raise AssertionError("expansion ran for a question the gate refused")
+
+    monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
+    monkeypatch.setattr("app.chat.graph.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.expand_sections", refuse_to_expand)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+
+    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
+
+    assert state["answer"] == REFUSAL_ANSWER

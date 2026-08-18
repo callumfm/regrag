@@ -56,9 +56,13 @@ def _ranked(stmt: Select, order: Sequence, filters: SearchFilters, limit: int) -
 
 
 def _vector_candidates(embedding: Sequence[float], filters: SearchFilters, limit: int) -> Select:
-    """Chunk ids nearest the query vector by cosine distance, closest first."""
-    order = (DocumentChunk.embedding.cosine_distance(embedding), DocumentChunk.id)
-    stmt = select(DocumentChunk.id).where(DocumentChunk.embedding.is_not(None))
+    """Chunk ids nearest the query vector by cosine distance, closest first, each with
+    its similarity: the one absolute measure of nearness the walk already computed."""
+    distance = DocumentChunk.embedding.cosine_distance(embedding)
+    order = (distance, DocumentChunk.id)
+    stmt = select(DocumentChunk.id, (1 - distance).label("cosine_similarity")).where(
+        DocumentChunk.embedding.is_not(None)
+    )
     return _ranked(stmt, order, filters, limit)
 
 
@@ -87,22 +91,23 @@ async def hybrid_search(
     await _tune_hnsw_walk(session, candidates)
     by_vector = _vector_candidates(embedding, filters, candidates).cte("by_vector")
     by_text = _text_candidates(query, filters, candidates).cte("by_text")
-    score = (
+    rrf_score = (
         func.coalesce(1.0 / (rrf_k + by_vector.c.rank), 0.0)
         + func.coalesce(1.0 / (rrf_k + by_text.c.rank), 0.0)
-    ).label("score")
+    ).label("rrf_score")
     joined = by_vector.join(by_text, by_vector.c.id == by_text.c.id, full=True).join(
         DocumentChunk, DocumentChunk.id == func.coalesce(by_vector.c.id, by_text.c.id)
     )
     stmt = (
         select(
             *CHUNK_COLUMNS,
-            score,
+            rrf_score,
             by_vector.c.rank.label("vector_rank"),
             by_text.c.rank.label("text_rank"),
+            by_vector.c.cosine_similarity,
         )
         .select_from(joined)
-        .order_by(score.desc(), DocumentChunk.id)
+        .order_by(rrf_score.desc(), DocumentChunk.id)
         .limit(limit)
     )
     rows = await session.execute(stmt)
