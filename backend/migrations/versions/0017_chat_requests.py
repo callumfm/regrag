@@ -1,4 +1,4 @@
-"""chat runs
+"""chat requests
 
 Revision ID: 0017
 Revises: 0016
@@ -17,19 +17,20 @@ down_revision: str | Sequence[str] | None = "0016"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-INDEX_NAME = "ix_chat_runs_created_at"
+INDEX_NAME = "ix_chat_requests_created_at"
 
 
 def upgrade() -> None:
-    """One row per streamed answer: its stage timings, source count and token usage.
+    """One row per handled question: its stage timings, source count and token usage.
 
     Indexed on created_at because that is what a spend cap sums over: tokens in the
-    last window, read off the index rather than every run the table has accumulated.
+    last window, read off the index rather than every request the table has accumulated.
     """
     op.create_table(
-        "chat_runs",
+        "chat_requests",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("request_id", sa.String(), nullable=True),
+        sa.Column("question", sa.String(), nullable=False),
         sa.Column(
             "outcome",
             sa.Enum("done", "error", "aborted", name="chatoutcome", native_enum=False),
@@ -56,9 +57,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(INDEX_NAME, "chat_runs", ["created_at"])
+    op.create_index(INDEX_NAME, "chat_requests", ["created_at"])
 
 
 def downgrade() -> None:
-    op.drop_index(INDEX_NAME, table_name="chat_runs")
-    op.drop_table("chat_runs")
+    op.drop_index(INDEX_NAME, table_name="chat_requests")
+    op.drop_table("chat_requests")

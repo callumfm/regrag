@@ -1,4 +1,4 @@
-"""Chat stream orchestration: every way a stream ends records one run with what it reached."""
+"""Chat stream orchestration: every way a stream ends records one request with what it reached."""
 
 import pytest
 
@@ -11,7 +11,7 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_finished_stream_records_timings_sources_and_usage(
-    two_results, monkeypatch, recorded_runs
+    two_results, monkeypatch, recorded_requests
 ):
     model = fake_chat_model("Two words [1].")
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
@@ -19,7 +19,8 @@ async def test_finished_stream_records_timings_sources_and_usage(
     async for _ in chat_events("q"):
         pass
 
-    [(stats, outcome)] = recorded_runs
+    [(question, stats, outcome)] = recorded_requests
+    assert question == "q"
     assert outcome is ChatOutcome.DONE
     assert stats.sources == 2
     assert stats.usage == USAGE
@@ -28,7 +29,7 @@ async def test_finished_stream_records_timings_sources_and_usage(
     assert 0 <= stats.retrieve_ms <= stats.ttft_ms <= stats.elapsed_ms()
 
 
-async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_runs):
+async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_requests):
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
@@ -37,7 +38,7 @@ async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_runs)
     async for _ in chat_events("q"):
         pass
 
-    [(stats, outcome)] = recorded_runs
+    [(_, stats, outcome)] = recorded_requests
     assert outcome is ChatOutcome.ERROR
     assert stats.retrieve_ms is None
     assert stats.ttft_ms is None
@@ -45,7 +46,7 @@ async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_runs)
     assert stats.usage is None
 
 
-async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded_runs):
+async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded_requests):
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
 
@@ -53,7 +54,7 @@ async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded
     await anext(events)
     await events.aclose()
 
-    [(stats, outcome)] = recorded_runs
+    [(_, stats, outcome)] = recorded_requests
     assert outcome is ChatOutcome.ABORTED
     assert stats.sources == 2
     assert stats.ttft_ms is None

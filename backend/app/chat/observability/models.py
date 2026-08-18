@@ -1,4 +1,4 @@
-"""What one chat stream cost so far, filled in as the graph's stream items pass."""
+"""What one chat request cost so far, filled in as the graph's stream items pass."""
 
 import time
 
@@ -9,8 +9,8 @@ from app.core.clock import elapsed_ms
 from app.core.models import AppModel
 
 
-class StreamStats(AppModel):
-    """Per-stage timings, source count and model usage for one stream, in flight."""
+class RequestStats(AppModel):
+    """Per-stage timings, source count and model usage for one request, in flight."""
 
     start: float = Field(default_factory=time.perf_counter)
     retrieve_ms: int | None = None

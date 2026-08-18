@@ -46,10 +46,10 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
-         * ChatRequest
+         * ChatQuery
          * @description The question a caller asks.
          */
-        ChatRequest: {
+        ChatQuery: {
             /** Question */
             question: string;
         };
@@ -71,7 +71,7 @@ export interface components {
         };
         /**
          * ChatToken
-         * @description The token event's payload: one fragment of the streamed answer.
+         * @description One fragment of the answer as the model streams it; the token event's payload.
          */
         ChatToken: {
             /** Text */
@@ -220,7 +220,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ChatRequest"];
+                "application/json": components["schemas"]["ChatQuery"];
             };
         };
         responses: {

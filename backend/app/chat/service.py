@@ -15,8 +15,8 @@ from app.chat.models import (
     SourcesEvent,
     TokenEvent,
 )
-from app.chat.observability.models import StreamStats
-from app.chat.observability.service import record_run
+from app.chat.observability.models import RequestStats
+from app.chat.observability.service import record_request
 from app.core.exceptions import DomainError, describe
 from app.core.logger import request_id_var
 from app.core.models import ErrorResponse
@@ -37,8 +37,8 @@ def error_event(exc: Exception) -> ErrorEvent:
 
 async def chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
     """Sources once, then tokens, then done; an error event ends a failed stream.
-    However it ends — done, error, or the client leaving — one chat run is recorded."""
-    stats = StreamStats()
+    However it ends — done, error, or the client leaving — one chat request is recorded."""
+    stats = RequestStats()
     outcome = ChatOutcome.ABORTED
     stream = chat_graph.astream(ChatState(question=question), stream_mode=["updates", "messages"])
     try:
@@ -61,4 +61,4 @@ async def chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
         outcome = ChatOutcome.ERROR
         yield error_event(exc)
     finally:
-        await record_run(stats, outcome)
+        await record_request(question, stats, outcome)

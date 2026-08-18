@@ -1,4 +1,4 @@
-"""Chat request, graph state and SSE event values."""
+"""Chat query, graph state and SSE event values."""
 
 from typing import Annotated, Any, Literal
 
@@ -10,7 +10,7 @@ from app.core.models import AppModel, ErrorResponse, FrozenModel
 from app.retrieval.models import RetrievedChunk
 
 
-class ChatRequest(AppModel):
+class ChatQuery(AppModel):
     """The question a caller asks."""
 
     question: str = Field(min_length=1, max_length=2000)
