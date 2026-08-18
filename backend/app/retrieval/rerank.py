@@ -29,7 +29,8 @@ async def _rerank(query: str, documents: list[str]) -> list[RerankResponseResult
 async def rerank_results(
     query: str, results: tuple[SearchResult, ...], *, limit: int
 ) -> tuple[SearchResult, ...]:
-    """Results reordered by the cross-encoder and cut, or the fused order when rerank fails."""
+    """Results reordered by the cross-encoder, each carrying its judgment, and cut;
+    or the fused order, unjudged, when rerank fails."""
     if not results:
         return ()
     try:
@@ -37,4 +38,7 @@ async def rerank_results(
     except LLMError:
         logger.warning("rerank failed, keeping the fused order")
         return results[:limit]
-    return tuple(results[item["index"]] for item in ranked[:limit])
+    return tuple(
+        results[item["index"]].model_copy(update={"reranker_relevance": item["relevance_score"]})
+        for item in ranked[:limit]
+    )

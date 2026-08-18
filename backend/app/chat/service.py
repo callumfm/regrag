@@ -38,11 +38,13 @@ def _error_event(exc: Exception) -> ErrorEvent:
 
 
 async def chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
-    """Sources once, then tokens, then done; an error event ends a failed stream.
-    However it ends — done, error, or the client leaving, which cancels this task —
-    one chat request is recorded, so the write is shielded from that cancellation."""
+    """Sources once, then tokens, then done; an error event ends a failed stream. A refused
+    question sends its refusal as the one token, after an empty sources event.
+    However it ends — done, refused, error, or the client leaving, which cancels this
+    task — one chat request is recorded, so the write is shielded from that cancellation."""
     stats = RequestStats()
     outcome = ChatOutcome.ABORTED
+    ended = ChatOutcome.DONE
     stream = chat_graph.astream(ChatState(question=question), stream_mode=["updates", "messages"])
     try:
         async for item in stream:
@@ -50,6 +52,11 @@ async def chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
                 case ("updates", {ChatNode.RETRIEVE: {"sources": sources}}):
                     stats.retrieved(len(sources))
                     yield SourcesEvent.from_results(sources)
+
+                case ("updates", {ChatNode.REFUSE: {"answer": refusal}}):
+                    ended = ChatOutcome.REFUSED
+                    stats.token()
+                    yield TokenEvent(data=ChatToken(text=refusal))
 
                 case ("messages", (chunk, _)):
                     if chunk.usage_metadata:
@@ -59,7 +66,7 @@ async def chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
                         yield TokenEvent(data=ChatToken(text=text))
 
         yield DoneEvent()
-        outcome = ChatOutcome.DONE
+        outcome = ended
     except Exception as exc:
         outcome = ChatOutcome.ERROR
         yield _error_event(exc)

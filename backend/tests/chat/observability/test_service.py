@@ -101,3 +101,13 @@ async def test_failed_write_is_logged_not_raised(monkeypatch, caplog):
     [error] = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert error.getMessage() == "chat request not recorded"
     assert error.exc_info is not None
+
+
+async def test_a_refused_request_is_recorded_as_such(own_session: AsyncSession, caplog):
+    """The gate's outcome fits the column as migrated: refused is no longer than aborted."""
+    await record_request("best pizza topping?", RequestStats(retrieve_ms=90), ChatOutcome.REFUSED)
+
+    [row] = (await own_session.scalars(select(ChatRequest))).all()
+    assert row.outcome is ChatOutcome.REFUSED
+    assert (row.retrieve_ms, row.ttft_ms, row.sources, row.input_tokens) == (90, None, 0, None)
+    assert stats_lines(caplog)[0].getMessage().startswith("chat refused - retrieve 90ms")

@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from app.ingestion.chunk.models import Reference
 from app.retrieval.models import ReferenceTarget, SearchRequest
-from tests.conftest import retrieved_chunk
+from tests.conftest import retrieved_chunk, search_result
 
 
 def test_a_bare_act_is_refused_rather_than_dumped() -> None:
@@ -53,3 +53,22 @@ def test_a_request_may_leave_the_limit_to_config() -> None:
 def test_a_retrieved_chunk_cites_nothing_unless_told_otherwise() -> None:
     """Every database path fills references, so a hand-built chunk need not spell out none."""
     assert retrieved_chunk().references == ()
+
+
+def test_a_line_shows_every_signal_then_the_citation() -> None:
+    result = search_result(rrf_score=0.0328, cosine_similarity=0.7512, reranker_relevance=0.6)
+
+    assert result.line().startswith("rrf 0.0328  cos  0.7512  rel  0.6000  Article 4(1)")
+    assert "32023R1805" in result.line()
+
+
+def test_a_missing_signal_prints_as_a_dash() -> None:
+    result = search_result(cosine_similarity=None, reranker_relevance=None)
+
+    assert result.line().startswith("rrf 0.9000  cos       -  rel       -  Article 4(1)")
+
+
+def test_a_negative_similarity_keeps_the_columns_in_line() -> None:
+    result = search_result(cosine_similarity=-0.0231, reranker_relevance=0.6)
+
+    assert result.line().startswith("rrf 0.9000  cos -0.0231  rel  0.6000  Article 4(1)")

@@ -11,8 +11,6 @@ from app.core.logger import setup_logging
 from app.retrieval.models import SearchFilters, SearchRequest, SearchResult
 from app.retrieval.search import search
 
-SNIPPET = 160
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="retrieve", description="RegRag corpus retrieval")
@@ -44,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"retrieval failed: {exc}", file=sys.stderr)
         return 1
     for result in found:
-        print(f"{result.score:.4f}  {result.citation:<16} {result.celex}  {result.text[:SNIPPET]}")
+        print(result.line())
     if not found:
         print("no results")
     return 0
