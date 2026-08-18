@@ -103,5 +103,30 @@
     "question": "How should a ro-pax ferry work out 'cargo carried' for its MRV per-voyage monitoring?",
     "reference_answer": "For ro-pax ships, cargo carried is the number of passengers together with the mass of the cargo on board, where that mass may be the actual mass or the number of cargo units (trucks, cars, etc.) or occupied lane metres multiplied by default values for their weight.",
     "gold": [{"celex": "32016R1928", "article": "3"}]
+  },
+  {
+    "id": "ooc-ets-allowance-surrender",
+    "kind": "out_of_corpus",
+    "question": "How many EU ETS allowances does a shipping company have to surrender for its 2025 emissions, and by what date?"
+  },
+  {
+    "id": "ooc-imo-cii-rating",
+    "kind": "out_of_corpus",
+    "question": "What CII rating band does a ship fall into if its attained CII is 5% above the required value?"
+  },
+  {
+    "id": "ooc-rfnbo-price-difference-value",
+    "kind": "out_of_corpus",
+    "question": "What price-difference figure between RFNBO and fossil fuel is currently used in the FuelEU RFNBO penalty formula?"
+  },
+  {
+    "id": "ooc-named-company-fine",
+    "kind": "out_of_corpus",
+    "question": "Has Maersk been fined under FuelEU yet, and how much did it pay?"
+  },
+  {
+    "id": "ooc-off-topic",
+    "kind": "out_of_corpus",
+    "question": "What is the maximum weight of hand luggage allowed on Ryanair flights?"
   }
 ]
