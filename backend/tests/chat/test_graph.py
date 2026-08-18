@@ -10,7 +10,8 @@ import pytest
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.outputs import ChatResult
 
-from app.chat.graph import ChatState, chat_graph
+from app.chat.graph import chat_graph
+from app.chat.models import ChatState
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest

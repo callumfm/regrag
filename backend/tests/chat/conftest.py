@@ -6,10 +6,16 @@ from typing import Any
 import pytest
 from langchain_core.language_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
+from app.chat.enums import ChatOutcome
+from app.chat.observability.models import RequestStats
 from app.core.config import config
+from tests.conftest import search_result
+
+USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
 
 
 class RecordingChatModel(GenericFakeChatModel):
@@ -17,15 +23,24 @@ class RecordingChatModel(GenericFakeChatModel):
     the fake's _stream is built on its _generate, so that is the one place to record."""
 
     received: list[list[BaseMessage]] = Field(default_factory=list)
+    usage: UsageMetadata | None = None
+    """Reported as litellm does: a final usage-only chunk after the answer's text."""
 
     def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> ChatResult:
         self.received.append(list(messages))
         return super()._generate(messages, *args, **kwargs)
 
+    def _stream(
+        self, messages: list[BaseMessage], *args: Any, **kwargs: Any
+    ) -> Iterator[ChatGenerationChunk]:
+        yield from super()._stream(messages, *args, **kwargs)
+        if self.usage:
+            yield ChatGenerationChunk(message=AIMessageChunk(content="", usage_metadata=self.usage))
+
 
 def fake_chat_model(answer: str = "Ships must comply [1].") -> RecordingChatModel:
-    """A chat model that streams one canned answer."""
-    return RecordingChatModel(messages=iter([AIMessage(content=answer)]))
+    """A chat model that streams one canned answer and reports USAGE for it."""
+    return RecordingChatModel(messages=iter([AIMessage(content=answer)]), usage=USAGE)
 
 
 THINKING = "weighing the context"
@@ -50,8 +65,32 @@ def reasoning_chat_model() -> ReasoningChatModel:
     return ReasoningChatModel(messages=iter([AIMessage(content="unused")]))
 
 
+@pytest.fixture
+def two_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_search(session, request):
+        return (search_result(), search_result(id=2, citation="Article 5(1)"))
+
+    monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+
 @pytest.fixture(autouse=True)
 def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
     """Expansion is a database walk covered in tests/retrieval; here it is switched off,
     so the graph works from exactly what the faked search found."""
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
+
+
+@pytest.fixture(autouse=True)
+def recorded_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[str, RequestStats, ChatOutcome]]:
+    """Capture what chat_events hands to record_request instead of writing chat_requests
+    rows: the write is covered in tests/chat/observability, so no chat test needs the
+    database."""
+    requests: list[tuple[str, RequestStats, ChatOutcome]] = []
+
+    async def fake_record_request(question: str, stats: RequestStats, outcome: ChatOutcome) -> None:
+        requests.append((question, stats, outcome))
+
+    monkeypatch.setattr("app.chat.service.record_request", fake_record_request)
+    return requests

@@ -3,11 +3,9 @@
 import json
 
 import httpx
-import pytest
 
 from app.core.llm import LLMError
 from tests.chat.conftest import THINKING, fake_chat_model, reasoning_chat_model
-from tests.conftest import search_result
 
 
 def read_events(response: httpx.Response) -> list[tuple[str, dict]]:
@@ -21,14 +19,6 @@ def read_events(response: httpx.Response) -> list[tuple[str, dict]]:
             events.append((name, json.loads(line.removeprefix("data:").strip())))
             name = None
     return events
-
-
-@pytest.fixture
-def two_results(monkeypatch):
-    async def fake_search(session, request):
-        return (search_result(), search_result(id=2, citation="Article 5(1)"))
-
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
 
 
 def test_stream_orders_sources_then_tokens_then_done(client, two_results, monkeypatch):
@@ -59,6 +49,15 @@ def test_block_list_content_streams_text_without_reasoning(client, two_results, 
     assert THINKING not in json.dumps(events)
 
 
+def test_stream_tells_proxies_and_browsers_not_to_buffer(client, two_results, monkeypatch):
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+
+    with client.stream("POST", "/chat", json={"question": "q"}) as response:
+        assert response.headers["cache-control"] == "no-cache"
+        assert response.headers["x-accel-buffering"] == "no"
+
+
 def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch):
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
@@ -87,6 +86,8 @@ def test_stream_failure_emits_an_error_event(client, monkeypatch):
     assert name == "error"
     assert payload["error"] == "LLMError"
     assert payload["message"] == "embedding call failed"
+    assert payload["request_id"] == response.headers["X-Request-ID"]
+    assert "detail" not in payload
 
 
 def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
@@ -111,9 +112,15 @@ def test_empty_question_is_rejected(client):
 
 
 def test_the_frames_are_documented_as_an_event_stream(client):
-    """The generated client types the frame payloads from the one media type sent."""
-    content = client.get("/openapi.json").json()["paths"]["/chat"]["post"]["responses"]["200"]
-    (media_type,) = content["content"]
+    """The generated client types the frames from the one media type sent, as a union
+    it can narrow on the event name."""
+    spec = client.get("/openapi.json").json()
+    content = spec["paths"]["/chat"]["post"]["responses"]["200"]["content"]
+    (media_type,) = content
     assert media_type == "text/event-stream"
-    payloads = content["content"][media_type]["schema"]["anyOf"]
-    assert {"$ref": "#/components/schemas/ChatToken"} in payloads
+    schema = content[media_type]["schema"]
+    assert schema["discriminator"]["propertyName"] == "event"
+    assert schema["discriminator"]["mapping"]["token"] == "#/components/schemas/TokenEvent"
+    token_event = spec["components"]["schemas"]["TokenEvent"]
+    assert token_event["properties"]["event"]["const"] == "token"
+    assert set(token_event["required"]) == {"event", "data"}

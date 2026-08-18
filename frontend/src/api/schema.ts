@@ -46,10 +46,10 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
-         * ChatRequest
+         * ChatQuery
          * @description The question a caller asks.
          */
-        ChatRequest: {
+        ChatQuery: {
             /** Question */
             question: string;
         };
@@ -71,11 +71,38 @@ export interface components {
         };
         /**
          * ChatToken
-         * @description The token event's payload: one fragment of the streamed answer.
+         * @description One fragment of the answer as the model streams it; the token event's payload.
          */
         ChatToken: {
             /** Text */
             text: string;
+        };
+        /**
+         * DoneEvent
+         * @description The last event of a completed stream.
+         */
+        DoneEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "done";
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * ErrorEvent
+         * @description The last event of a failed stream, in the app's one error shape.
+         */
+        ErrorEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "error";
+            data: components["schemas"]["ErrorResponse"];
         };
         /**
          * ErrorResponse
@@ -117,6 +144,31 @@ export interface components {
          * @enum {string}
          */
         ServiceStatus: "ok" | "error";
+        /**
+         * SourcesEvent
+         * @description Sent once, first: the [n] markers the answer will cite, bound to their chunks.
+         */
+        SourcesEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "sources";
+            /** Data */
+            data: components["schemas"]["ChatSource"][];
+        };
+        /**
+         * TokenEvent
+         * @description One fragment of the streamed answer.
+         */
+        TokenEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "token";
+            data: components["schemas"]["ChatToken"];
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -168,7 +220,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ChatRequest"];
+                "application/json": components["schemas"]["ChatQuery"];
             };
         };
         responses: {
@@ -178,7 +230,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": components["schemas"]["ChatSource"][] | components["schemas"]["ChatToken"] | components["schemas"]["ErrorResponse"];
+                    "text/event-stream": components["schemas"]["SourcesEvent"] | components["schemas"]["TokenEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
                 };
             };
             /** @description Validation Error */

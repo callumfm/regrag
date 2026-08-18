@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
+from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.exceptions import describe, error_response
 from app.core.logger import request_id_var
@@ -26,10 +27,6 @@ async def request_id_middleware(request: Request, call_next):
         return response
     finally:
         request_id_var.reset(token)
-
-
-def _elapsed_ms(start: float) -> int:
-    return int((time.perf_counter() - start) * 1000)
 
 
 def _log_access(request: Request, status_code: int, duration_ms: int) -> None:
@@ -51,13 +48,11 @@ def _log_access(request: Request, status_code: int, duration_ms: int) -> None:
     )
 
 
-async def process_time_middleware(request: Request, call_next):
-    """Stamp the time to the response's headers, and log the request once its body has
-    been sent: a streamed answer does its work after the headers go out, so that is
-    the first point its duration is known."""
+async def access_log_middleware(request: Request, call_next):
+    """Log the request once its body has been sent: a streamed answer does its work
+    after the headers go out, so that is the first point its duration is known."""
     start = time.perf_counter()
     response = await call_next(request)
-    response.headers["X-Process-Time"] = f"{_elapsed_ms(start)}ms"
     body = response.body_iterator
 
     async def logged_body() -> AsyncIterator[bytes]:
@@ -65,7 +60,7 @@ async def process_time_middleware(request: Request, call_next):
             async for chunk in body:
                 yield chunk
         finally:
-            _log_access(request, response.status_code, _elapsed_ms(start))
+            _log_access(request, response.status_code, elapsed_ms(start))
 
     response.body_iterator = logged_body()
     return response
@@ -87,7 +82,7 @@ def register_middleware(app: FastAPI) -> None:
     500, request-ID outermost of the three so the contextvar is set for all
     downstream logging."""
     app.middleware("http")(exception_middleware)
-    app.middleware("http")(process_time_middleware)
+    app.middleware("http")(access_log_middleware)
     app.middleware("http")(request_id_middleware)
     app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.add_middleware(

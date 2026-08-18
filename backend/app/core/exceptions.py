@@ -64,7 +64,7 @@ def error_response(
     )
     return JSONResponse(
         status_code=status_code,
-        content=body.model_dump(exclude_none=True),
+        content=body.model_dump(),
         headers=headers,
     )
 

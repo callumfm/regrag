@@ -1,6 +1,5 @@
-"""Tests for the request middleware: request IDs, timing, access log, gzip."""
+"""Tests for the request middleware: request IDs, access log, gzip."""
 
-import re
 import uuid
 from collections.abc import Iterator
 
@@ -13,16 +12,9 @@ from app.core import middleware
 from app.core.config import config
 
 
-@pytest.fixture
-def log_lines(monkeypatch) -> list[str]:
-    """Capture rendered access-log lines emitted by the request middleware."""
-    lines: list[str] = []
-    monkeypatch.setattr(
-        middleware.logger,
-        "info",
-        lambda msg, *args, **kwargs: lines.append(msg % args),
-    )
-    return lines
+def access_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The access-log lines the request middleware emitted."""
+    return [r.getMessage() for r in caplog.records if r.name == middleware.logger.name]
 
 
 def test_every_response_carries_request_id(client: TestClient) -> None:
@@ -42,18 +34,15 @@ def test_incoming_request_id_is_ignored(client: TestClient) -> None:
     assert response.headers["X-Request-ID"] != incoming
 
 
-def test_process_time_header(client: TestClient) -> None:
-    response = client.get("/health")
-    assert re.fullmatch(r"\d+ms", response.headers["X-Process-Time"])
-
-
-def test_access_log_line(client: TestClient, log_lines: list[str]) -> None:
+def test_access_log_line(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
     client.get("/health")
-    assert len(log_lines) == 1
-    assert "GET /health 200" in log_lines[0]
+    [line] = access_lines(caplog)
+    assert "GET /health 200" in line
 
 
-def test_access_log_skips_cors_preflight(client: TestClient, log_lines: list[str]) -> None:
+def test_access_log_skips_cors_preflight(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
     response = client.options(
         "/health",
         headers={
@@ -62,7 +51,7 @@ def test_access_log_skips_cors_preflight(client: TestClient, log_lines: list[str
         },
     )
     assert response.status_code == 200
-    assert log_lines == []
+    assert access_lines(caplog) == []
 
 
 def test_access_log_waits_for_a_streamed_body(

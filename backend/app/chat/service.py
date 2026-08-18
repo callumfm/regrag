@@ -1,67 +1,68 @@
-"""Chat stream orchestration: graph output translated into SSE events."""
+"""Chat stream orchestration: the graph run, translated into chat events and measured."""
 
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 
-from fastapi.sse import ServerSentEvent
+import anyio
 
-from app.chat.graph import ChatState, chat_graph
-from app.chat.models import ChatSource, ChatToken
+from app.chat.enums import ChatNode, ChatOutcome
+from app.chat.graph import chat_graph
+from app.chat.models import (
+    ChatEvent,
+    ChatState,
+    ChatToken,
+    DoneEvent,
+    ErrorEvent,
+    SourcesEvent,
+    TokenEvent,
+)
+from app.chat.observability.models import RequestStats
+from app.chat.observability.service import record_request
 from app.core.exceptions import DomainError, describe
 from app.core.logger import request_id_var
 from app.core.models import ErrorResponse
-from app.retrieval.models import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
 
-def _event(name: str, payload: Any) -> ServerSentEvent:
-    """One SSE event carrying a JSON payload."""
-    return ServerSentEvent(event=name, data=payload)
-
-
-def _sources_event(sources: tuple[RetrievedChunk, ...]) -> ServerSentEvent:
-    """The sources event binding [n] markers to the retrieved chunks."""
-    payload = [
-        ChatSource.from_result(marker, result).model_dump()
-        for marker, result in enumerate(sources, start=1)
-    ]
-    return _event("sources", payload)
-
-
-def _error_event(exc: Exception) -> ServerSentEvent:
-    """The error event in the app's one error shape, logged like the JSON handlers."""
+def _error_event(exc: Exception) -> ErrorEvent:
+    """The error event for a failed stream, logged like the JSON handlers log theirs."""
     error, message = describe(exc)
     if isinstance(exc, DomainError):
         logger.warning("chat stream failed: %s", message)
     else:
         logger.exception("chat stream failed unexpectedly")
     body = ErrorResponse(error=error, message=message, request_id=request_id_var.get())
-    return _event("error", body.model_dump(exclude_none=True))
+    return ErrorEvent(data=body)
 
 
-def _event_for(mode: str, data: Any) -> ServerSentEvent | None:
-    """The SSE event one stream item maps to, if any: sources from the retrieve
-    update, a token from each message chunk carrying text."""
-    if mode == "updates" and "retrieve" in data:
-        return _sources_event(data["retrieve"]["sources"])
-    if mode == "messages":
-        chunk, _ = data
-        if text := chunk.text:
-            return _event("token", ChatToken(text=text).model_dump())
-    return None
-
-
-async def chat_events(question: str) -> AsyncGenerator[ServerSentEvent, None]:
-    """Sources once, then tokens, then done; an error event ends a failed stream."""
+async def chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
+    """Sources once, then tokens, then done; an error event ends a failed stream.
+    However it ends — done, error, or the client leaving, which cancels this task —
+    one chat request is recorded, so the write is shielded from that cancellation."""
+    stats = RequestStats()
+    outcome = ChatOutcome.ABORTED
+    stream = chat_graph.astream(ChatState(question=question), stream_mode=["updates", "messages"])
     try:
-        async for mode, data in chat_graph.astream(
-            ChatState(question=question), stream_mode=["updates", "messages"]
-        ):
-            if event := _event_for(mode, data):
-                yield event
+        async for item in stream:
+            match cast(tuple[str, Any], item):
+                case ("updates", {ChatNode.RETRIEVE: {"sources": sources}}):
+                    stats.retrieved(len(sources))
+                    yield SourcesEvent.from_results(sources)
+
+                case ("messages", (chunk, _)):
+                    if chunk.usage_metadata:
+                        stats.usage = chunk.usage_metadata
+                    if text := chunk.text:
+                        stats.token()
+                        yield TokenEvent(data=ChatToken(text=text))
+
+        yield DoneEvent()
+        outcome = ChatOutcome.DONE
     except Exception as exc:
+        outcome = ChatOutcome.ERROR
         yield _error_event(exc)
-        return
-    yield _event("done", {})
+    finally:
+        with anyio.CancelScope(shield=True):
+            await record_request(question, stats, outcome)
