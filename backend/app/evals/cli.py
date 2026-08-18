@@ -5,21 +5,21 @@ import asyncio
 
 from app.core.db.session import get_session
 from app.core.logger import setup_logging
-from app.evals.dataset import load_golden
-from app.evals.service import unresolved_gold
+from app.evals.dataset import load_cases
+from app.evals.service import unresolved_references
 from app.retrieval.models import ReferenceTarget
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="evals", description="RegRag evals")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("check", help="confirm every gold citation still resolves in the corpus")
+    commands.add_parser("check", help="confirm every case reference still resolves in the corpus")
     return parser
 
 
 async def _check() -> tuple[tuple[str, ReferenceTarget], ...]:
     async with get_session(auto_commit=False) as session:
-        return await unresolved_gold(session, load_golden())
+        return await unresolved_references(session, load_cases())
 
 
 def _describe(target: ReferenceTarget) -> str:
@@ -36,5 +36,5 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{case_id}: no stored chunk for {_describe(target)}")
         if unresolved:
             return 1
-        print("every gold citation resolves")
+        print("every case reference resolves")
     return 0

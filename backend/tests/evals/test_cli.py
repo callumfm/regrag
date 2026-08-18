@@ -9,7 +9,7 @@ from app.retrieval.models import ReferenceTarget
 
 @pytest.fixture
 def fake_check(monkeypatch):
-    """Replace the DB coroutine with a stub returning a chosen set of unresolved gold."""
+    """Replace the DB coroutine with a stub returning a chosen set of unresolved references."""
     unresolved = []
 
     async def _fake():
@@ -19,12 +19,12 @@ def fake_check(monkeypatch):
     return unresolved
 
 
-def test_check_exits_zero_when_every_gold_resolves(fake_check, capsys):
+def test_check_exits_zero_when_every_reference_resolves(fake_check, capsys):
     assert main(["check"]) == 0
     assert "resolve" in capsys.readouterr().out
 
 
-def test_check_names_each_stale_gold_and_exits_nonzero(fake_check, capsys):
+def test_check_names_each_stale_reference_and_exits_nonzero(fake_check, capsys):
     fake_check.append(("stale-case", ReferenceTarget(celex="32023R1805", article="999")))
 
     assert main(["check"]) == 1

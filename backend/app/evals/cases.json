@@ -1,0 +1,132 @@
+[
+  {
+    "id": "fueleu-scope-third-country-voyage",
+    "kind": "in_corpus",
+    "question": "If my ship sails from Rotterdam to Singapore, how much of that voyage's energy counts under FuelEU?",
+    "answer": "Half of it. For a voyage arriving at or departing from an EU port where the previous or next port of call is in a third country, FuelEU counts one half of the energy used; the whole voyage counts only between two EU ports. The regulation applies to ships above 5,000 GT carrying passengers or cargo commercially, whatever their flag.",
+    "references": [{"celex": "32023R1805", "article": "2"}]
+  },
+  {
+    "id": "fueleu-ghg-intensity-limit-2030",
+    "kind": "in_corpus",
+    "question": "What GHG intensity does my ship need to stay under in 2030 under FuelEU?",
+    "answer": "From 1 January 2030 the yearly average GHG intensity of energy used on board must be at least 6% below the reference value of 91.16 gCO2eq/MJ, i.e. roughly 85.7 gCO2eq/MJ. The reduction started at 2% in 2025 and rises to 14.5% in 2035, 31% in 2040, 62% in 2045 and 80% in 2050.",
+    "references": [{"celex": "32023R1805", "article": "4"}]
+  },
+  {
+    "id": "fueleu-rfnbo-subtarget-trigger",
+    "kind": "in_corpus",
+    "question": "Is there a mandatory e-fuel quota under FuelEU, and when could it kick in?",
+    "answer": "Not a fixed one. A 2% RFNBO subtarget applies from 1 January 2034 only if the Commission's monitoring shows the RFNBO share of shipping energy was below 1% in 2031; it does not apply if evidence shows insufficient RFNBO capacity or availability, uneven distribution or too high a price. Until then RFNBO use is rewarded with a multiplier of 2 in the GHG intensity calculation from 2025 to the end of 2033.",
+    "references": [{"celex": "32023R1805", "article": "5"}]
+  },
+  {
+    "id": "fueleu-ops-short-port-stay",
+    "kind": "in_corpus",
+    "question": "Our container ship is only alongside for about 90 minutes — do we still have to plug into shore power from 2030?",
+    "answer": "No. From 1 January 2030 containerships and passenger ships moored at the quayside in ports covered by Article 9 of Regulation (EU) 2023/1804 must connect to onshore power for all their electrical demand at berth, but the requirement does not apply to ships moored for less than two hours, measured from the recorded times of arrival and departure.",
+    "references": [{"celex": "32023R1805", "article": "6"}]
+  },
+  {
+    "id": "fueleu-borrowing-limits",
+    "kind": "in_corpus",
+    "question": "Can a ship that missed its GHG intensity target this year borrow compliance from next year, and what are the limits?",
+    "answer": "Yes. A company may borrow an advance compliance surplus from the following reporting period to cover a deficit; the borrowed amount multiplied by 1.1 is then subtracted from the ship's balance in that following period. It cannot borrow more than 2% of the GHG intensity limit multiplied by the ship's energy consumption, and cannot borrow in two consecutive reporting periods.",
+    "references": [{"celex": "32023R1805", "article": "20"}]
+  },
+  {
+    "id": "fueleu-penalty-consecutive-years",
+    "kind": "in_corpus",
+    "question": "How is the FuelEU penalty for a GHG intensity shortfall worked out, and does it get worse if we miss again the following year?",
+    "answer": "The penalty is the absolute value of the ship's compliance balance in gCO2eq converted to VLSFO-equivalent tonnes (41,000 MJ per tonne) and multiplied by EUR 2,400 per tonne, payable by 30 June of the verification period. If the ship has a deficit for two or more consecutive reporting periods, the amount is multiplied by 1 + (n − 1)/10, where n is the number of consecutive periods penalised.",
+    "references": [{"celex": "32023R1805", "article": "23"}, {"celex": "32023R1805", "annex": "IV"}]
+  },
+  {
+    "id": "mrv-scope-small-general-cargo",
+    "kind": "in_corpus",
+    "question": "We operate a 3,000 GT general cargo ship calling at EU ports — is it caught by the EU MRV regulation?",
+    "answer": "Yes, since 1 January 2025. The MRV Regulation applies to ships of 5,000 GT and above, and from 2025 also to general cargo ships and offshore ships between 400 and 5,000 GT, for voyages to, from and within EU ports carrying cargo commercially. It covers CO2 and, for emissions from 2024 onwards, methane and nitrous oxide.",
+    "references": [{"celex": "32015R0757", "article": "2"}]
+  },
+  {
+    "id": "mrv-monitoring-plan-new-ship-deadline",
+    "kind": "in_corpus",
+    "question": "A ship has just come under EU MRV for the first time — how long do we have to submit its monitoring plan, and who does it go to?",
+    "answer": "For a ship falling within scope for the first time after 1 January 2024, the company must submit a monitoring plan conforming to the Regulation to the administering authority responsible without undue delay and no later than three months after the ship's first call at a port under a Member State's jurisdiction; the administering authority approves it within four months of that first call. Under the original rules a plan for a new ship went to the verifier within two months of the first EU port call.",
+    "references": [{"celex": "32015R0757", "article": "6"}]
+  },
+  {
+    "id": "mrv-per-voyage-exemption",
+    "kind": "in_corpus",
+    "question": "Do we have to report every single voyage under MRV, or is there an exemption for ferries doing hundreds of trips a year?",
+    "answer": "Per-voyage monitoring (ports and times of departure and arrival, fuel consumed and emission factors, GHG emitted, distance, time at sea, cargo and transport work) is the default, but a ship is exempt from it if all its voyages in the reporting period start or end at a port under a Member State's jurisdiction and it performs more than 300 voyages in that period according to its schedule. Annual monitoring still applies.",
+    "references": [{"celex": "32015R0757", "article": "9"}]
+  },
+  {
+    "id": "mrv-doc-validity-and-carriage",
+    "kind": "in_corpus",
+    "question": "How long is an MRV document of compliance valid, and from when does a ship need to have one on board?",
+    "answer": "A document of compliance, issued by the verifier once the emissions report satisfies the Regulation, is valid for 18 months after the end of the reporting period. From 30 June of the year following the reporting period, a ship that made voyages in that period must carry a valid document of compliance on board when arriving at, within or departing from a port under a Member State's jurisdiction.",
+    "references": [{"celex": "32015R0757", "article": "17"}, {"celex": "32015R0757", "article": "18"}]
+  },
+  {
+    "id": "mrv-expulsion-order",
+    "kind": "in_corpus",
+    "question": "What happens to a ship that keeps ignoring its MRV monitoring and reporting obligations year after year?",
+    "answer": "Member States must impose effective, proportionate and dissuasive penalties. If a ship has failed to comply for two or more consecutive reporting periods and other enforcement has failed, the competent authority of the port of entry may issue an expulsion order after hearing the company: every Member State except the flag State must then refuse the ship entry to its ports until the company complies, and a ship flying a Member State's flag is detained by that state. The shipowner has a right to a remedy before a court against the order.",
+    "references": [{"celex": "32015R0757", "article": "20"}]
+  },
+  {
+    "id": "verifier-accreditation-validity-surveillance",
+    "kind": "in_corpus",
+    "question": "Once a verifier is accredited for EU MRV work, how long does the accreditation last and how is it kept in check?",
+    "answer": "The accreditation certificate issued by the national accreditation body is valid for at most five years. The accreditation body carries out annual surveillance of each accredited verifier, comprising at least an on-site visit and witnessing the work of a representative sample of the verifier's staff, with the first surveillance within 12 months of the certificate being issued; on the basis of that surveillance it decides whether accreditation continues.",
+    "references": [{"celex": "32023R2917", "article": "51"}, {"celex": "32023R2917", "article": "52"}]
+  },
+  {
+    "id": "fueleu-verifier-materiality",
+    "kind": "in_corpus",
+    "question": "What materiality threshold does a FuelEU verifier apply, and can a misstatement below it still be treated as material?",
+    "answer": "The materiality level for verifying fuel and electricity consumption, distance travelled and time at sea and at berth in a FuelEU report is 5% of the respective total reported for each item in the reporting period. Misstatements or non-conformities below that level can still be treated as material where their scale, nature or the particular circumstances of their occurrence justify it, and the verifier must assess uncorrected ones individually and together for their impact.",
+    "references": [{"celex": "32024R2027", "article": "18"}, {"celex": "32024R2027", "article": "20"}]
+  },
+  {
+    "id": "mrv-emissions-report-template",
+    "kind": "in_corpus",
+    "question": "What format do we submit the MRV emissions report in — is there a mandatory template?",
+    "answer": "Yes. Companies must submit the emissions report and any partial emissions report using the electronic version of the template available in THETIS-MRV, which contains the information set out in Annex II of Implementing Regulation (EU) 2023/2449.",
+    "references": [{"celex": "32023R2449", "article": "2"}]
+  },
+  {
+    "id": "mrv-cargo-carried-ropax",
+    "kind": "in_corpus",
+    "question": "How should a ro-pax ferry work out 'cargo carried' for its MRV per-voyage monitoring?",
+    "answer": "For ro-pax ships, cargo carried is the number of passengers together with the mass of the cargo on board, where that mass may be the actual mass or the number of cargo units (trucks, cars, etc.) or occupied lane metres multiplied by default values for their weight.",
+    "references": [{"celex": "32016R1928", "article": "3"}]
+  },
+  {
+    "id": "ooc-ets-allowance-surrender",
+    "kind": "out_of_corpus",
+    "question": "How many EU ETS allowances does a shipping company have to surrender for its 2025 emissions, and by what date?"
+  },
+  {
+    "id": "ooc-imo-cii-rating",
+    "kind": "out_of_corpus",
+    "question": "What CII rating band does a ship fall into if its attained CII is 5% above the required value?"
+  },
+  {
+    "id": "ooc-rfnbo-price-difference-value",
+    "kind": "out_of_corpus",
+    "question": "What price-difference figure between RFNBO and fossil fuel is currently used in the FuelEU RFNBO penalty formula?"
+  },
+  {
+    "id": "ooc-named-company-fine",
+    "kind": "out_of_corpus",
+    "question": "Has Maersk been fined under FuelEU yet, and how much did it pay?"
+  },
+  {
+    "id": "ooc-off-topic",
+    "kind": "out_of_corpus",
+    "question": "What is the maximum weight of hand luggage allowed on Ryanair flights?"
+  }
+]
