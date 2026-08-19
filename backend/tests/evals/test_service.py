@@ -1,13 +1,19 @@
+import logging
 from collections.abc import Callable
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chat.enums import ChatNode, ChatOutcome
+from app.core.config import config
+from app.core.llm import LLMError
 from app.evals.models import UnresolvedReference
-from app.evals.service import find_unresolved_references
+from app.evals.service import find_unresolved_references, run_case, run_dataset, select_cases
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import ReferenceTarget
+from tests.chat.conftest import USAGE, fake_chat_model
+from tests.conftest import search_result
 from tests.evals.conftest import REFERENCE, eval_case, eval_dataset, out_of_corpus_case
 
 pytestmark = pytest.mark.anyio
@@ -52,3 +58,74 @@ async def test_out_of_corpus_cases_have_nothing_to_resolve(db_session: AsyncSess
     unresolved = await find_unresolved_references(db_session, eval_dataset(out_of_corpus_case()))
 
     assert unresolved == ()
+
+
+# Running the dataset through the chat graph
+
+
+@pytest.fixture
+def answering_graph(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Search finds the authored reference and the model cites it; expansion is a database
+    walk covered in tests/retrieval, so it is switched off."""
+
+    async def fake_search(session, request):
+        return (search_result(),)
+
+    monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
+    monkeypatch.setattr("app.chat.graph.search", fake_search)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model("Half of it [1]."))
+
+
+async def test_a_case_runs_through_the_graph_and_keeps_the_state_it_ended_in(
+    answering_graph: None,
+) -> None:
+    result = await run_case(eval_case())
+
+    assert result.case == eval_case()
+    assert result.state.question == "q?"
+    assert result.state.answer == "Half of it [1]."
+    assert result.state.hits == (search_result(),)
+    assert [n.node for n in result.state.nodes] == [ChatNode.RETRIEVE, ChatNode.SYNTHESIZE]
+    assert result.state.outcome is ChatOutcome.DONE
+    assert result.state.total_ms is not None
+    assert result.state.token_totals() == (USAGE["input_tokens"], USAGE["output_tokens"])
+
+
+async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """One failing case must not end the run; it is named as production names it."""
+
+    async def failing_search(session, request):
+        raise LLMError("embedding call failed")
+
+    monkeypatch.setattr("app.chat.graph.search", failing_search)
+
+    with caplog.at_level(logging.WARNING):
+        result = await run_case(eval_case())
+
+    assert result.state.error == "embedding call failed"
+    assert result.state.outcome is ChatOutcome.ERROR
+    assert result.state.total_ms is not None
+    assert "eval case case failed: embedding call failed" in caplog.text
+
+
+async def test_run_dataset_scores_only_the_cases_matching_the_pattern(
+    answering_graph: None,
+) -> None:
+    dataset = eval_dataset(eval_case(id="fueleu-one"), eval_case(id="mrv-one"))
+
+    run = await run_dataset(dataset, "fueleu")
+
+    assert [r.case.id for r in run.results] == ["fueleu-one"]
+    assert run.case_pattern == "fueleu"
+    assert run.dataset_sha == dataset.sha256
+    assert run.metrics.cases == 1
+    assert run.settings.expand_sections is False
+
+
+def test_no_pattern_selects_every_case() -> None:
+    dataset = eval_dataset(eval_case(id="a"), out_of_corpus_case(id="b"))
+
+    assert select_cases(dataset) == dataset.cases
+    assert select_cases(dataset, "b") == (out_of_corpus_case(id="b"),)

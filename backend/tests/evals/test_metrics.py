@@ -2,13 +2,27 @@
 
 from app.chat.prompts import REFUSAL_ANSWER
 from app.evals.metrics import (
+    compute_cited_references,
+    compute_expanded_hit_rate,
+    compute_expanded_recall,
+    compute_gate_refusal_rate,
+    compute_input_tokens,
+    compute_markers_in_context,
+    compute_mean_node_ms,
+    compute_metrics,
+    compute_output_tokens,
+    compute_raw_recall,
+    count_errors,
+    count_false_refusals,
+    count_refusals_of_a_found_reference,
     find_cited_markers,
     score_citation_validity,
     score_reference_citation_rate,
     score_reference_recall,
 )
 from app.retrieval.models import ReferenceTarget
-from tests.conftest import retrieved_chunk
+from tests.conftest import retrieved_chunk, search_result
+from tests.evals.conftest import eval_case, eval_result, refused_result
 
 ARTICLE_4 = ReferenceTarget(celex="32023R1805", article="4")
 ARTICLE_20 = ReferenceTarget(celex="32023R1805", article="20")
@@ -120,3 +134,95 @@ def test_a_marker_past_the_end_of_the_context_counts_against_validity() -> None:
 
 def test_citation_validity_is_unmeasured_when_the_answer_cites_nothing() -> None:
     assert score_citation_validity("No markers here.", (retrieved_chunk(),)) is None
+
+
+# Run metrics: each a plain function over the run's results
+
+
+OTHER_CHUNK = {"id": 2, "article": "99", "citation": "Article 99"}
+
+
+def test_raw_and_expanded_recall_are_scored_apart() -> None:
+    """Expansion found the authored reference the raw hits missed; each layer is credited
+    with what it found."""
+    results = (
+        eval_result(
+            hits=(search_result(**OTHER_CHUNK),),
+            sources=(retrieved_chunk(**OTHER_CHUNK), retrieved_chunk()),
+        ),
+    )
+
+    assert compute_raw_recall(results) == 0.0
+    assert compute_expanded_recall(results) == 1.0
+
+
+def test_hit_rate_and_recall_diverge_on_a_half_served_multi_reference_case() -> None:
+    """The whole reason both are reported: one case found 1 of its 2 authored references."""
+    half = eval_result(eval_case(id="two-refs", references=(ARTICLE_4, ARTICLE_20)))
+    results = (eval_result(), half)
+
+    assert compute_expanded_hit_rate(results) == 1.0
+    assert compute_expanded_recall(results) == 0.75
+
+
+def test_an_errored_case_is_counted_but_left_out_of_the_scores() -> None:
+    """A provider blip must not read as a retrieval regression."""
+    results = (eval_result(), eval_result(eval_case(id="boom"), hits=(), sources=(), error="x"))
+
+    assert count_errors(results) == 1
+    assert compute_expanded_hit_rate(results) == 1.0
+
+
+def test_a_kind_absent_from_the_run_scores_none_rather_than_zero() -> None:
+    only_ooc = (refused_result(),)
+
+    assert compute_expanded_hit_rate(only_ooc) is None
+    assert compute_gate_refusal_rate(only_ooc) == 1.0
+    assert compute_gate_refusal_rate((eval_result(),)) is None
+
+
+def test_a_refusal_is_read_from_the_node_path_not_the_wording() -> None:
+    """The graph says which node answered; synthesize ran for the second case, so the model
+    declined in its own words — the judge's to score, not the gate's."""
+    declined = eval_result(answer="The context provided does not cover ETS allowances.")
+
+    assert compute_gate_refusal_rate((refused_result(),)) == 1.0
+    assert count_false_refusals((declined,)) == 0
+
+
+def test_an_in_corpus_refusal_over_hits_holding_the_reference_is_the_gate_too_tight() -> None:
+    too_tight = refused_result(eval_case(), hits=(search_result(),))
+    genuine_miss = refused_result(eval_case(id="miss"), hits=(search_result(**OTHER_CHUNK),))
+
+    assert count_false_refusals((too_tight, genuine_miss)) == 2
+    assert count_refusals_of_a_found_reference((too_tight, genuine_miss)) == 1
+
+
+def test_citation_metrics_average_over_the_cases_that_measure() -> None:
+    """A refusal cites nothing, so it is unmeasured rather than a zero dragging the mean."""
+    results = (eval_result(answer="Yes [1] and [9]."), eval_result(), refused_result())
+
+    assert compute_cited_references(results) == 1.0
+    assert compute_markers_in_context(results) == 0.75
+
+
+def test_node_ms_is_averaged_over_the_cases_that_ran_the_node() -> None:
+    results = (eval_result(), refused_result())
+
+    assert compute_mean_node_ms(results) == {"retrieve": 90, "synthesize": 900, "refuse": 0}
+
+
+def test_tokens_are_summed_over_the_run() -> None:
+    results = (eval_result(), eval_result(), refused_result())
+
+    assert compute_input_tokens(results) == 3000
+    assert compute_output_tokens(results) == 80
+
+
+def test_compute_metrics_assembles_every_measure_of_the_run() -> None:
+    metrics = compute_metrics((eval_result(), refused_result()))
+
+    assert (metrics.cases, metrics.in_corpus, metrics.out_of_corpus) == (2, 1, 1)
+    assert metrics.raw_recall == 1.0
+    assert metrics.gate_refusal_rate == 1.0
+    assert metrics.mean_total_ms == 542
