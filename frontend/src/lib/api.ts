@@ -3,7 +3,8 @@ import type { paths } from '@/api/schema'
 export type HealthResponse =
 	paths['/health']['get']['responses']['200']['content']['application/json']
 
-const API_URL: string = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+export const API_URL: string =
+	import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 export async function fetchHealth(): Promise<HealthResponse> {
 	const res = await fetch(`${API_URL}/health`)
