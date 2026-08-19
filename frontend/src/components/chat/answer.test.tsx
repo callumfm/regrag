@@ -52,3 +52,21 @@ test('renders a marker with no matching source as plain text', () => {
 	expect(screen.queryByRole('button', { name: /Open source/ })).toBeNull()
 	expect(screen.getByText(/Invented \[7\]\./)).toBeInTheDocument()
 })
+
+test('splits two distinct citation markers in a single answer, each opening its own source', async () => {
+	render(<AnswerWithPanel answer="Ships must comply [1] and monitor [2]." />)
+
+	fireEvent.click(screen.getByRole('button', { name: 'Open source 1' }))
+	expect(
+		await screen.findByText(
+			'The greenhouse gas intensity of the energy used on board.',
+		),
+	).toBeInTheDocument()
+
+	fireEvent.click(screen.getByRole('button', { name: 'Open source 2' }))
+	expect(
+		await screen.findByText(
+			'Companies shall monitor the energy used on board.',
+		),
+	).toBeInTheDocument()
+})

@@ -2,17 +2,7 @@
 	"$schema": "https://unpkg.com/knip@6/schema.json",
 	"entry": ["src/routes/**/*.{ts,tsx}"],
 	"project": ["src/**/*.{ts,tsx}"],
-	"ignore": ["src/api/schema.ts", "src/components/ui/**", "src/lib/utils.ts"],
-	"ignoreDependencies": [
-		"shadcn",
-		"tailwindcss",
-		"tw-animate-css",
-		"class-variance-authority",
-		"clsx",
-		"lucide-react",
-		"tailwind-merge",
-		"@base-ui/react",
-		"@shadcn/react"
-	],
+	"ignore": ["src/api/schema.ts", "src/components/ui/**"],
+	"ignoreDependencies": ["shadcn", "tailwindcss", "tw-animate-css"],
 	"ignoreExportsUsedInFile": true
 }
