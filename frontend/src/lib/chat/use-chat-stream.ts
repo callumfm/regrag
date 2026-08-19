@@ -1,5 +1,5 @@
 import { createParser } from 'eventsource-parser'
-import { useCallback, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
 import type { components } from '@/api/schema'
 import { API_URL } from '@/lib/api'
 
@@ -70,6 +70,18 @@ function toAction(name: string | undefined, data: string): ChatAction | null {
 	}
 }
 
+async function readErrorMessage(response: Response): Promise<string> {
+	const fallback = `Chat request failed: ${response.status}`
+	try {
+		const body = await response.json()
+		return typeof body?.message === 'string' && body.message !== ''
+			? body.message
+			: fallback
+	} catch {
+		return fallback
+	}
+}
+
 export async function readChatStream(
 	body: ReadableStream<Uint8Array>,
 	dispatch: (action: ChatAction) => void,
@@ -82,10 +94,17 @@ export async function readChatStream(
 		},
 	})
 	const reader = body.getReader()
-	while (true) {
-		const { done, value } = await reader.read()
-		if (done) break
-		parser.feed(decoder.decode(value, { stream: true }))
+	try {
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) break
+			parser.feed(decoder.decode(value, { stream: true }))
+		}
+	} catch (error) {
+		reader.cancel().catch(() => undefined)
+		throw error
+	} finally {
+		reader.releaseLock()
 	}
 }
 
@@ -97,16 +116,19 @@ export function useChatStream() {
 		abort.current?.abort()
 		const controller = new AbortController()
 		abort.current = controller
-		dispatch({ type: 'ask', id: crypto.randomUUID(), question })
 		try {
+			dispatch({ type: 'ask', id: crypto.randomUUID(), question })
 			const response = await fetch(`${API_URL}/chat`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ question }),
 				signal: controller.signal,
 			})
-			if (!response.ok || response.body === null) {
-				throw new Error(`Chat request failed: ${response.status}`)
+			if (!response.ok) {
+				throw new Error(await readErrorMessage(response))
+			}
+			if (response.body === null) {
+				throw new Error('Chat response had no body to stream')
 			}
 			await readChatStream(response.body, dispatch)
 			dispatch({ type: 'settle' })
@@ -122,6 +144,12 @@ export function useChatStream() {
 	const stop = useCallback(() => {
 		abort.current?.abort()
 		dispatch({ type: 'settle' })
+	}, [])
+
+	useEffect(() => {
+		return () => {
+			abort.current?.abort()
+		}
 	}, [])
 
 	const status = turns.at(-1)?.status
