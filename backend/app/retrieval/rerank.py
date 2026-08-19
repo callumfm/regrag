@@ -20,7 +20,7 @@ async def _rerank(query: str, documents: list[str]) -> list[RerankResponseResult
         model=config.RERANK_MODEL,
         query=query,
         documents=documents,
-        api_key=config.VOYAGE_API_KEY,
+        api_key=config.VOYAGE_API_KEY.get_secret_value(),
         timeout=config.RERANK_TIMEOUT,
     )
     return response.results or []

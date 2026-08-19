@@ -1,6 +1,7 @@
 # Backend
 
-FastAPI backend for RegRag: the ingestion pipeline and the retrieval layer.
+FastAPI backend for RegRag: the ingestion pipeline, the retrieval layer, and the
+chat API that answers from them.
 
 ## Stack
 
@@ -28,6 +29,8 @@ FastAPI backend for RegRag: the ingestion pipeline and the retrieval layer.
 | `app/core/`      | Shared contracts: config, db session, http, llm, storage      |
 | `app/ingestion/` | The corpus pipeline: discover → fetch → parse → chunk → embed |
 | `app/retrieval/` | The read side: hybrid search and exact article lookup         |
+| `app/chat/`      | The answering graph, its SSE endpoint, and the request ledger |
+| `app/evals/`     | The golden dataset and the runner that scores the graph on it |
 | `migrations/`    | Alembic revisions                                             |
 | `tests/`         | Mirrors `app/`, with shared fixtures in `tests/conftest.py`   |
 
@@ -40,9 +43,11 @@ Each capability package follows the same file convention:
 | ------------- | ---------------------------------------- |
 | `schemas.py`  | SQLAlchemy ORM models                    |
 | `models.py`   | Pydantic request/response/value models   |
+| `enums.py`    | Enumerations the capability owns         |
 | `service.py`  | Database reads and writes                |
 | `pipeline.py` | Orchestration across stages              |
 | `router.py`   | FastAPI endpoints (where applicable)     |
+| `cli.py`      | argparse entry point, listed in `[project.scripts]` |
 
 New ORM schemas must be imported in `app/core/db/registry.py` so their mappers
 register; a guard test fails if one is missing.
@@ -55,7 +60,7 @@ Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/),
 ```bash
 uv sync
 pre-commit install          # from the repo root
-cp .env.example .env.dev    # then set VOYAGE_API_KEY
+cp .env.example .env.dev    # then set VOYAGE_API_KEY and ANTHROPIC_API_KEY
 ```
 
 Start the database, migrate and run the API:
@@ -87,3 +92,33 @@ the Cloudflare bucket instead.
 
 What each stage does, and why, is in
 [`app/ingestion/README.md`](app/ingestion/README.md).
+
+## Chat
+
+`POST /chat` streams a cited answer over SSE: one `sources` frame naming the
+context blocks the answer may cite, `text` frames as the model writes, then
+`done` — or a single `error` frame. A question the corpus does not cover is
+refused before any model call, and every request is recorded with the path it
+took through the graph, its timings and its tokens.
+
+It calls the answering model, so it needs `ANTHROPIC_API_KEY`. Which model, and
+how much context it is given, are the `CHAT_*` settings in `app/core/config.py`.
+
+## Evals
+
+`app/evals/golden.json` holds authored cases: a question, what a right answer
+must say, and the articles it must come from — plus out-of-corpus questions the
+system is expected to refuse.
+
+```bash
+uv run evals check              # every case reference still resolves in the corpus
+uv run evals run                # score the dataset against the current graph
+uv run evals run --verbose      # ...listing every case with its own scores
+uv run evals run --case fueleu  # only cases whose id contains this
+```
+
+A run drives the same graph the endpoint runs, one case at a time so a timing
+measures one case, and prints the settings it ran under beside the scores:
+what search found before and after section expansion, what the answers cited,
+what the refusal gate caught, and what the run cost. It exits non-zero if any
+case raised.

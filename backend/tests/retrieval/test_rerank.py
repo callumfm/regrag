@@ -59,7 +59,7 @@ async def test_rerank_sends_configured_call_kwargs(monkeypatch):
     assert call["model"] == rerank_module.config.RERANK_MODEL
     assert call["query"] == "the query"
     assert call["documents"] == ["only document"]
-    assert call["api_key"] == rerank_module.config.VOYAGE_API_KEY
+    assert call["api_key"] == rerank_module.config.VOYAGE_API_KEY.get_secret_value()
     assert call["timeout"] == rerank_module.config.RERANK_TIMEOUT
     assert "num_retries" not in call
 

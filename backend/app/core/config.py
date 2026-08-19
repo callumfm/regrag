@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -134,7 +134,7 @@ EMBED_DIMENSIONS = 1024
 class EmbeddingConfig(BaseConfig):
     """Voyage embedding configuration."""
 
-    VOYAGE_API_KEY: str = ""
+    VOYAGE_API_KEY: SecretStr = SecretStr("")
     EMBED_MODEL: str = "voyage/voyage-4-lite"
     EMBED_TIMEOUT: int = 30
 
@@ -147,7 +147,7 @@ class ChatConfig(BaseConfig):
         against a run of long articles, not a target, so it should rarely bite.
     """
 
-    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_API_KEY: SecretStr = SecretStr("")
     CHAT_MODEL: str = "anthropic/claude-haiku-4-5"
     CHAT_TIMEOUT: int = 60
     CHAT_MAX_TOKENS: int = 2048

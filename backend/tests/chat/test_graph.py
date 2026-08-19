@@ -202,6 +202,7 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, m
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
     assert state["sources"] == widened
+    assert state["hits"] == (search_result(),)
 
 
 async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, monkeypatch):
@@ -238,6 +239,23 @@ async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_
     assert state["sources"] == ()
     assert model.received == []
     assert len(searches) == 1
+
+
+async def test_a_refused_question_still_keeps_what_search_found(monkeypatch):
+    """The hits the gate judged stay on the state, so a refusal can be told from a miss:
+    what search found, and how it scored, is what an eval reads a too-tight gate from."""
+    junk = (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+
+    async def junk_search(session, request):
+        return junk
+
+    monkeypatch.setattr("app.chat.graph.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+
+    state = await chat_graph.ainvoke(ChatState(question="What is the best pizza topping?"))
+
+    assert state["hits"] == junk
+    assert state["sources"] == ()
 
 
 async def test_an_empty_search_is_refused_before_any_model_call(monkeypatch):

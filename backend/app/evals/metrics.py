@@ -1,0 +1,207 @@
+"""Eval scoring: what counts as a retrieved reference and a grounded citation, per case;
+and the run's measures, each a plain function over its results."""
+
+import re
+from collections.abc import Sequence
+
+from app.chat.enums import ChatNode
+from app.evals.enums import EvalKind
+from app.evals.models import EvalMetrics, EvalResult
+from app.retrieval.models import ReferenceTarget, RetrievedChunk
+
+MARKER = re.compile(r"\[(\d+)\]")
+"""A citation marker as the system prompt asks for it, like [1] or the [2][3] of a pair."""
+
+
+def _division(item: ReferenceTarget | RetrievedChunk) -> tuple[str, str | None, str | None]:
+    """The act and division a reference names: article case-folded, annex verbatim, and
+    "" an unnumbered annex rather than none. Coarser than `follow`, which also matches the
+    paragraph: a case names the article that answers it, so any chunk of that article
+    counts as having found the reference."""
+    article = item.article.lower() if item.article is not None else None
+    return item.celex, article, item.annex
+
+
+def score_reference_recall(
+    targets: Sequence[ReferenceTarget], chunks: Sequence[RetrievedChunk]
+) -> float:
+    """Share of a case's authored references some retrieved chunk covers."""
+    if not targets:
+        return 0.0
+    retrieved = {_division(chunk) for chunk in chunks}
+    return sum(_division(target) in retrieved for target in targets) / len(targets)
+
+
+def find_cited_markers(answer: str) -> tuple[int, ...]:
+    """The distinct [n] markers the answer leans on, in the order it first cites them.
+    Distinct, so citing one block repeatedly does not weight it by how often it is named."""
+    seen = dict.fromkeys(int(match) for match in MARKER.findall(answer))
+    return tuple(seen)
+
+
+def score_citation_validity(answer: str, sources: Sequence[RetrievedChunk]) -> float | None:
+    """Share of the answer's markers addressing a block it was given; None when it cited
+    nothing, which is unmeasured rather than zero."""
+    markers = find_cited_markers(answer)
+    if not markers:
+        return None
+    return sum(1 <= marker <= len(sources) for marker in markers) / len(markers)
+
+
+def score_reference_citation_rate(
+    answer: str,
+    sources: Sequence[RetrievedChunk],
+    targets: Sequence[ReferenceTarget],
+) -> float | None:
+    """Share of a case's authored references the answer cited, scored over the references
+    so an extra citation is not an error; None when the case names none."""
+    if not targets:
+        return None
+    cited = {
+        _division(sources[marker - 1])
+        for marker in find_cited_markers(answer)
+        if 1 <= marker <= len(sources)
+    }
+    return sum(_division(target) in cited for target in targets) / len(targets)
+
+
+# Run metrics: each a plain function over the run's results, scoring the cases it applies to
+
+
+def _mean_or_none(values: Sequence[float | bool]) -> float | None:
+    """The mean, or None when there is nothing to average — unmeasured, not zero."""
+    return sum(values) / len(values) if values else None
+
+
+def _scored(results: Sequence[EvalResult]) -> list[EvalResult]:
+    """The cases that completed; one the graph raised on is counted but not scored."""
+    return [r for r in results if r.state.error is None]
+
+
+def _in_corpus(results: Sequence[EvalResult]) -> list[EvalResult]:
+    return [r for r in _scored(results) if r.case.kind is EvalKind.IN_CORPUS]
+
+
+def _out_of_corpus(results: Sequence[EvalResult]) -> list[EvalResult]:
+    return [r for r in _scored(results) if r.case.kind is EvalKind.OUT_OF_CORPUS]
+
+
+def _raw_recall(result: EvalResult) -> float:
+    return score_reference_recall(result.case.references, result.state.hits)
+
+
+def _expanded_recall(result: EvalResult) -> float:
+    return score_reference_recall(result.case.references, result.state.sources)
+
+
+def _gate_refused(result: EvalResult) -> bool:
+    """Read off the path, not the wording: the graph says which node answered."""
+    return result.state.last_node is ChatNode.REFUSE
+
+
+def count_errors(results: Sequence[EvalResult]) -> int:
+    return len(results) - len(_scored(results))
+
+
+def count_cases_of_kind(results: Sequence[EvalResult], kind: EvalKind) -> int:
+    """Cases of this kind the run covered, errored or not: the dataset's shape, which a
+    case the graph raised on does not change."""
+    return sum(result.case.kind is kind for result in results)
+
+
+def compute_raw_hit_rate(results: Sequence[EvalResult]) -> float | None:
+    """Share of in-corpus cases where search found at least one authored reference."""
+    return _mean_or_none([_raw_recall(r) > 0 for r in _in_corpus(results)])
+
+
+def compute_raw_recall(results: Sequence[EvalResult]) -> float | None:
+    """Mean share of authored references search found, before expansion widened it."""
+    return _mean_or_none([_raw_recall(r) for r in _in_corpus(results)])
+
+
+def compute_expanded_hit_rate(results: Sequence[EvalResult]) -> float | None:
+    """Share of in-corpus cases where at least one authored reference reached the prompt."""
+    return _mean_or_none([_expanded_recall(r) > 0 for r in _in_corpus(results)])
+
+
+def compute_expanded_recall(results: Sequence[EvalResult]) -> float | None:
+    """Mean share of authored references that reached the prompt."""
+    return _mean_or_none([_expanded_recall(r) for r in _in_corpus(results)])
+
+
+def compute_cited_references(results: Sequence[EvalResult]) -> float | None:
+    """Mean share of authored references the answers cited, over the in-corpus cases."""
+    rates = [
+        score_reference_citation_rate(r.state.answer, r.state.sources, r.case.references)
+        for r in _in_corpus(results)
+    ]
+    return _mean_or_none([rate for rate in rates if rate is not None])
+
+
+def compute_markers_in_context(results: Sequence[EvalResult]) -> float | None:
+    """Mean share of markers addressing a block that was in context, over the answers
+    that cited anything."""
+    validities = [
+        score_citation_validity(r.state.answer, r.state.sources) for r in _scored(results)
+    ]
+    return _mean_or_none([v for v in validities if v is not None])
+
+
+def compute_gate_refusal_rate(results: Sequence[EvalResult]) -> float | None:
+    """Share of out-of-corpus cases the pre-model gate refused."""
+    return _mean_or_none([_gate_refused(r) for r in _out_of_corpus(results)])
+
+
+def count_false_refusals(results: Sequence[EvalResult]) -> int:
+    """In-corpus cases the gate refused."""
+    return sum(_gate_refused(r) for r in _in_corpus(results))
+
+
+def count_refusals_of_a_found_reference(results: Sequence[EvalResult]) -> int:
+    """In-corpus cases refused though search had found an authored reference: the gate too
+    tight, rather than a corpus that does not cover the question."""
+    return sum(_gate_refused(r) and _raw_recall(r) > 0 for r in _in_corpus(results))
+
+
+def compute_mean_node_ms(results: Sequence[EvalResult]) -> dict[str, int]:
+    """Each node's mean time over the cases that ran it, in the order nodes first appear."""
+    timings: dict[str, list[int]] = {}
+    for result in _scored(results):
+        for node in result.state.nodes:
+            timings.setdefault(node.node.value, []).append(node.ms)
+    return {name: sum(ms) // len(ms) for name, ms in timings.items()}
+
+
+def compute_mean_total_ms(results: Sequence[EvalResult]) -> int:
+    return int(_mean_or_none([r.state.total_ms or 0 for r in _scored(results)]) or 0)
+
+
+def compute_input_tokens(results: Sequence[EvalResult]) -> int:
+    return sum(r.state.token_totals()[0] or 0 for r in _scored(results))
+
+
+def compute_output_tokens(results: Sequence[EvalResult]) -> int:
+    return sum(r.state.token_totals()[1] or 0 for r in _scored(results))
+
+
+def compute_metrics(results: Sequence[EvalResult]) -> EvalMetrics:
+    """Every measure of the run, each computed over the cases it applies to."""
+    return EvalMetrics(
+        cases=len(results),
+        in_corpus=count_cases_of_kind(results, EvalKind.IN_CORPUS),
+        out_of_corpus=count_cases_of_kind(results, EvalKind.OUT_OF_CORPUS),
+        errors=count_errors(results),
+        raw_hit_rate=compute_raw_hit_rate(results),
+        raw_recall=compute_raw_recall(results),
+        expanded_hit_rate=compute_expanded_hit_rate(results),
+        expanded_recall=compute_expanded_recall(results),
+        cited_references=compute_cited_references(results),
+        markers_in_context=compute_markers_in_context(results),
+        gate_refusal_rate=compute_gate_refusal_rate(results),
+        false_refusals=count_false_refusals(results),
+        refused_a_found_reference=count_refusals_of_a_found_reference(results),
+        mean_node_ms=compute_mean_node_ms(results),
+        mean_total_ms=compute_mean_total_ms(results),
+        input_tokens=compute_input_tokens(results),
+        output_tokens=compute_output_tokens(results),
+    )

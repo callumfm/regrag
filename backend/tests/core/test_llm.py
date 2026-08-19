@@ -100,7 +100,7 @@ async def test_embed_sends_configured_call_kwargs(monkeypatch):
     call = calls[0]
     assert call["model"] == "voyage/voyage-4-lite"
     assert call["dimensions"] == 1024
-    assert call["api_key"] == llm.config.VOYAGE_API_KEY
+    assert call["api_key"] == llm.config.VOYAGE_API_KEY.get_secret_value()
     assert call["timeout"] == 30
     assert "num_retries" not in call
 
@@ -225,7 +225,10 @@ async def test_embed_sends_voyage_request_body_and_auth_header(monkeypatch):
     assert captured["body"]["output_dimension"] == 1024
     assert captured["body"]["input_type"] == "query"
     assert "num_retries" not in captured["body"]
-    assert captured["headers"]["authorization"] == f"Bearer {llm.config.VOYAGE_API_KEY}"
+    assert (
+        captured["headers"]["authorization"]
+        == f"Bearer {llm.config.VOYAGE_API_KEY.get_secret_value()}"
+    )
 
     llm.litellm.in_memory_llm_clients_cache.flush_cache()
 

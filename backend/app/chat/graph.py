@@ -19,7 +19,7 @@ from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import llm_retry, wrap_provider_errors
 from app.retrieval.expand import expand_sections
-from app.retrieval.models import SearchRequest
+from app.retrieval.models import RetrievedChunk, SearchRequest
 from app.retrieval.search import search
 from app.retrieval.thresholds import meets_thresholds
 
@@ -59,7 +59,7 @@ def chat_model() -> ChatLiteLLM:
     """
     return ChatLiteLLM(
         model=config.CHAT_MODEL,
-        api_key=config.ANTHROPIC_API_KEY,
+        api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
         max_tokens=config.CHAT_MAX_TOKENS,
         request_timeout=config.CHAT_TIMEOUT,
         streaming=True,
@@ -71,15 +71,16 @@ def chat_model() -> ChatLiteLLM:
 async def retrieve(state: ChatState) -> dict[str, Any]:
     """The corpus's best answers, widened to their sections, from a node-scoped session
     so no connection is held while the model streams. Nothing, when the corpus does not
-    cover the question: that empties the context, and the graph refuses instead."""
+    cover the question: that empties the context, and the graph refuses instead — but what
+    search found stays on the state, so the refusal can be read against it."""
     async with get_session(auto_commit=False) as session:
         hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
         if not meets_thresholds(hits):
-            return {"sources": ()}
-        sources = hits
+            return {"hits": hits, "sources": ()}
+        sources: tuple[RetrievedChunk, ...] = hits
         if config.EXPAND_SECTIONS:
             sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
-    return {"sources": sources}
+    return {"hits": hits, "sources": sources}
 
 
 @traced
