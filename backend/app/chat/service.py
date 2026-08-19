@@ -1,75 +1,43 @@
-"""Chat stream orchestration: the graph run, translated into chat events and measured."""
+"""Chat request recording: one row per handled question, with a row per node it ran through."""
 
 import logging
-from collections.abc import AsyncGenerator
-from typing import Any, cast
 
-import anyio
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.enums import ChatNode, ChatOutcome
-from app.chat.graph import chat_graph
-from app.chat.models import (
-    ChatEvent,
-    ChatState,
-    ChatToken,
-    DoneEvent,
-    ErrorEvent,
-    SourcesEvent,
-    TokenEvent,
-)
-from app.chat.observability.models import RequestStats
-from app.chat.observability.service import record_request
-from app.core.exceptions import DomainError, describe
+from app.chat.models import ChatState
+from app.chat.schemas import ChatRequest, ChatRequestNode
+from app.core.config import config
+from app.core.db.crud import create_record
 from app.core.logger import request_id_var
-from app.core.models import ErrorResponse
 
 logger = logging.getLogger(__name__)
 
 
-def _error_event(exc: Exception) -> ErrorEvent:
-    """The error event for a failed stream, logged like the JSON handlers log theirs."""
-    error, message = describe(exc)
-    if isinstance(exc, DomainError):
-        logger.warning("chat stream failed: %s", message)
-    else:
-        logger.exception("chat stream failed unexpectedly")
-    body = ErrorResponse(error=error, message=message, request_id=request_id_var.get())
-    return ErrorEvent(data=body)
-
-
-async def chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
-    """Sources once, then tokens, then done; an error event ends a failed stream. A refused
-    question sends its refusal as the one token, after an empty sources event.
-    However it ends — done, refused, error, or the client leaving, which cancels this
-    task — one chat request is recorded, so the write is shielded from that cancellation."""
-    stats = RequestStats()
-    outcome = ChatOutcome.ABORTED
-    ended = ChatOutcome.DONE
-    stream = chat_graph.astream(ChatState(question=question), stream_mode=["updates", "messages"])
-    try:
-        async for item in stream:
-            match cast(tuple[str, Any], item):
-                case ("updates", {ChatNode.RETRIEVE: {"sources": sources}}):
-                    stats.retrieved(len(sources))
-                    yield SourcesEvent.from_results(sources)
-
-                case ("updates", {ChatNode.REFUSE: {"answer": refusal}}):
-                    ended = ChatOutcome.REFUSED
-                    stats.token()
-                    yield TokenEvent(data=ChatToken(text=refusal))
-
-                case ("messages", (chunk, _)):
-                    if chunk.usage_metadata:
-                        stats.usage = chunk.usage_metadata
-                    if text := chunk.text:
-                        stats.token()
-                        yield TokenEvent(data=ChatToken(text=text))
-
-        yield DoneEvent()
-        outcome = ended
-    except Exception as exc:
-        outcome = ChatOutcome.ERROR
-        yield _error_event(exc)
-    finally:
-        with anyio.CancelScope(shield=True):
-            await record_request(question, stats, outcome)
+async def create_chat_request(session: AsyncSession, state: ChatState) -> None:
+    """The run as recorded: one stats line, and a chat_requests row with a row per node."""
+    fields = state.log_fields()
+    logger.info("chat %(outcome)s in %(total_ms)sms", fields, extra=fields)
+    input_tokens, output_tokens = state.token_totals()
+    nodes = [
+        ChatRequestNode(
+            position=idx,
+            node=result.node.value,
+            ms=result.ms,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        )
+        for idx, result in enumerate(state.nodes)
+    ]
+    request = ChatRequest(
+        request_id=request_id_var.get(),
+        question=state.question,
+        outcome=state.outcome,
+        model=config.CHAT_MODEL,
+        total_ms=state.total_ms,
+        sources=len(state.sources),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        error=state.error,
+        nodes=nodes,
+    )
+    await create_record(session, request)

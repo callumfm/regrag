@@ -1,119 +1,125 @@
-"""Chat stream orchestration: every way a stream ends records one request with what it reached."""
+"""Chat request recording: the row, its node rows, and the log line."""
 
-import anyio
+import logging
+
 import pytest
+from sqlalchemy import Select, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.enums import ChatOutcome
-from app.chat.models import ChatToken, DoneEvent, SourcesEvent, TokenEvent
-from app.chat.prompts import REFUSAL_ANSWER
-from app.chat.service import chat_events
-from app.core.clock import elapsed_ms
-from app.core.llm import LLMError
-from tests.chat.conftest import USAGE, fake_chat_model
-from tests.conftest import search_result
+from app.chat import service
+from app.chat.enums import ChatNode, ChatOutcome
+from app.chat.models import ChatNodeResult, ChatState
+from app.chat.schemas import ChatRequest, ChatRequestNode
+from app.chat.service import create_chat_request
+from app.core.config import config
+from app.core.logger import request_id_var
+from tests.chat.conftest import USAGE
+from tests.conftest import retrieved_chunk
 
 pytestmark = pytest.mark.anyio
 
 
-async def test_finished_stream_records_timings_sources_and_usage(
-    two_results, monkeypatch, recorded_requests
-):
-    model = fake_chat_model("Two words [1].")
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
-
-    async for _ in chat_events("q"):
-        pass
-
-    [(question, stats, outcome)] = recorded_requests
-    assert question == "q"
-    assert outcome is ChatOutcome.DONE
-    assert stats.sources == 2
-    assert stats.usage == USAGE
-    assert stats.retrieve_ms is not None
-    assert stats.ttft_ms is not None
-    assert 0 <= stats.retrieve_ms <= stats.ttft_ms <= elapsed_ms(stats.start)
+def answered_state() -> ChatState:
+    """A state as the graph leaves it once an answer has been synthesized."""
+    return ChatState(
+        question="What must ships report?",
+        nodes=(
+            ChatNodeResult(node=ChatNode.RETRIEVE, ms=120),
+            ChatNodeResult.from_usage(ChatNode.SYNTHESIZE, 1300, USAGE),
+        ),
+        sources=tuple(retrieved_chunk(id=n) for n in range(6)),
+        answer="Ships must report [1].",
+        total_ms=1500,
+    )
 
 
-async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_requests):
-    async def failing_search(session, request):
-        raise LLMError("embedding call failed")
-
-    monkeypatch.setattr("app.chat.graph.search", failing_search)
-
-    async for _ in chat_events("q"):
-        pass
-
-    [(_, stats, outcome)] = recorded_requests
-    assert outcome is ChatOutcome.ERROR
-    assert stats.retrieve_ms is None
-    assert stats.ttft_ms is None
-    assert stats.sources == 0
-    assert stats.usage is None
+def node_rows() -> Select[tuple[ChatRequestNode]]:
+    """The node rows in path order — the order the relationship reads them in."""
+    return select(ChatRequestNode).order_by(ChatRequestNode.position)
 
 
-async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded_requests):
-    model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
-
-    events = chat_events("q")
-    await anext(events)
-    await events.aclose()
-
-    [(_, stats, outcome)] = recorded_requests
-    assert outcome is ChatOutcome.ABORTED
-    assert stats.sources == 2
-    assert stats.ttft_ms is None
-
-
-async def test_cancelled_stream_still_records(two_results, monkeypatch, recorded_requests):
-    """A client leaving cancels the streaming task mid-stream; the record still lands.
-    The fake write yields once, so an unshielded await there would be cancelled, not run."""
-    model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
-
-    async def yielding_record_request(question, stats, outcome):
-        await anyio.sleep(0)
-        recorded_requests.append((question, stats, outcome))
-
-    monkeypatch.setattr("app.chat.service.record_request", yielding_record_request)
-
-    async with anyio.create_task_group() as tg:
-
-        async def consume_one_then_leave():
-            async for _ in chat_events("q"):
-                tg.cancel_scope.cancel()
-
-        tg.start_soon(consume_one_then_leave)
-
-    [(_, stats, outcome)] = recorded_requests
-    assert outcome is ChatOutcome.ABORTED
-    assert stats.sources == 2
-
-
-async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
-    monkeypatch, recorded_requests
-):
-    """No context, so no model call: an empty sources event, the refusal as the one token,
-    done — and the ledger says refused, with nothing spent past retrieval."""
-
-    async def junk_search(session, request):
-        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
-
-    model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.search", junk_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
-
-    events = [event async for event in chat_events("best pizza topping?")]
-
-    assert events == [
-        SourcesEvent(data=()),
-        TokenEvent(data=ChatToken(text=REFUSAL_ANSWER)),
-        DoneEvent(),
+def stats_lines(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """The stats lines the service logged, with their extra fields as record attributes."""
+    return [
+        record
+        for record in caplog.records
+        if record.name == service.logger.name and record.levelno == logging.INFO
     ]
-    assert model.received == []
-    [(_, stats, outcome)] = recorded_requests
-    assert outcome is ChatOutcome.REFUSED
-    assert stats.sources == 0
-    assert stats.usage is None
-    assert stats.retrieve_ms is not None
-    assert stats.ttft_ms is not None
+
+
+async def test_recorded_row_reads_the_stats_and_the_request_context(
+    db_session: AsyncSession, caplog
+):
+    token = request_id_var.set("abc123")
+    try:
+        await create_chat_request(db_session, answered_state())
+    finally:
+        request_id_var.reset(token)
+
+    [row] = (await db_session.scalars(select(ChatRequest))).all()
+    assert row.question == "What must ships report?"
+    assert row.request_id == "abc123"
+    assert row.outcome is ChatOutcome.DONE
+    assert row.model == config.CHAT_MODEL
+    assert row.sources == 6
+    assert (row.input_tokens, row.output_tokens) == (1500, 40)
+    assert row.total_ms == 1500
+    assert row.error is None
+    assert row.created_at is not None
+    assert len(stats_lines(caplog)) == 1
+
+    nodes = (await db_session.scalars(node_rows())).all()
+    assert [(n.chat_request_id, n.position, n.node, n.ms) for n in nodes] == [
+        (row.id, 0, "retrieve", 120),
+        (row.id, 1, "synthesize", 1300),
+    ]
+    assert [(n.input_tokens, n.output_tokens) for n in nodes] == [(None, None), (1500, 40)]
+
+
+async def test_failed_run_records_its_error_and_nulls_where_it_never_got(
+    db_session: AsyncSession, caplog
+):
+    failed = ChatState(question="q", total_ms=40, error="embedding call failed")
+    await create_chat_request(db_session, failed)
+
+    [row] = (await db_session.scalars(select(ChatRequest))).all()
+    assert row.outcome is ChatOutcome.ERROR
+    assert row.error == "embedding call failed"
+    assert (row.input_tokens, row.output_tokens) == (None, None)
+    assert row.sources == 0
+    assert (await db_session.scalars(select(ChatRequestNode))).all() == []
+
+
+async def test_log_line_carries_the_stats_but_not_the_content(db_session: AsyncSession, caplog):
+    await create_chat_request(db_session, answered_state())
+
+    [record] = stats_lines(caplog)
+    assert record.getMessage() == "chat done in 1500ms"
+    assert record.__dict__["outcome"] == "done"
+    assert record.__dict__["sources"] == 6
+    assert record.__dict__["nodes"] == [
+        {"node": "retrieve", "ms": 120, "input_tokens": None, "output_tokens": None},
+        {"node": "synthesize", "ms": 1300, "input_tokens": 1500, "output_tokens": 40},
+    ]
+    assert "question" not in record.__dict__
+    assert "answer" not in record.__dict__
+
+
+async def test_a_refused_request_is_recorded_as_such(db_session: AsyncSession, caplog):
+    """The gate's outcome fits the column as migrated: refused is no longer than aborted."""
+    refused = ChatState(
+        question="best pizza topping?",
+        nodes=(
+            ChatNodeResult(node=ChatNode.RETRIEVE, ms=90),
+            ChatNodeResult(node=ChatNode.REFUSE, ms=0),
+        ),
+        total_ms=95,
+    )
+    await create_chat_request(db_session, refused)
+
+    [row] = (await db_session.scalars(select(ChatRequest))).all()
+    assert row.outcome is ChatOutcome.REFUSED
+    assert (row.sources, row.input_tokens) == (0, None)
+    nodes = (await db_session.scalars(node_rows())).all()
+    assert [(n.node, n.ms) for n in nodes] == [("retrieve", 90), ("refuse", 0)]
+    assert stats_lines(caplog)[0].getMessage() == "chat refused in 95ms"

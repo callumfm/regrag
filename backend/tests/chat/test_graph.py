@@ -110,8 +110,11 @@ def streamed_text(data: Any) -> str:
     return chunk.text
 
 
-def litellm_stream(monkeypatch, *deltas: dict[str, Any]) -> list[dict[str, Any]]:
-    """Stand litellm's completion call in with these deltas; the calls made are returned."""
+def litellm_stream(
+    monkeypatch, *deltas: dict[str, Any], usage: dict[str, int] | None = None
+) -> list[dict[str, Any]]:
+    """Stand litellm's completion call in with these deltas — and, as litellm reports it
+    when asked, a trailing usage-only chunk; the calls made are returned."""
     calls: list[dict[str, Any]] = []
 
     async def fake_acompletion(**kwargs: Any) -> AsyncIterator[dict[str, Any]]:
@@ -120,6 +123,8 @@ def litellm_stream(monkeypatch, *deltas: dict[str, Any]) -> list[dict[str, Any]]
         async def chunks() -> AsyncIterator[dict[str, Any]]:
             for delta in deltas:
                 yield {"choices": [{"delta": delta, "finish_reason": None}]}
+            if usage:
+                yield {"choices": [], "usage": usage}
 
         return chunks()
 
@@ -145,6 +150,24 @@ async def test_the_chat_client_streams_one_token_per_litellm_delta(one_result, m
     assert calls[0]["stream"] is True
     assert calls[0]["model"] == config.CHAT_MODEL
     assert [text for text in texts if text] == ["Ships must ", "comply [1]."]
+
+
+async def test_the_chat_client_asks_litellm_for_usage_and_the_node_records_it(
+    one_result, monkeypatch
+):
+    """litellm strips usage from streamed chunks unless asked for it in stream_options;
+    asked, it sends one usage-only chunk last, which becomes synthesize's tokens."""
+    calls = litellm_stream(
+        monkeypatch,
+        {"role": "assistant", "content": "Ships must comply [1]."},
+        usage={"prompt_tokens": 1500, "completion_tokens": 40, "total_tokens": 1540},
+    )
+
+    state = ChatState.model_validate(await chat_graph.ainvoke(ChatState(question=QUESTION)))
+
+    assert calls[0]["stream_options"] == {"include_usage": True}
+    [_retrieve, synthesize] = state.nodes
+    assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
 
 
 async def test_the_chat_client_answers_with_the_text_of_a_reasoning_response(
