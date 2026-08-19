@@ -70,14 +70,6 @@ export interface components {
             title: string | null;
         };
         /**
-         * ChatToken
-         * @description One fragment of the answer as the model streams it; the token event's payload.
-         */
-        ChatToken: {
-            /** Text */
-            text: string;
-        };
-        /**
          * DoneEvent
          * @description The last event of a completed stream.
          */
@@ -106,7 +98,8 @@ export interface components {
         };
         /**
          * ErrorResponse
-         * @description The single JSON shape every error response uses.
+         * @description The single JSON shape every error response uses, however it is serialized:
+         *     the optional fields are left out rather than sent as null.
          */
         ErrorResponse: {
             /** Error */
@@ -158,16 +151,17 @@ export interface components {
             data: components["schemas"]["ChatSource"][];
         };
         /**
-         * TokenEvent
-         * @description One fragment of the streamed answer.
+         * TextEvent
+         * @description One fragment of the answer's text, as the model streams it — or the whole refusal.
          */
-        TokenEvent: {
+        TextEvent: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            event: "token";
-            data: components["schemas"]["ChatToken"];
+            event: "text";
+            /** Data */
+            data: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -230,7 +224,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": components["schemas"]["SourcesEvent"] | components["schemas"]["TokenEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
+                    "text/event-stream": components["schemas"]["SourcesEvent"] | components["schemas"]["TextEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
                 };
             };
             /** @description Validation Error */

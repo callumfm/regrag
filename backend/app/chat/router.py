@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.chat.models import ChatEvent, ChatQuery
-from app.chat.service import chat_events
+from app.chat.stream import stream_chat_events
 
 router = APIRouter(tags=["chat"])
 
@@ -19,5 +19,5 @@ yielded ServerSentEvent, and the response class files it under text/event-stream
 @router.post("/chat", response_class=EventSourceResponse, responses=CHAT_RESPONSES)
 async def chat(query: ChatQuery) -> AsyncIterator[ServerSentEvent]:
     """Stream a cited answer to the question over SSE: sources, tokens, done; or error."""
-    async for event in chat_events(query.question):
+    async for event in stream_chat_events(query.question):
         yield ServerSentEvent(event=event.event, data=event.data)

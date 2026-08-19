@@ -1,6 +1,7 @@
 """Chat test fakes shared across the chat test modules."""
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
@@ -10,7 +11,6 @@ from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
-from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
 from app.core.config import config
 from tests.conftest import search_result
@@ -81,17 +81,19 @@ def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def recorded_requests(
-    monkeypatch: pytest.MonkeyPatch,
-) -> list[tuple[ChatState, ChatOutcome, int | None, int]]:
-    """Capture what chat_events hands to record_request instead of writing chat_requests
-    rows: the write is covered in test_service, so no streaming test needs the database."""
-    requests: list[tuple[ChatState, ChatOutcome, int | None, int]] = []
+def recorded_requests(monkeypatch: pytest.MonkeyPatch) -> list[ChatState]:
+    """Capture the state stream_chat_events hands to create_chat_request, and give it no session
+    to hand over: the write is covered in test_recording, so no streaming test needs the
+    database."""
+    states: list[ChatState] = []
 
-    async def fake_record_request(
-        state: ChatState, outcome: ChatOutcome, ttft_ms: int | None, total_ms: int
-    ) -> None:
-        requests.append((state, outcome, ttft_ms, total_ms))
+    @asynccontextmanager
+    async def no_session(**kwargs: Any) -> AsyncIterator[None]:
+        yield None
 
-    monkeypatch.setattr("app.chat.service.record_request", fake_record_request)
-    return requests
+    async def fake_create_chat_request(session: None, state: ChatState) -> None:
+        states.append(state)
+
+    monkeypatch.setattr("app.chat.stream.get_session", no_session)
+    monkeypatch.setattr("app.chat.stream.create_chat_request", fake_create_chat_request)
+    return states
