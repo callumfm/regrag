@@ -1,10 +1,12 @@
 """Chat query, graph state and SSE event values."""
 
+import operator
 from typing import Annotated, Any, Literal
 
+from langchain_core.messages.ai import UsageMetadata
 from pydantic import ConfigDict, Field
 
-from app.chat.enums import ChatEventName
+from app.chat.enums import ChatEventName, ChatNode
 from app.core.models import AppModel, ErrorResponse, FrozenModel
 from app.retrieval.models import RetrievedChunk
 
@@ -16,11 +18,22 @@ class ChatQuery(AppModel):
 
 
 class ChatState(AppModel):
-    """What flows through the graph for one question."""
+    """Everything one question produced, accumulated as the graph runs.
+
+    nodes: the path taken, each node appending its own name as it returns.
+    sources: the context blocks that reached the prompt, which the [n] markers number.
+    """
 
     question: str
+    nodes: Annotated[tuple[ChatNode, ...], operator.add] = ()
     sources: tuple[RetrievedChunk, ...] = ()
     answer: str = ""
+    usage: UsageMetadata | None = None
+    retrieve_ms: int | None = None
+
+
+NodeUpdate = dict[str, Any]
+"""A partial ChatState as a node returns it; ChatState itself does the validating."""
 
 
 class ChatSource(FrozenModel):

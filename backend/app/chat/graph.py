@@ -1,14 +1,17 @@
 """Chat graph: retrieve corpus context, then synthesize a cited answer — or refuse,
 before any model call, a question the corpus does not cover."""
 
+import time
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatState
+from app.chat.models import ChatState, NodeUpdate
 from app.chat.prompts import REFUSAL_ANSWER, SYSTEM_PROMPT, build_user_message
+from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import llm_retry, wrap_provider_errors
@@ -33,23 +36,28 @@ def chat_model() -> ChatLiteLLM:
     )
 
 
-async def retrieve(state: ChatState) -> dict[str, tuple[RetrievedChunk, ...]]:
+async def retrieve(state: ChatState) -> NodeUpdate:
     """The corpus's best answers, widened to their sections, from a node-scoped session
     so no connection is held while the model streams. Nothing, when the corpus does not
     cover the question: that empties the context, and the graph refuses instead."""
+    start = time.perf_counter()
     async with get_session(auto_commit=False) as session:
         hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
-        if not meets_thresholds(hits):
-            return {"sources": ()}
-        sources: tuple[RetrievedChunk, ...] = hits
-        if config.EXPAND_SECTIONS:
-            sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
-    return {"sources": sources}
+        sources: tuple[RetrievedChunk, ...] = ()
+        if meets_thresholds(hits):
+            sources = hits
+            if config.EXPAND_SECTIONS:
+                sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
+    return {
+        "nodes": (ChatNode.RETRIEVE,),
+        "sources": sources,
+        "retrieve_ms": elapsed_ms(start),
+    }
 
 
 @llm_retry
 @wrap_provider_errors("chat call")
-async def synthesize(state: ChatState) -> dict[str, str]:
+async def synthesize(state: ChatState) -> NodeUpdate:
     """One streamed model call answering from the context with [n] citations.
 
     A transient provider failure is retried like embed and rerank; one that strikes
@@ -60,12 +68,16 @@ async def synthesize(state: ChatState) -> dict[str, str]:
         HumanMessage(build_user_message(state.question, state.sources)),
     ]
     response = await chat_model().ainvoke(messages)
-    return {"answer": response.text}
+    return {
+        "nodes": (ChatNode.SYNTHESIZE,),
+        "answer": response.text,
+        "usage": response.usage_metadata,
+    }
 
 
-def refuse(state: ChatState) -> dict[str, str]:
+def refuse(state: ChatState) -> NodeUpdate:
     """The fixed refusal, in place of an answer, for a question without context."""
-    return {"answer": REFUSAL_ANSWER}
+    return {"nodes": (ChatNode.REFUSE,), "answer": REFUSAL_ANSWER}
 
 
 def synthesize_or_refuse(state: ChatState) -> ChatNode:

@@ -1,6 +1,6 @@
 """Chat request tracking: one row per handled question, the ledger a spend cap sums over."""
 
-from sqlalchemy import Index
+from sqlalchemy import ARRAY, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.chat.enums import ChatOutcome
@@ -8,7 +8,7 @@ from app.core.db.schema import BaseSchema
 
 
 class ChatRequest(BaseSchema):
-    """One handled question: its outcome, timings, source count and token usage.
+    """One handled question: the path it took, its timings, source count and token usage.
     A spend cap sums tokens over a recent window; the index keeps that off a full scan."""
 
     __tablename__ = "chat_requests"
@@ -18,6 +18,7 @@ class ChatRequest(BaseSchema):
     request_id: Mapped[str | None]
     question: Mapped[str]
     outcome: Mapped[ChatOutcome]
+    nodes: Mapped[list[str]] = mapped_column(ARRAY(String))
     model: Mapped[str]
     retrieve_ms: Mapped[int | None]
     ttft_ms: Mapped[int | None]

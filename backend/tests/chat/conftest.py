@@ -11,7 +11,7 @@ from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
 from app.chat.enums import ChatOutcome
-from app.chat.observability.models import RequestStats
+from app.chat.models import ChatState
 from app.core.config import config
 from tests.conftest import search_result
 
@@ -83,14 +83,15 @@ def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def recorded_requests(
     monkeypatch: pytest.MonkeyPatch,
-) -> list[tuple[str, RequestStats, ChatOutcome]]:
+) -> list[tuple[ChatState, ChatOutcome, int | None, int]]:
     """Capture what chat_events hands to record_request instead of writing chat_requests
-    rows: the write is covered in tests/chat/observability, so no chat test needs the
-    database."""
-    requests: list[tuple[str, RequestStats, ChatOutcome]] = []
+    rows: the write is covered in test_service, so no streaming test needs the database."""
+    requests: list[tuple[ChatState, ChatOutcome, int | None, int]] = []
 
-    async def fake_record_request(question: str, stats: RequestStats, outcome: ChatOutcome) -> None:
-        requests.append((question, stats, outcome))
+    async def fake_record_request(
+        state: ChatState, outcome: ChatOutcome, ttft_ms: int | None, total_ms: int
+    ) -> None:
+        requests.append((state, outcome, ttft_ms, total_ms))
 
     monkeypatch.setattr("app.chat.service.record_request", fake_record_request)
     return requests
