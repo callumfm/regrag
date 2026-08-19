@@ -1,9 +1,8 @@
-"""Eval scoring: what counts as a retrieved reference, a grounded citation, a refusal."""
+"""Eval scoring: what counts as a retrieved reference and a grounded citation."""
 
 import re
 from collections.abc import Sequence
 
-from app.chat.prompts import REFUSAL_ANSWER
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
 
 MARKER = re.compile(r"\[(\d+)\]")
@@ -58,9 +57,3 @@ def score_reference_citation_rate(
         if 1 <= marker <= len(sources)
     }
     return sum(_division(target) in cited for target in targets) / len(targets)
-
-
-def is_gate_refusal(answer: str) -> bool:
-    """Whether the score gate refused before any model call, which the fixed wording marks;
-    a model declining in its own words is the judge's to score, not this."""
-    return answer.strip() == REFUSAL_ANSWER

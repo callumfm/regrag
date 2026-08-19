@@ -1,14 +1,11 @@
 """Evals CLI: exit codes and what `check` prints."""
 
-import json
-from datetime import UTC, datetime
-
 import pytest
 
-from app.core.config import config
 from app.evals import cli
 from app.evals.cli import main
-from app.evals.models import RunResult, UnresolvedReference
+from app.evals.models import UnresolvedReference
+from app.evals.results import RunResult
 from app.retrieval.models import ReferenceTarget
 from tests.evals.conftest import case_result
 
@@ -51,70 +48,34 @@ def test_a_subcommand_is_required(capsys):
 
 
 @pytest.fixture
-def fake_run(monkeypatch, tmp_path):
-    """Replace the graph-driving coroutine with one returning chosen case results,
-    and point result files at a temporary directory."""
-    monkeypatch.setattr(config, "EVAL_RESULTS_DIR", tmp_path)
+def fake_run(monkeypatch):
+    """Replace the graph-driving coroutine with one returning chosen case results."""
     results: list = []
 
     async def _fake(dataset, pattern=None):
-        return RunResult.from_results(results, dataset.sha256)
+        return RunResult.from_results(results, dataset.sha256, pattern)
 
     monkeypatch.setattr(cli, "run_dataset", _fake)
     return results
 
 
-def test_run_prints_the_table_and_writes_a_result_file(fake_run, tmp_path, capsys):
+def test_run_prints_the_settings_and_scores_it_measured(fake_run, capsys):
     fake_run.append(case_result())
 
     assert main(["run"]) == 0
 
     out = capsys.readouterr().out
-    assert "hit-rate@" in out
-    assert "cited references" in out
-    written = list(tmp_path.glob("*.json"))
-    assert len(written) == 1
-    assert json.loads(written[0].read_text())["metrics"]["expanded_hit_rate"] == 1.0
-
-
-def test_run_records_the_settings_the_scores_were_produced_under(fake_run, tmp_path):
-    fake_run.append(case_result())
-
-    main(["run"])
-
-    settings = json.loads(next(tmp_path.glob("*.json")).read_text())["settings"]
-    assert settings["chat_model"] == config.CHAT_MODEL
-    assert settings["min_cosine_similarity"] == config.MIN_COSINE_SIMILARITY
+    assert '"retrieval"' in out
+    assert '"chat_model"' in out
 
 
 def test_run_exits_nonzero_when_a_case_errored(fake_run, capsys):
     fake_run.append(case_result(error="provider down"))
 
     assert main(["run"]) == 1
+    assert "provider down" in capsys.readouterr().out
 
 
 def test_run_says_so_when_the_pattern_matches_no_case(fake_run, capsys):
     assert main(["run", "--case", "nope"]) == 1
     assert "nope" in capsys.readouterr().out
-
-
-def test_a_second_run_in_the_same_second_does_not_overwrite_the_first(fake_run, tmp_path):
-    """Twenty cases that all fail fast take well under a second, and the earlier run's file
-    is evidence rather than something a retry may quietly replace."""
-    fake_run.append(case_result())
-
-    main(["run"])
-    main(["run"])
-
-    written = {path.name for path in tmp_path.glob("*.json")}
-    assert len(written) == 2
-    assert any(name.endswith("-2.json") for name in written)
-
-
-def test_a_result_file_is_named_for_the_instant_its_run_started(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "EVAL_RESULTS_DIR", tmp_path)
-    started = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
-
-    path = cli.result_path(started)
-
-    assert path.name == "20260818T120000Z.json"

@@ -3,7 +3,6 @@
 from app.chat.prompts import REFUSAL_ANSWER
 from app.evals.metrics import (
     find_cited_markers,
-    is_gate_refusal,
     score_citation_validity,
     score_reference_citation_rate,
     score_reference_recall,
@@ -121,14 +120,3 @@ def test_a_marker_past_the_end_of_the_context_counts_against_validity() -> None:
 
 def test_citation_validity_is_unmeasured_when_the_answer_cites_nothing() -> None:
     assert score_citation_validity("No markers here.", (retrieved_chunk(),)) is None
-
-
-def test_only_the_fixed_wording_marks_a_gate_refusal() -> None:
-    assert is_gate_refusal(REFUSAL_ANSWER)
-    assert is_gate_refusal(f"  {REFUSAL_ANSWER}\n")
-    assert not is_gate_refusal("Half of the voyage's energy counts [1].")
-
-
-def test_a_model_worded_decline_is_not_a_gate_refusal() -> None:
-    """It cost a model call, so the cheap gate did not fire; scoring it is the judge's job."""
-    assert not is_gate_refusal("The context provided does not cover ETS allowances.")

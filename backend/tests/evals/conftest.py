@@ -2,8 +2,10 @@
 
 from typing import Any
 
+from app.chat.enums import ChatNode
 from app.evals.enums import EvalKind
-from app.evals.models import CaseResult, EvalCase, EvalDataset
+from app.evals.models import EvalCase, EvalDataset
+from app.evals.results import CaseResult
 from app.retrieval.models import ReferenceTarget
 from tests.conftest import retrieved_chunk, search_result
 
@@ -36,6 +38,7 @@ def case_result(case: EvalCase | None = None, **overrides: Any) -> CaseResult:
     case = case or eval_case()
     defaults: dict[str, Any] = {
         "case": case,
+        "nodes": (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE),
         "hits": (search_result(),),
         "sources": (retrieved_chunk(),),
         "answer": "The limit applies [1].",

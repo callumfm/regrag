@@ -1,18 +1,19 @@
 """Run results: how a case scores itself, and how a run aggregates its cases."""
 
-from app.chat.prompts import REFUSAL_ANSWER
+from app.chat.enums import ChatNode
 from app.core.config import config
-from app.evals.models import RunMetrics, RunResult, RunSettings
+from app.evals.results import RunMetrics, RunResult, RunSettings
 from app.retrieval.models import ReferenceTarget
 from tests.conftest import retrieved_chunk, search_result
 from tests.evals.conftest import REFERENCE, case_result, eval_case, out_of_corpus_case
 
 ARTICLE_20 = ReferenceTarget(celex="32023R1805", article="20")
 OTHER_CHUNK = {"id": 2, "article": "99", "citation": "Article 99"}
+REFUSED = (ChatNode.RETRIEVE, ChatNode.REFUSE)
 
 
 def test_a_case_scores_the_raw_hits_and_the_expanded_sources_apart() -> None:
-    """Expansion found the gold reference the raw hits missed — the layer that did the work."""
+    """Expansion found the authored reference the raw hits missed."""
     result = case_result(
         hits=(search_result(**OTHER_CHUNK),),
         sources=(retrieved_chunk(**OTHER_CHUNK), retrieved_chunk()),
@@ -22,35 +23,42 @@ def test_a_case_scores_the_raw_hits_and_the_expanded_sources_apart() -> None:
     assert result.expanded_recall == 1.0
 
 
-def test_a_refused_out_of_corpus_case_is_a_correct_refusal() -> None:
-    result = case_result(out_of_corpus_case(), hits=(), sources=(), answer=REFUSAL_ANSWER)
+def test_a_refusal_is_read_from_the_node_that_ran_not_the_wording() -> None:
+    """The graph says which node answered; matching prompt text would break on a reword."""
+    result = case_result(out_of_corpus_case(), nodes=REFUSED, hits=(), sources=(), answer="")
 
     assert result.gate_refused
     assert not result.refused_a_covered_case
 
 
-def test_a_refusal_over_hits_holding_the_gold_reference_is_the_gate_too_tight() -> None:
-    result = case_result(hits=(search_result(),), sources=(), answer=REFUSAL_ANSWER)
+def test_an_answer_worded_like_a_refusal_is_not_a_gate_refusal() -> None:
+    """Synthesize ran, so the model declined in its own words — the judge's to score."""
+    result = case_result(answer="The context provided does not cover ETS allowances.")
+
+    assert not result.gate_refused
+
+
+def test_a_refusal_over_hits_holding_the_authored_reference_is_the_gate_too_tight() -> None:
+    result = case_result(nodes=REFUSED, hits=(search_result(),), sources=(), answer="")
 
     assert result.refused_a_covered_case
 
 
-def test_a_refusal_over_hits_that_missed_the_gold_reference_is_a_genuine_miss() -> None:
-    result = case_result(hits=(search_result(**OTHER_CHUNK),), sources=(), answer=REFUSAL_ANSWER)
+def test_a_refusal_over_hits_that_missed_the_authored_reference_is_a_genuine_miss() -> None:
+    result = case_result(nodes=REFUSED, hits=(search_result(**OTHER_CHUNK),), sources=())
 
     assert result.gate_refused
     assert not result.refused_a_covered_case
 
 
 def test_hit_rate_and_recall_diverge_on_a_half_served_multi_reference_case() -> None:
-    """The whole reason both are reported: one case found 1 of its 2 gold references."""
-    served = case_result()
+    """The whole reason both are reported: one case found 1 of its 2 authored references."""
     half = case_result(eval_case(id="two-refs", references=(REFERENCE, ARTICLE_20)))
 
-    metrics = RunMetrics.from_cases((served, half))
+    metrics = RunMetrics.from_cases((case_result(), half))
 
-    assert metrics.expanded_hit_rate == 1.0
-    assert metrics.expanded_recall == 0.75
+    assert metrics.retrieval.expanded_hit_rate == 1.0
+    assert metrics.retrieval.expanded_recall == 0.75
 
 
 def test_an_errored_case_is_counted_but_left_out_of_the_scores() -> None:
@@ -60,44 +68,45 @@ def test_an_errored_case_is_counted_but_left_out_of_the_scores() -> None:
     )
 
     assert metrics.errors == 1
-    assert metrics.expanded_hit_rate == 1.0
+    assert metrics.retrieval.expanded_hit_rate == 1.0
 
 
 def test_a_kind_absent_from_the_run_scores_none_rather_than_zero() -> None:
     only_ooc = RunMetrics.from_cases(
-        (case_result(out_of_corpus_case(), hits=(), sources=(), answer=REFUSAL_ANSWER),)
+        (case_result(out_of_corpus_case(), nodes=REFUSED, hits=(), sources=(), answer=""),)
     )
 
-    assert only_ooc.expanded_hit_rate is None
-    assert only_ooc.gate_refusal_rate == 1.0
+    assert only_ooc.retrieval.expanded_hit_rate is None
+    assert only_ooc.refusals.gate_rate == 1.0
 
 
-def test_refusal_accuracy_and_false_refusals_count_opposite_mistakes() -> None:
+def test_gate_rate_and_false_refusals_count_opposite_mistakes() -> None:
     metrics = RunMetrics.from_cases(
         (
-            case_result(out_of_corpus_case("ooc-1"), hits=(), sources=(), answer=REFUSAL_ANSWER),
+            case_result(out_of_corpus_case("ooc-1"), nodes=REFUSED, hits=(), sources=(), answer=""),
             case_result(out_of_corpus_case("ooc-2"), answer="It is 42 [1]."),
-            case_result(eval_case(id="wrongly-refused"), sources=(), answer=REFUSAL_ANSWER),
+            case_result(eval_case(id="wrongly-refused"), nodes=REFUSED, sources=(), answer=""),
         )
     )
 
-    assert metrics.gate_refusal_rate == 0.5
-    assert metrics.false_refusals == 1
+    assert metrics.refusals.gate_rate == 0.5
+    assert metrics.refusals.false_refusals == 1
 
 
-def test_an_errored_case_shows_dashes_rather_than_the_scores_it_never_earned() -> None:
-    row = case_result(error="chat call timed out").line()
+def test_a_case_citing_none_of_its_references_is_averaged_in_not_dropped() -> None:
+    """A rate of 0.0 is a measurement; truthiness would silently discard it."""
+    missed = case_result(eval_case(id="missed"), answer="Nothing relevant [1].", sources=())
 
-    assert "raw    -" in row
-    assert "1.00" not in row
-    assert row.endswith("chat call timed out")
+    metrics = RunMetrics.from_cases((case_result(), missed))
+
+    assert metrics.citations.cited_references == 0.5
 
 
-def test_an_out_of_corpus_row_has_no_recall_to_show() -> None:
-    row = case_result(out_of_corpus_case(), hits=(), sources=(), answer=REFUSAL_ANSWER).line()
+def test_the_usage_and_latency_groups_sum_and_average_the_scored_cases() -> None:
+    metrics = RunMetrics.from_cases((case_result(), case_result(eval_case(id="second"))))
 
-    assert "raw    -  exp    -" in row
-    assert "gate-refused" in row
+    assert metrics.usage.input_tokens == 2400
+    assert metrics.latency.mean_total_ms == 1000
 
 
 def test_a_rerank_off_run_advertises_no_reranker_threshold(monkeypatch) -> None:
@@ -112,8 +121,6 @@ def test_a_rerank_off_run_advertises_no_reranker_threshold(monkeypatch) -> None:
 
 
 def test_the_settings_record_every_knob_that_moves_a_hit(monkeypatch) -> None:
-    """Flip one of these and every number in the file changes; a file that did not record
-    it reads as a corpus regression instead of the config change it was."""
     monkeypatch.setattr(config, "RERANK_ENABLED", True)
 
     settings = RunSettings.from_config()
@@ -124,26 +131,27 @@ def test_the_settings_record_every_knob_that_moves_a_hit(monkeypatch) -> None:
     assert settings.rerank_model == config.RERANK_MODEL
 
 
-def test_the_table_omits_the_expansion_row_when_expansion_did_not_run(monkeypatch) -> None:
-    """With expansion off the sources are the hits, so a second row would credit a layer
-    that never widened anything for recall the raw search had already earned."""
-    monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
+def test_the_summary_carries_the_settings_and_scores_but_not_every_case() -> None:
+    """Cases hold whole chunks; dumping them would bury the numbers the run is for."""
+    summary = RunResult.from_results((case_result(),), "sha123").summary()
 
-    table = RunResult.from_results((case_result(),), "sha").table()
-
-    assert "after section expansion" not in table
-    assert "raw search hits" in table
-
-
-def test_the_table_shows_the_expansion_row_when_expansion_ran(monkeypatch) -> None:
-    monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
-
-    table = RunResult.from_results((case_result(),), "sha").table()
-
-    assert "after section expansion" in table
+    assert '"chat_model"' in summary
+    assert '"retrieval"' in summary
+    assert '"sha123"' in summary
+    assert "The limit applies [1]." not in summary
 
 
-def test_the_table_names_the_pattern_a_partial_run_scored() -> None:
-    table = RunResult.from_results((case_result(),), "sha", case_pattern="fueleu").table()
+def test_the_summary_names_every_case_the_graph_raised_on() -> None:
+    run = RunResult.from_results(
+        (case_result(), case_result(eval_case(id="boom"), error="RuntimeError: pool exhausted")),
+        "sha123",
+    )
 
-    assert "cases matching 'fueleu'" in table
+    summary = run.summary()
+
+    assert "errored:" in summary
+    assert "boom  RuntimeError: pool exhausted" in summary
+
+
+def test_a_clean_run_says_nothing_about_errors() -> None:
+    assert "errored:" not in RunResult.from_results((case_result(),), "sha123").summary()

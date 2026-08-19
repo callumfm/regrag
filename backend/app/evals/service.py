@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chat.enums import ChatNode
 from app.chat.graph import chat_graph
 from app.chat.models import ChatState
-from app.core.clock import elapsed_ms, utc_now
+from app.core.clock import elapsed_ms
 from app.core.exceptions import DomainError
-from app.evals.models import CaseResult, EvalCase, EvalDataset, RunResult, UnresolvedReference
+from app.evals.models import EvalCase, EvalDataset, UnresolvedReference
+from app.evals.results import CaseResult, RunResult
 from app.retrieval.follow import reference_exists
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ async def run_case(case: EvalCase) -> CaseResult:
     scored inside the try so a case that cannot be built costs its own row."""
     start = time.perf_counter()
     state: dict = {}
+    nodes: list[ChatNode] = []
     retrieve_ms = 0
     try:
         async for update in chat_graph.astream(
@@ -61,10 +63,12 @@ async def run_case(case: EvalCase) -> CaseResult:
             for node, payload in update.items():
                 if node == ChatNode.RETRIEVE:
                     retrieve_ms = elapsed_ms(start)
+                nodes.append(ChatNode(node))
                 state |= payload
         usage = state.get("usage") or {}
         return CaseResult(
             case=case,
+            nodes=tuple(nodes),
             hits=state.get("hits", ()),
             sources=state.get("sources", ()),
             answer=state.get("answer", ""),
@@ -78,8 +82,6 @@ async def run_case(case: EvalCase) -> CaseResult:
 
 
 async def run_dataset(dataset: EvalDataset, pattern: str | None = None) -> RunResult:
-    """Every matching case, one at a time, so a per-case timing measures the case alone,
-    stamped before the first rather than after the last."""
-    started_at = utc_now()
+    """Every matching case, one at a time, so a per-case timing measures the case alone."""
     results = [await run_case(case) for case in select_cases(dataset, pattern)]
-    return RunResult.from_results(results, dataset.sha256, started_at, pattern)
+    return RunResult.from_results(results, dataset.sha256, pattern)
