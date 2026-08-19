@@ -3,6 +3,8 @@ import { visit } from "unist-util-visit"
 
 const MARKER_PATTERN = /\[(\d+)\]/g
 const MARKER_RUN_BEFORE_PUNCTUATION = / ?((?:\[\d+\])+)([.,;:])/g
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})/
+const INLINE_CODE = /(`+)(?:[\s\S]*?\1|[\s\S]*$)/g
 
 /** Superscripts follow punctuation: `claim [1][2].` becomes `claim.[1][2]`. */
 export function moveMarkersAfterPunctuation(
@@ -46,13 +48,34 @@ export function splitCitationMarkers(
 	return segments
 }
 
+/**
+ * Drops fenced blocks and inline spans, so markers inside code are not read as
+ * citations. Mirrors the `code` parent that `rehypeCitationMarkers` skips.
+ */
+function removeMarkdownCode(markdown: string): string {
+	const outside: string[] = []
+	let fence: string | null = null
+	for (const line of markdown.split("\n")) {
+		const delimiter = line.match(FENCE_LINE)?.[1]
+		if (fence === null) {
+			if (delimiter) fence = delimiter
+			else outside.push(line)
+			continue
+		}
+		const closes =
+			delimiter?.[0] === fence[0] && delimiter.length >= fence.length
+		if (closes) fence = null
+	}
+	return outside.join("\n").replace(INLINE_CODE, "")
+}
+
 /** Markers the answer cites, once each, in order of first appearance. */
 export function extractCitedMarkers(
 	answer: string,
 	known: ReadonlySet<number>,
 ): number[] {
 	const cited = new Set<number>()
-	for (const match of answer.matchAll(MARKER_PATTERN)) {
+	for (const match of removeMarkdownCode(answer).matchAll(MARKER_PATTERN)) {
 		const marker = Number(match[1])
 		if (known.has(marker)) cited.add(marker)
 	}
