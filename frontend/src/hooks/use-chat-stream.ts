@@ -22,10 +22,10 @@ function applyToTurn(turn: ChatTurn, action: ChatAction): ChatTurn {
 		switch (action.event) {
 			case "sources":
 				return { ...turn, sources: action.data, status: "streaming" }
-			case "token":
+			case "text":
 				return {
 					...turn,
-					answer: turn.answer + action.data.text,
+					answer: turn.answer + action.data,
 					status: "streaming",
 				}
 			case "done":
