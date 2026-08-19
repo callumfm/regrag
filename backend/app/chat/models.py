@@ -31,6 +31,7 @@ class ChatSource(FrozenModel):
     celex: str
     citation: str
     title: str | None
+    text: str
 
     @classmethod
     def from_result(cls, marker: int, result: RetrievedChunk) -> "ChatSource":
@@ -41,6 +42,7 @@ class ChatSource(FrozenModel):
             celex=result.celex,
             citation=result.citation,
             title=result.title,
+            text=result.text,
         )
 
 

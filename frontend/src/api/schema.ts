@@ -68,6 +68,8 @@ export interface components {
             citation: string;
             /** Title */
             title: string | null;
+            /** Text */
+            text: string;
         };
         /**
          * ChatToken
@@ -106,7 +108,8 @@ export interface components {
         };
         /**
          * ErrorResponse
-         * @description The single JSON shape every error response uses.
+         * @description The single JSON shape every error response uses, however it is serialized:
+         *     the optional fields are left out rather than sent as null.
          */
         ErrorResponse: {
             /** Error */
