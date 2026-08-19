@@ -14,7 +14,7 @@ export type ChatTurn = {
 	error: string | null
 }
 
-export type ChatAction =
+type ChatAction =
 	| { type: 'ask'; id: string; question: string }
 	| { type: 'sources'; sources: ChatSource[] }
 	| { type: 'token'; text: string }
