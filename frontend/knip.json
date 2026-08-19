@@ -10,8 +10,9 @@
 		"class-variance-authority",
 		"clsx",
 		"lucide-react",
-		"radix-ui",
-		"tailwind-merge"
+		"tailwind-merge",
+		"@base-ui/react",
+		"@shadcn/react"
 	],
 	"ignoreExportsUsedInFile": true
 }
