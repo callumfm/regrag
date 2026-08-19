@@ -68,6 +68,8 @@ export interface components {
             citation: string;
             /** Title */
             title: string | null;
+            /** Text */
+            text: string;
         };
         /**
          * DoneEvent

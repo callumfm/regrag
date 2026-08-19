@@ -75,6 +75,17 @@ def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch)
     assert sources[1]["citation"] == "Article 5(1)"
 
 
+def test_sources_event_carries_the_paragraph_text(client, two_results, monkeypatch):
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+
+    with client.stream("POST", "/chat", json={"question": "q"}) as response:
+        events = read_events(response)
+
+    sources = events[0][1]
+    assert sources[0]["text"] == "The greenhouse gas intensity of the energy used on board."
+
+
 def test_stream_failure_emits_an_error_event(client, monkeypatch):
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
