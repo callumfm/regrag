@@ -14,8 +14,10 @@ MARKER = re.compile(r"\[(\d+)\]")
 
 
 def _division(item: ReferenceTarget | RetrievedChunk) -> tuple[str, str | None, str | None]:
-    """The act and division a reference names, keyed as `follow` matches it: article
-    case-folded, annex verbatim, and "" an unnumbered annex rather than none."""
+    """The act and division a reference names: article case-folded, annex verbatim, and
+    "" an unnumbered annex rather than none. Coarser than `follow`, which also matches the
+    paragraph: a case names the article that answers it, so any chunk of that article
+    counts as having found the reference."""
     article = item.article.lower() if item.article is not None else None
     return item.celex, article, item.annex
 
@@ -101,6 +103,12 @@ def count_errors(results: Sequence[EvalResult]) -> int:
     return len(results) - len(_scored(results))
 
 
+def count_cases_of_kind(results: Sequence[EvalResult], kind: EvalKind) -> int:
+    """Cases of this kind the run covered, errored or not: the dataset's shape, which a
+    case the graph raised on does not change."""
+    return sum(result.case.kind is kind for result in results)
+
+
 def compute_raw_hit_rate(results: Sequence[EvalResult]) -> float | None:
     """Share of in-corpus cases where search found at least one authored reference."""
     return _mean_or_none([_raw_recall(r) > 0 for r in _in_corpus(results)])
@@ -180,8 +188,8 @@ def compute_metrics(results: Sequence[EvalResult]) -> EvalMetrics:
     """Every measure of the run, each computed over the cases it applies to."""
     return EvalMetrics(
         cases=len(results),
-        in_corpus=len(_in_corpus(results)),
-        out_of_corpus=len(_out_of_corpus(results)),
+        in_corpus=count_cases_of_kind(results, EvalKind.IN_CORPUS),
+        out_of_corpus=count_cases_of_kind(results, EvalKind.OUT_OF_CORPUS),
         errors=count_errors(results),
         raw_hit_rate=compute_raw_hit_rate(results),
         raw_recall=compute_raw_recall(results),

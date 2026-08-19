@@ -121,7 +121,7 @@ async def test_run_dataset_scores_only_the_cases_matching_the_pattern(
     assert run.case_pattern == "fueleu"
     assert run.dataset_sha == dataset.sha256
     assert run.metrics.cases == 1
-    assert run.settings.expand_sections is False
+    assert run.settings.root["EXPAND_SECTIONS"] is False
 
 
 def test_no_pattern_selects_every_case() -> None:

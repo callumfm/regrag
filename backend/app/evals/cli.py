@@ -74,7 +74,7 @@ def run_evals(pattern: str | None, verbose: bool = False) -> int:
     """Score the dataset and print what it measured, the cases first when asked for."""
     run = asyncio.run(run_dataset(EvalDataset.load(), pattern))
     if not run.results:
-        print(f"no case id contains {pattern!r}")
+        print(f"no case id contains {pattern!r}" if pattern else "the dataset has no cases")
         return 1
     if verbose:
         print("\n".join(format_case_lines(run.results)), end="\n\n")

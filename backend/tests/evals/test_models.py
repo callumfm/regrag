@@ -1,9 +1,9 @@
 import json
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
-from app.core.config import config
+from app.core.config import ChatConfig, EmbeddingConfig, RetrievalConfig, config
 from app.evals.enums import EvalKind
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalCase, EvalDataset, EvalRun, RunSettings
@@ -43,28 +43,28 @@ def test_the_hash_follows_the_cases_not_the_file() -> None:
 # Run provenance and summary
 
 
-def test_run_settings_record_every_knob_that_moves_a_hit(monkeypatch) -> None:
-    monkeypatch.setattr(config, "RERANK_ENABLED", True)
+def test_run_settings_record_every_setting_the_run_reads(monkeypatch) -> None:
+    """Taken from the config sections whole, so a knob added later is recorded without
+    anyone editing the model."""
     monkeypatch.setattr(config, "CHAT_CONTEXT_CHUNKS", 7)
 
-    settings = RunSettings.from_config()
+    settings = RunSettings.from_config().root
 
-    assert settings.chat_context_chunks == 7
-    assert settings.rerank_model == config.RERANK_MODEL
-    assert settings.min_reranker_relevance == config.MIN_RERANKER_RELEVANCE
+    sections = (EmbeddingConfig, ChatConfig, RetrievalConfig)
+    expected = {name for section in sections for name in section.model_fields}
+    assert set(settings) == expected - {"VOYAGE_API_KEY", "ANTHROPIC_API_KEY"}
+    assert settings["CHAT_CONTEXT_CHUNKS"] == 7
+    assert settings["RERANK_POOL"] == config.RERANK_POOL
 
 
-def test_run_settings_leave_the_reranker_blank_when_it_did_not_run(monkeypatch) -> None:
-    """A run must not advertise a gate that never applied."""
-    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+def test_run_settings_leave_out_the_secrets(monkeypatch) -> None:
+    """Provenance is printed and pasted around; a key is not a knob a run reproduces."""
+    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", SecretStr("sk-never-recorded"))
 
-    settings = RunSettings.from_config()
+    dumped = RunSettings.from_config().model_dump_json()
 
-    assert (settings.rerank_enabled, settings.rerank_model, settings.min_reranker_relevance) == (
-        False,
-        None,
-        None,
-    )
+    assert "sk-never-recorded" not in dumped
+    assert "API_KEY" not in dumped
 
 
 def test_the_summary_carries_provenance_and_scores_then_names_the_cases_that_raised() -> None:
@@ -82,7 +82,7 @@ def test_the_summary_carries_provenance_and_scores_then_names_the_cases_that_rai
 
     assert body["dataset_sha"] == "abc"
     assert body["case_pattern"] == "fueleu"
-    assert body["settings"]["chat_model"] == config.CHAT_MODEL
+    assert body["settings"]["CHAT_MODEL"] == config.CHAT_MODEL
     assert body["metrics"]["errors"] == 1
     assert "results" not in body
     assert summary.rstrip().endswith("boom  TimeoutError")

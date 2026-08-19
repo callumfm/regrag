@@ -73,7 +73,7 @@ def test_run_prints_the_summary_and_exits_zero(fake_run, capsys):
 
     out = capsys.readouterr().out
     assert '"raw_recall": 1.0' in out
-    assert '"chat_model"' in out
+    assert '"CHAT_MODEL"' in out
 
 
 def test_run_exits_nonzero_when_a_case_raised(fake_run, capsys):

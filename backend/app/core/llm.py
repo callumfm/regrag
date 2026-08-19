@@ -102,7 +102,7 @@ async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]
         input=texts,
         input_type=input_type.value,
         dimensions=EMBED_DIMENSIONS,
-        api_key=config.VOYAGE_API_KEY,
+        api_key=config.VOYAGE_API_KEY.get_secret_value(),
         timeout=config.EMBED_TIMEOUT,
     )
     if len(response.data) != len(texts):

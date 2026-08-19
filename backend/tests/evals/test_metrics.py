@@ -173,6 +173,16 @@ def test_an_errored_case_is_counted_but_left_out_of_the_scores() -> None:
     assert compute_expanded_hit_rate(results) == 1.0
 
 
+def test_an_errored_case_still_counts_toward_the_kind_it_was_authored_as() -> None:
+    """The dataset's shape is what it is; an error is reported beside the counts rather
+    than by shrinking them, so a run stays comparable to a clean one."""
+    boom = eval_result(eval_case(id="boom"), hits=(), sources=(), error="x")
+
+    metrics = compute_metrics((eval_result(), boom))
+
+    assert (metrics.cases, metrics.in_corpus, metrics.out_of_corpus, metrics.errors) == (2, 2, 0, 1)
+
+
 def test_a_kind_absent_from_the_run_scores_none_rather_than_zero() -> None:
     only_ooc = (refused_result(),)
 
