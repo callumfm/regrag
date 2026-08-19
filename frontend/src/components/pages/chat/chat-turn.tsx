@@ -1,11 +1,11 @@
-import { memo } from 'react'
-import { Answer } from '@/components/chat/answer'
-import { CitedSourcesLine } from '@/components/chat/cited-sources-line'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Bubble, BubbleContent } from '@/components/ui/bubble'
-import { Button } from '@/components/ui/button'
-import { Message, MessageContent } from '@/components/ui/message'
-import type { ChatTurn as Turn } from '@/lib/chat/use-chat-stream'
+import { memo } from "react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Bubble, BubbleContent } from "@/components/ui/bubble"
+import { Button } from "@/components/ui/button"
+import { Message, MessageContent } from "@/components/ui/message"
+import type { ChatTurn as Turn } from "@/hooks/use-chat-stream"
+import { Answer } from "./answer"
+import { CitedSourcesLine } from "./cited-sources-line"
 
 export const ChatTurn = memo(function ChatTurn({
 	turn,
@@ -27,12 +27,12 @@ export const ChatTurn = memo(function ChatTurn({
 			</Message>
 			<Message align="start">
 				<MessageContent>
-					{turn.status === 'pending' && (
+					{turn.status === "pending" && (
 						<p className="animate-pulse text-muted-foreground text-sm">
 							Retrieving…
 						</p>
 					)}
-					{turn.status === 'failed' ? (
+					{turn.status === "failed" ? (
 						<Alert variant="destructive">
 							<AlertTitle>Request failed</AlertTitle>
 							<AlertDescription>{turn.error}</AlertDescription>
@@ -52,7 +52,7 @@ export const ChatTurn = memo(function ChatTurn({
 								sources={turn.sources}
 								onOpenMarker={onOpenMarker}
 							/>
-							{turn.status === 'settled' && (
+							{turn.status === "settled" && (
 								<CitedSourcesLine answer={turn.answer} sources={turn.sources} />
 							)}
 						</>

@@ -1,15 +1,15 @@
-import { ArrowUpIcon, SquareIcon } from 'lucide-react'
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
+import { ArrowUpIcon, SquareIcon } from "lucide-react"
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 
 const SAMPLE_QUESTIONS = [
-	'What is the greenhouse gas intensity limit under FuelEU Maritime?',
-	'When must a company monitor energy used on board?',
-	'Which ships fall outside the scope of the regulation?',
-	'How is the compliance balance of a ship calculated?',
-	'What are the penalties for a compliance deficit?',
-	'When must ships use onshore power supply at berth?',
+	"What is the greenhouse gas intensity limit under FuelEU Maritime?",
+	"When must a company monitor energy used on board?",
+	"Which ships fall outside the scope of the regulation?",
+	"How is the compliance balance of a ship calculated?",
+	"What are the penalties for a compliance deficit?",
+	"When must ships use onshore power supply at berth?",
 ]
 
 function pickSampleQuestion(): string {
@@ -25,19 +25,19 @@ export function PromptForm({
 	onSubmit: (question: string) => void
 	onStop: () => void
 }) {
-	const [question, setQuestion] = useState('')
+	const [question, setQuestion] = useState("")
 	const [isFocused, setIsFocused] = useState(false)
 	const [suggestion, setSuggestion] = useState<string | null>(
 		pickSampleQuestion,
 	)
-	const visibleSuggestion = !isFocused && question === '' ? suggestion : null
+	const visibleSuggestion = !isFocused && question === "" ? suggestion : null
 
 	function submitQuestion(event: { preventDefault: () => void }) {
 		event.preventDefault()
 		const trimmed = question.trim()
-		const submitted = trimmed !== '' ? trimmed : visibleSuggestion
-		if (submitted === null || submitted === '') return
-		setQuestion('')
+		const submitted = trimmed !== "" ? trimmed : visibleSuggestion
+		if (submitted === null || submitted === "") return
+		setQuestion("")
 		setSuggestion(null)
 		onSubmit(submitted)
 	}
@@ -54,10 +54,10 @@ export function PromptForm({
 				onBlur={() => setIsFocused(false)}
 				onKeyDown={(event) => {
 					if (isBusy) return
-					if (event.key === 'Enter' && !event.shiftKey) submitQuestion(event)
+					if (event.key === "Enter" && !event.shiftKey) submitQuestion(event)
 				}}
 				placeholder={
-					visibleSuggestion ?? (suggestion === null ? 'Ask a question…' : '')
+					visibleSuggestion ?? (suggestion === null ? "Ask a question…" : "")
 				}
 				aria-label="Ask a question"
 				rows={1}

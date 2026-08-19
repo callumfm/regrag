@@ -1,7 +1,4 @@
-import { useRef, useState } from 'react'
-import { ChatTurn } from '@/components/chat/chat-turn'
-import { PromptForm } from '@/components/chat/prompt-form'
-import { SourcePanel } from '@/components/chat/source-panel'
+import { useRef, useState } from "react"
 import {
 	MessageScroller,
 	MessageScrollerButton,
@@ -9,9 +6,12 @@ import {
 	MessageScrollerItem,
 	MessageScrollerProvider,
 	MessageScrollerViewport,
-} from '@/components/ui/message-scroller'
-import { numberCitations } from '@/lib/chat/markers'
-import { useChatStream } from '@/lib/chat/use-chat-stream'
+} from "@/components/ui/message-scroller"
+import { useChatStream } from "@/hooks/use-chat-stream"
+import { numberCitations } from "@/lib/citations"
+import { ChatTurn } from "./chat-turn"
+import { PromptForm } from "./prompt-form"
+import { SourcePanel } from "./source-panel"
 
 type OpenMarker = { turnId: string; marker: number } | null
 
@@ -20,7 +20,7 @@ type TurnHandlers = {
 	onRetry: () => void
 }
 
-export function Chat() {
+export function ChatPage() {
 	const { turns, ask, stop, isBusy } = useChatStream()
 	const [openMarker, setOpenMarker] = useState<OpenMarker>(null)
 	const handlersByTurnId = useRef(new Map<string, TurnHandlers>())

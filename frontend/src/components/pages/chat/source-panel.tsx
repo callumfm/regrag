@@ -1,12 +1,12 @@
-import { CITATION_BADGE } from '@/components/chat/citation-chip'
+import type { ChatSource } from "@/api/types"
 import {
 	Drawer,
 	DrawerContent,
 	DrawerDescription,
 	DrawerHeader,
 	DrawerTitle,
-} from '@/components/ui/drawer'
-import type { ChatSource } from '@/lib/chat/use-chat-stream'
+} from "@/components/ui/drawer"
+import { CITATION_BADGE } from "./citation-chip"
 
 export function SourcePanel({
 	source,
@@ -34,7 +34,7 @@ export function SourcePanel({
 					</DrawerTitle>
 					<DrawerDescription>
 						{source?.celex}
-						{source?.title ? ` · ${source.title}` : ''}
+						{source?.title ? ` · ${source.title}` : ""}
 					</DrawerDescription>
 				</DrawerHeader>
 				<div className="flex-1 overflow-y-auto p-4 text-sm leading-relaxed whitespace-pre-wrap">

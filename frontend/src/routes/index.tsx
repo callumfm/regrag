@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { Chat } from '@/components/chat/chat'
+import { createFileRoute } from "@tanstack/react-router"
+import { ChatPage } from "@/components/pages/chat/page"
 
-export const Route = createFileRoute('/')({ component: Chat })
+export const Route = createFileRoute("/")({ component: ChatPage })
