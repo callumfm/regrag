@@ -3,11 +3,16 @@ from collections.abc import Callable
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chat.enums import ChatNode
+from app.chat.prompts import REFUSAL_ANSWER
+from app.core.llm import LLMError
+from app.evals import service
 from app.evals.models import UnresolvedReference
 from app.evals.service import find_unresolved_references
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import ReferenceTarget
+from tests.conftest import retrieved_chunk, search_result
 from tests.evals.conftest import REFERENCE, eval_case, eval_dataset, out_of_corpus_case
 
 pytestmark = pytest.mark.anyio
@@ -52,3 +57,77 @@ async def test_out_of_corpus_cases_have_nothing_to_resolve(db_session: AsyncSess
     unresolved = await find_unresolved_references(db_session, eval_dataset(out_of_corpus_case()))
 
     assert unresolved == ()
+
+
+@pytest.fixture
+def fake_graph(monkeypatch):
+    """Stand in for the compiled graph, yielding chosen node updates as astream would."""
+
+    def _install(*updates: dict, raises: Exception | None = None):
+        class _Graph:
+            async def astream(self, state, stream_mode=None):
+                if raises is not None:
+                    raise raises
+                for update in updates:
+                    yield update
+
+        monkeypatch.setattr(service, "chat_graph", _Graph())
+
+    return _install
+
+
+async def test_a_run_reads_hits_sources_answer_and_usage_off_the_updates(fake_graph):
+    fake_graph(
+        {ChatNode.RETRIEVE: {"hits": (search_result(),), "sources": (retrieved_chunk(),)}},
+        {
+            ChatNode.SYNTHESIZE: {
+                "answer": "The limit applies [1].",
+                "usage": {"input_tokens": 1200, "output_tokens": 180, "total_tokens": 1380},
+            }
+        },
+    )
+
+    result = await service.run_case(eval_case())
+
+    assert result.expanded_recall == 1.0
+    assert result.citation_precision == 1.0
+    assert (result.input_tokens, result.output_tokens) == (1200, 180)
+    assert result.error is None
+
+
+async def test_a_refused_case_carries_its_hits_even_though_nothing_reached_the_prompt(fake_graph):
+    fake_graph(
+        {ChatNode.RETRIEVE: {"hits": (search_result(),), "sources": ()}},
+        {ChatNode.REFUSE: {"answer": REFUSAL_ANSWER}},
+    )
+
+    result = await service.run_case(eval_case())
+
+    assert result.gate_refused
+    assert result.refused_a_covered_case
+    assert result.expanded_recall == 0.0
+
+
+async def test_a_failing_case_is_recorded_as_an_error_not_raised(fake_graph):
+    fake_graph(raises=LLMError("provider down"))
+
+    result = await service.run_case(eval_case())
+
+    assert result.error is not None
+    assert "provider down" in result.error
+
+
+async def test_a_run_scores_only_the_selected_cases_but_hashes_the_whole_dataset(fake_graph):
+    fake_graph({ChatNode.SYNTHESIZE: {"answer": "a [1]."}})
+    dataset = eval_dataset(eval_case(id="fueleu-one"), eval_case(id="mrv-two"))
+
+    run = await service.run_dataset(dataset, pattern="fueleu")
+
+    assert [r.case.id for r in run.results] == ["fueleu-one"]
+    assert run.dataset_sha == dataset.sha256
+
+
+def test_selecting_without_a_pattern_takes_every_case():
+    dataset = eval_dataset(eval_case(id="a"), eval_case(id="b"))
+
+    assert service.select_cases(dataset) == dataset.cases

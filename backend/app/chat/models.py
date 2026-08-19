@@ -2,11 +2,12 @@
 
 from typing import Annotated, Any, Literal
 
+from langchain_core.messages.ai import UsageMetadata
 from pydantic import ConfigDict, Field
 
 from app.chat.enums import ChatEventName
 from app.core.models import AppModel, ErrorResponse, FrozenModel
-from app.retrieval.models import RetrievedChunk
+from app.retrieval.models import RetrievedChunk, SearchResult
 
 
 class ChatQuery(AppModel):
@@ -16,11 +17,20 @@ class ChatQuery(AppModel):
 
 
 class ChatState(AppModel):
-    """What flows through the graph for one question."""
+    """What flows through the graph for one question.
+
+    hits: what search returned, before the score gate and before section expansion; kept
+        even when the gate refuses, so a threshold set too tight is visible rather than
+        indistinguishable from a corpus that does not cover the question.
+    sources: the context blocks that reached the prompt, which the [n] markers number.
+    usage: what the answer cost, once the model has answered.
+    """
 
     question: str
+    hits: tuple[SearchResult, ...] = ()
     sources: tuple[RetrievedChunk, ...] = ()
     answer: str = ""
+    usage: UsageMetadata | None = None
 
 
 class ChatSource(FrozenModel):

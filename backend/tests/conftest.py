@@ -378,6 +378,7 @@ RETRIEVED_CHUNK: dict[str, Any] = {
     "topic": "fueleu",
     "citation": "Article 4(1)",
     "article": "4",
+    "annex": None,
     "title": "Greenhouse gas intensity limit",
     "text": "The greenhouse gas intensity of the energy used on board.",
     "position": 1,

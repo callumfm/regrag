@@ -2,14 +2,32 @@
 
 import hashlib
 from collections import Counter
+from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import TypeAdapter, model_validator
 
+from app.core.clock import utc_now
 from app.core.config import config
 from app.core.models import FrozenModel
 from app.evals.enums import EvalKind
-from app.retrieval.models import ReferenceTarget
+from app.evals.metrics import (
+    is_gate_refusal,
+    score_citation_precision,
+    score_reference_recall,
+)
+from app.retrieval.models import ReferenceTarget, RetrievedChunk, SearchResult
+
+
+def _mean(values: Sequence[float | bool]) -> float | None:
+    """The mean, or None when there is nothing to average — unmeasured, not zero."""
+    return sum(values) / len(values) if values else None
+
+
+def _score(value: float | None) -> str:
+    """A score to two places, or a dash holding its column when it was not measured."""
+    return f"{value:>4.2f}" if value is not None else f"{'-':>4}"
 
 
 class EvalCase(FrozenModel):
@@ -66,3 +84,187 @@ class UnresolvedReference(FrozenModel):
 
     case_id: str
     target: ReferenceTarget
+
+
+class RunSettings(FrozenModel):
+    """The knobs a run was scored under, so two runs are only compared when comparable."""
+
+    chat_model: str
+    chat_sources: int
+    chat_context_chunks: int
+    expand_sections: bool
+    min_cosine_similarity: float
+    min_reranker_relevance: float
+
+    @classmethod
+    def from_config(cls) -> "RunSettings":
+        """The settings as the run will really read them."""
+        return cls(
+            chat_model=config.CHAT_MODEL,
+            chat_sources=config.CHAT_SOURCES,
+            chat_context_chunks=config.CHAT_CONTEXT_CHUNKS,
+            expand_sections=config.EXPAND_SECTIONS,
+            min_cosine_similarity=config.MIN_COSINE_SIMILARITY,
+            min_reranker_relevance=config.MIN_RERANKER_RELEVANCE,
+        )
+
+
+class CaseResult(FrozenModel):
+    """One case driven through the graph: what it retrieved, what it answered, what it cost.
+
+    hits: the raw search results, scored, before the gate and before expansion.
+    sources: the context blocks the answer was given, which its [n] markers number.
+    error: what went wrong, when the graph raised; such a case is counted but not scored.
+    """
+
+    case: EvalCase
+    hits: tuple[SearchResult, ...] = ()
+    sources: tuple[RetrievedChunk, ...] = ()
+    answer: str = ""
+    retrieve_ms: int = 0
+    synthesize_ms: int = 0
+    total_ms: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    error: str | None = None
+
+    @property
+    def raw_recall(self) -> float:
+        """Share of gold references search itself found, before expansion widened anything."""
+        return score_reference_recall(self.case.references, self.hits)
+
+    @property
+    def expanded_recall(self) -> float:
+        """Share of gold references that reached the prompt."""
+        return score_reference_recall(self.case.references, self.sources)
+
+    @property
+    def citation_precision(self) -> float | None:
+        """Share of the blocks the answer cited that a gold reference names."""
+        return score_citation_precision(self.answer, self.sources, self.case.references)
+
+    @property
+    def gate_refused(self) -> bool:
+        """Whether the score gate refused before any model call. An answer that declines in
+        the model's own words is not this, and this runner does not try to tell it apart."""
+        return is_gate_refusal(self.answer)
+
+    @property
+    def refused_a_covered_case(self) -> bool:
+        """An in-corpus case refused although search had already found a gold reference:
+        the score gate set too tight, rather than a corpus that does not cover the question."""
+        return self.case.kind is EvalKind.IN_CORPUS and self.gate_refused and self.raw_recall > 0
+
+    def line(self) -> str:
+        """One case on one line: both recalls, citation precision, outcome, cost.
+
+        A column holds a dash where there was nothing to score — an errored case, which the
+        run leaves out of its scores, and an out-of-corpus case, which has no reference to
+        recall — so an unmeasured column never reads as a score of zero.
+        """
+        recalled = self.case.references and not self.error
+        raw = _score(self.raw_recall if recalled else None)
+        expanded = _score(self.expanded_recall if recalled else None)
+        cited = _score(self.citation_precision if recalled else None)
+        outcome = "error" if self.error else ("gate-refused" if self.gate_refused else "answered")
+        tokens = f"{self.input_tokens or 0}/{self.output_tokens or 0}"
+        line = (
+            f"{self.case.id:<44} raw {raw}  exp {expanded}  cite {cited}  "
+            f"{outcome:<12} {self.total_ms / 1000:>5.1f}s {tokens:>12}"
+        )
+        return f"{line}  {self.error}" if self.error else line
+
+
+class RunMetrics(FrozenModel):
+    """What a run measured, aggregated over the cases that completed.
+
+    A rate is None when the run held no case it applies to, so an absent kind reads as
+    unmeasured rather than as a score of zero.
+    """
+
+    cases: int
+    in_corpus: int
+    out_of_corpus: int
+    errors: int
+    raw_hit_rate: float | None
+    raw_recall: float | None
+    expanded_hit_rate: float | None
+    expanded_recall: float | None
+    citation_precision: float | None
+    gate_refusal_rate: float | None
+    false_refusals: int
+    gate_refused_a_found_reference: int
+    input_tokens: int
+    output_tokens: int
+    mean_retrieve_ms: int
+    mean_total_ms: int
+
+    @classmethod
+    def from_cases(cls, results: Sequence[CaseResult]) -> "RunMetrics":
+        """Aggregate the completed cases; an errored case counts toward `errors` only, so a
+        provider failure does not read as a retrieval regression."""
+        scored = [result for result in results if result.error is None]
+        in_corpus = [r for r in scored if r.case.kind is EvalKind.IN_CORPUS]
+        out_of_corpus = [r for r in scored if r.case.kind is EvalKind.OUT_OF_CORPUS]
+        precisions = [r.citation_precision for r in in_corpus if r.citation_precision is not None]
+        return cls(
+            cases=len(results),
+            in_corpus=len(in_corpus),
+            out_of_corpus=len(out_of_corpus),
+            errors=len(results) - len(scored),
+            raw_hit_rate=_mean([r.raw_recall > 0 for r in in_corpus]),
+            raw_recall=_mean([r.raw_recall for r in in_corpus]),
+            expanded_hit_rate=_mean([r.expanded_recall > 0 for r in in_corpus]),
+            expanded_recall=_mean([r.expanded_recall for r in in_corpus]),
+            citation_precision=_mean(precisions),
+            gate_refusal_rate=_mean([r.gate_refused for r in out_of_corpus]),
+            false_refusals=sum(r.gate_refused for r in in_corpus),
+            gate_refused_a_found_reference=sum(r.refused_a_covered_case for r in in_corpus),
+            input_tokens=sum(r.input_tokens or 0 for r in scored),
+            output_tokens=sum(r.output_tokens or 0 for r in scored),
+            mean_retrieve_ms=int(_mean([r.retrieve_ms for r in scored]) or 0),
+            mean_total_ms=int(_mean([r.total_ms for r in scored]) or 0),
+        )
+
+
+class RunResult(FrozenModel):
+    """One eval run: when it ran, which dataset and settings it scored, and every case."""
+
+    started_at: datetime
+    dataset_sha: str
+    settings: RunSettings
+    metrics: RunMetrics
+    results: tuple[CaseResult, ...]
+
+    @classmethod
+    def from_results(cls, results: Sequence[CaseResult], dataset_sha: str) -> "RunResult":
+        """A finished run, with its cases aggregated and the settings they ran under."""
+        return cls(
+            started_at=utc_now(),
+            dataset_sha=dataset_sha,
+            settings=RunSettings.from_config(),
+            metrics=RunMetrics.from_cases(results),
+            results=tuple(results),
+        )
+
+    def table(self) -> str:
+        """The per-case rows, then the run's totals."""
+        metrics = self.metrics
+        rows = [result.line() for result in self.results]
+        summary = [
+            "",
+            f"cases {metrics.cases}  in-corpus {metrics.in_corpus}  "
+            f"out-of-corpus {metrics.out_of_corpus}  errors {metrics.errors}",
+            f"hit-rate@{self.settings.chat_sources}      {_score(metrics.raw_hit_rate)}"
+            f"      recall {_score(metrics.raw_recall)}   (raw search hits)",
+            f"hit-rate@<={self.settings.chat_context_chunks}   {_score(metrics.expanded_hit_rate)}"
+            f"      recall {_score(metrics.expanded_recall)}   (after section expansion)",
+            f"citation precision {_score(metrics.citation_precision)}",
+            f"gate refusal rate  {_score(metrics.gate_refusal_rate)}"
+            f"      false refusals {metrics.false_refusals}"
+            f"   over a found reference {metrics.gate_refused_a_found_reference}",
+            "  (the cheap pre-model gate only; a model-worded decline is the judge's to score)",
+            f"tokens {metrics.input_tokens}/{metrics.output_tokens}  "
+            f"mean retrieve {metrics.mean_retrieve_ms}ms  mean total {metrics.mean_total_ms}ms",
+        ]
+        return "\n".join(rows + summary)

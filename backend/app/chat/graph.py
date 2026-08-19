@@ -1,6 +1,8 @@
 """Chat graph: retrieve corpus context, then synthesize a cited answer — or refuse,
 before any model call, a question the corpus does not cover."""
 
+from typing import Any
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
@@ -36,20 +38,24 @@ def chat_model() -> ChatLiteLLM:
 async def retrieve(state: ChatState) -> dict[str, tuple[RetrievedChunk, ...]]:
     """The corpus's best answers, widened to their sections, from a node-scoped session
     so no connection is held while the model streams. Nothing, when the corpus does not
-    cover the question: that empties the context, and the graph refuses instead."""
+    cover the question: that empties the context, and the graph refuses instead.
+
+    The raw hits are carried alongside whatever survives the gate, so what search found
+    stays legible next to what the prompt was given.
+    """
     async with get_session(auto_commit=False) as session:
         hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
         if not meets_thresholds(hits):
-            return {"sources": ()}
+            return {"hits": hits, "sources": ()}
         sources: tuple[RetrievedChunk, ...] = hits
         if config.EXPAND_SECTIONS:
             sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
-    return {"sources": sources}
+    return {"hits": hits, "sources": sources}
 
 
 @llm_retry
 @wrap_provider_errors("chat call")
-async def synthesize(state: ChatState) -> dict[str, str]:
+async def synthesize(state: ChatState) -> dict[str, Any]:
     """One streamed model call answering from the context with [n] citations.
 
     A transient provider failure is retried like embed and rerank; one that strikes
@@ -60,7 +66,7 @@ async def synthesize(state: ChatState) -> dict[str, str]:
         HumanMessage(build_user_message(state.question, state.sources)),
     ]
     response = await chat_model().ainvoke(messages)
-    return {"answer": response.text}
+    return {"answer": response.text, "usage": response.usage_metadata}
 
 
 def refuse(state: ChatState) -> dict[str, str]:
