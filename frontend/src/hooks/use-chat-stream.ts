@@ -63,6 +63,14 @@ export function chatReducer(turns: ChatTurn[], action: ChatAction): ChatTurn[] {
 	return [...turns.slice(0, -1), applyToTurn(current, action)]
 }
 
+let turnsCreated = 0
+
+/** crypto.randomUUID needs a secure context, which a plain-HTTP host is not. */
+function createTurnId(): string {
+	turnsCreated += 1
+	return globalThis.crypto?.randomUUID?.() ?? `turn-${turnsCreated}`
+}
+
 export function useChatStream() {
 	const [turns, dispatch] = useReducer(chatReducer, [])
 	const abort = useRef<AbortController | null>(null)
@@ -71,8 +79,8 @@ export function useChatStream() {
 		abort.current?.abort()
 		const controller = new AbortController()
 		abort.current = controller
+		dispatch({ type: "ask", id: createTurnId(), question })
 		try {
-			dispatch({ type: "ask", id: crypto.randomUUID(), question })
 			for await (const event of streamChat({ question }, controller.signal)) {
 				dispatch(event)
 			}

@@ -19,7 +19,7 @@ export function MessagePage({
 			</p>
 			<div className="flex flex-wrap items-center justify-center gap-3">
 				{action}
-				<Button variant="outline" render={<Link to="/" />}>
+				<Button variant="outline" nativeButton={false} render={<Link to="/" />}>
 					Take me home
 				</Button>
 			</div>

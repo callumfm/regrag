@@ -1,3 +1,4 @@
+import { useRef } from "react"
 import type { ChatSource } from "@/api/types"
 import {
 	Drawer,
@@ -17,6 +18,10 @@ export function SourcePanel({
 	label: number | null
 	onClose: () => void
 }) {
+	const lastOpened = useRef<{ source: ChatSource; label: number | null }>(null)
+	if (source !== null) lastOpened.current = { source, label }
+	const shown = lastOpened.current
+
 	return (
 		<Drawer
 			open={source !== null}
@@ -29,16 +34,18 @@ export function SourcePanel({
 			<DrawerContent>
 				<DrawerHeader>
 					<DrawerTitle className="flex items-center gap-2">
-						{label !== null && <span className={CITATION_BADGE}>{label}</span>}
-						{source?.citation}
+						{shown?.label != null && (
+							<span className={CITATION_BADGE}>{shown.label}</span>
+						)}
+						{shown?.source.citation}
 					</DrawerTitle>
 					<DrawerDescription>
-						{source?.celex}
-						{source?.title ? ` · ${source.title}` : ""}
+						{shown?.source.celex}
+						{shown?.source.title ? ` · ${shown.source.title}` : ""}
 					</DrawerDescription>
 				</DrawerHeader>
 				<div className="flex-1 overflow-y-auto p-4 text-sm leading-relaxed whitespace-pre-wrap">
-					{source?.text}
+					{shown?.source.text}
 				</div>
 			</DrawerContent>
 		</Drawer>
