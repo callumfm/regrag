@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CitationChip } from '@/components/chat/citation-chip'
-import { rehypeCitationMarkers } from '@/lib/chat/markers'
+import { numberCitations, rehypeCitationMarkers } from '@/lib/chat/markers'
 import type { ChatSource } from '@/lib/chat/use-chat-stream'
 
 const PROSE =
@@ -21,14 +21,22 @@ export function Answer({
 		() => new Set(sources.map((source) => source.marker)),
 		[sources],
 	)
+	const numbers = useMemo(() => numberCitations(answer, known), [answer, known])
 	const components = useMemo(
 		() =>
 			({
-				'cite-marker': ({ marker }: { marker?: string }) => (
-					<CitationChip marker={Number(marker)} onOpen={onOpenMarker} />
-				),
+				'cite-marker': ({ marker }: { marker?: string }) => {
+					const key = Number(marker)
+					return (
+						<CitationChip
+							marker={key}
+							label={numbers.get(key) ?? key}
+							onOpen={onOpenMarker}
+						/>
+					)
+				},
 			}) as Components,
-		[onOpenMarker],
+		[numbers, onOpenMarker],
 	)
 
 	return (

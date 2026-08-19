@@ -1,3 +1,4 @@
+import { CITATION_BADGE } from '@/components/chat/citation-chip'
 import {
 	Drawer,
 	DrawerContent,
@@ -9,9 +10,11 @@ import type { ChatSource } from '@/lib/chat/use-chat-stream'
 
 export function SourcePanel({
 	source,
+	label,
 	onClose,
 }: {
 	source: ChatSource | null
+	label: number | null
 	onClose: () => void
 }) {
 	return (
@@ -25,7 +28,10 @@ export function SourcePanel({
 		>
 			<DrawerContent>
 				<DrawerHeader>
-					<DrawerTitle>{source?.citation}</DrawerTitle>
+					<DrawerTitle className="flex items-center gap-2">
+						{label !== null && <span className={CITATION_BADGE}>{label}</span>}
+						{source?.citation}
+					</DrawerTitle>
 					<DrawerDescription>
 						{source?.celex}
 						{source?.title ? ` · ${source.title}` : ''}

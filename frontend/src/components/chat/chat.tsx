@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react'
-import { ChatEmpty } from '@/components/chat/chat-empty'
 import { ChatTurn } from '@/components/chat/chat-turn'
 import { PromptForm } from '@/components/chat/prompt-form'
 import { SourcePanel } from '@/components/chat/source-panel'
@@ -11,6 +10,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from '@/components/ui/message-scroller'
+import { numberCitations } from '@/lib/chat/markers'
 import { useChatStream } from '@/lib/chat/use-chat-stream'
 
 type OpenMarker = { turnId: string; marker: number } | null
@@ -45,12 +45,23 @@ export function Chat() {
 	const openSource =
 		openTurn?.sources.find((source) => source.marker === openMarker?.marker) ??
 		null
+	const openLabel =
+		openTurn && openSource
+			? (numberCitations(
+					openTurn.answer,
+					new Set(openTurn.sources.map((source) => source.marker)),
+				).get(openSource.marker) ?? null)
+			: null
+
+	const isEmpty = turns.length === 0
 
 	return (
 		<main className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
-			{turns.length === 0 ? (
-				<div className="flex flex-1 items-center justify-center p-6">
-					<ChatEmpty onSelect={askQuestion} />
+			{isEmpty ? (
+				<div className="flex flex-1 flex-col justify-end px-6 pb-8">
+					<h1 className="text-center font-semibold text-3xl tracking-tight">
+						Ask about EU maritime regulation
+					</h1>
 				</div>
 			) : (
 				<MessageScrollerProvider>
@@ -82,7 +93,12 @@ export function Chat() {
 			<div className="px-6 pb-6">
 				<PromptForm isBusy={isBusy} onSubmit={askQuestion} onStop={stop} />
 			</div>
-			<SourcePanel source={openSource} onClose={() => setOpenMarker(null)} />
+			{isEmpty && <div className="flex-1" />}
+			<SourcePanel
+				source={openSource}
+				label={openLabel}
+				onClose={() => setOpenMarker(null)}
+			/>
 		</main>
 	)
 }
