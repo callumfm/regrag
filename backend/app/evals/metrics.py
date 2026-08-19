@@ -1,4 +1,4 @@
-"""Eval scoring: what counts as a retrieved reference, a correct citation, a refusal."""
+"""Eval scoring: what counts as a retrieved reference, a grounded citation, a refusal."""
 
 import re
 from collections.abc import Sequence
@@ -11,17 +11,21 @@ MARKER = re.compile(r"\[(\d+)\]")
 
 
 def _division(item: ReferenceTarget | RetrievedChunk) -> tuple[str, str | None, str | None]:
-    """Which division of which act, at the grain a gold reference names: article or annex,
-    never the paragraph inside one. Cased as `follow` cases it, so 4a reaches 4A."""
-    article = item.article.lower() if item.article else None
-    annex = item.annex.lower() if item.annex else None
-    return item.celex, article, annex
+    """Which division of which act, at the grain an authored reference names: article or
+    annex, never the paragraph inside one.
+
+    Matched as `follow` matches it — article case-folded so 4a reaches 4A, annex compared
+    exactly — so `check` and `run` never disagree about the same reference. An annex of ""
+    is the act's one unnumbered annex, which no truthiness test may fold into no annex.
+    """
+    article = item.article.lower() if item.article is not None else None
+    return item.celex, article, item.annex
 
 
 def score_reference_recall(
     targets: Sequence[ReferenceTarget], chunks: Sequence[RetrievedChunk]
 ) -> float:
-    """Share of a case's gold references some retrieved chunk covers.
+    """Share of a case's authored references some retrieved chunk covers.
 
     Applied twice per case — to the raw search hits, then to the expanded sources — so the
     layer that found the reference is the layer that gets the credit.
@@ -39,22 +43,39 @@ def find_cited_markers(answer: str) -> tuple[int, ...]:
     return tuple(seen)
 
 
-def score_citation_precision(
+def score_citation_validity(answer: str, sources: Sequence[RetrievedChunk]) -> float | None:
+    """Share of the markers the answer cites that address a block it was actually given;
+    None when it cited nothing, which is unmeasured rather than zero.
+
+    A marker past the end of the context is the one citation fault this can judge without a
+    model: the answer points at a block that was never in its prompt.
+    """
+    markers = find_cited_markers(answer)
+    if not markers:
+        return None
+    return sum(1 <= marker <= len(sources) for marker in markers) / len(markers)
+
+
+def score_reference_citation_rate(
     answer: str,
     sources: Sequence[RetrievedChunk],
     targets: Sequence[ReferenceTarget],
 ) -> float | None:
-    """Share of the blocks the answer cited that a gold reference names; None when it cited
-    nothing, which is unmeasured rather than zero. A marker past the end of the context is
-    counted against the answer: it cites a block the model was never given."""
-    markers = find_cited_markers(answer)
-    if not markers:
+    """Share of a case's authored references the answer actually cited; None when the case
+    names none, which is unmeasured rather than zero.
+
+    Scored over the references rather than over the markers, because the authored set names
+    the references an answer must lean on, not every chunk that may legitimately support it:
+    citing a further relevant article is not an error, and must not read as one.
+    """
+    if not targets:
         return None
-    gold = {_division(target) for target in targets}
-    correct = sum(
-        1 <= marker <= len(sources) and _division(sources[marker - 1]) in gold for marker in markers
-    )
-    return correct / len(markers)
+    cited = {
+        _division(sources[marker - 1])
+        for marker in find_cited_markers(answer)
+        if 1 <= marker <= len(sources)
+    }
+    return sum(_division(target) in cited for target in targets) / len(targets)
 
 
 def is_gate_refusal(answer: str) -> bool:

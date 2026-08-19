@@ -1,7 +1,8 @@
 """Run results: how a case scores itself, and how a run aggregates its cases."""
 
 from app.chat.prompts import REFUSAL_ANSWER
-from app.evals.models import RunMetrics
+from app.core.config import config
+from app.evals.models import RunMetrics, RunResult, RunSettings
 from app.retrieval.models import ReferenceTarget
 from tests.conftest import retrieved_chunk, search_result
 from tests.evals.conftest import REFERENCE, case_result, eval_case, out_of_corpus_case
@@ -97,3 +98,52 @@ def test_an_out_of_corpus_row_has_no_recall_to_show() -> None:
 
     assert "raw    -  exp    -" in row
     assert "gate-refused" in row
+
+
+def test_a_rerank_off_run_advertises_no_reranker_threshold(monkeypatch) -> None:
+    """A gate that never applied must not be recorded as though it had."""
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    settings = RunSettings.from_config()
+
+    assert settings.rerank_enabled is False
+    assert settings.rerank_model is None
+    assert settings.min_reranker_relevance is None
+
+
+def test_the_settings_record_every_knob_that_moves_a_hit(monkeypatch) -> None:
+    """Flip one of these and every number in the file changes; a file that did not record
+    it reads as a corpus regression instead of the config change it was."""
+    monkeypatch.setattr(config, "RERANK_ENABLED", True)
+
+    settings = RunSettings.from_config()
+
+    assert settings.embed_model == config.EMBED_MODEL
+    assert settings.search_candidates == config.SEARCH_CANDIDATES
+    assert settings.rrf_k == config.RRF_K
+    assert settings.rerank_model == config.RERANK_MODEL
+
+
+def test_the_table_omits_the_expansion_row_when_expansion_did_not_run(monkeypatch) -> None:
+    """With expansion off the sources are the hits, so a second row would credit a layer
+    that never widened anything for recall the raw search had already earned."""
+    monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
+
+    table = RunResult.from_results((case_result(),), "sha").table()
+
+    assert "after section expansion" not in table
+    assert "raw search hits" in table
+
+
+def test_the_table_shows_the_expansion_row_when_expansion_ran(monkeypatch) -> None:
+    monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
+
+    table = RunResult.from_results((case_result(),), "sha").table()
+
+    assert "after section expansion" in table
+
+
+def test_the_table_names_the_pattern_a_partial_run_scored() -> None:
+    table = RunResult.from_results((case_result(),), "sha", case_pattern="fueleu").table()
+
+    assert "cases matching 'fueleu'" in table

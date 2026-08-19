@@ -2,6 +2,8 @@
 
 import argparse
 import asyncio
+from datetime import datetime
+from pathlib import Path
 
 from app.core.config import config
 from app.core.db.session import get_session
@@ -38,10 +40,26 @@ def check() -> int:
     return 0
 
 
+def result_path(started_at: datetime) -> Path:
+    """Where a run started at this instant writes, kept clear of any file already there.
+
+    Two runs can start inside one second — twenty cases that all fail fast take far less —
+    and the earlier run's file is evidence, not something a retry may quietly overwrite.
+    """
+    directory = config.EVAL_RESULTS_DIR
+    stem = started_at.strftime(RESULT_TIMESTAMP)
+    path = directory / f"{stem}.json"
+    attempt = 2
+    while path.exists():
+        path = directory / f"{stem}-{attempt}.json"
+        attempt += 1
+    return path
+
+
 def write_result(run: RunResult) -> str:
     """The run as JSON under EVAL_RESULTS_DIR, named for when it started."""
     config.EVAL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = config.EVAL_RESULTS_DIR / f"{run.started_at.strftime(RESULT_TIMESTAMP)}.json"
+    path = result_path(run.started_at)
     path.write_text(run.model_dump_json(indent=2))
     return str(path)
 

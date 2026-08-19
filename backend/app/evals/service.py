@@ -1,5 +1,6 @@
 """Eval checks and runs against the corpus."""
 
+import logging
 import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,10 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chat.enums import ChatNode
 from app.chat.graph import chat_graph
 from app.chat.models import ChatState
-from app.core.clock import elapsed_ms
-from app.core.exceptions import describe
+from app.core.clock import elapsed_ms, utc_now
+from app.core.exceptions import DomainError
 from app.evals.models import CaseResult, EvalCase, EvalDataset, RunResult, UnresolvedReference
 from app.retrieval.follow import reference_exists
+
+logger = logging.getLogger(__name__)
 
 
 async def find_unresolved_references(
@@ -33,11 +36,28 @@ def select_cases(dataset: EvalDataset, pattern: str | None = None) -> tuple[Eval
     return tuple(case for case in dataset.cases if pattern in case.id)
 
 
+def _failed_case(case: EvalCase, exc: Exception, start: float) -> CaseResult:
+    """A case the graph raised on, logged where the traceback still exists.
+
+    The recorded message keeps the exception's own type and detail: `describe` answers an
+    HTTP client, for whom every unexpected failure is one generic sentence, and a run whose
+    whole purpose is diagnosis is the last place to discard the diagnosis.
+    """
+    if isinstance(exc, DomainError):
+        logger.warning("eval case %s failed: %s", case.id, exc.message)
+        detail = exc.message
+    else:
+        logger.exception("eval case %s failed unexpectedly", case.id)
+        detail = f"{type(exc).__name__}: {exc}"
+    return CaseResult(case=case, total_ms=elapsed_ms(start), error=detail)
+
+
 async def run_case(case: EvalCase) -> CaseResult:
     """One case driven through the chat graph, timed as each node's update lands.
 
     The graph is driven directly rather than through the SSE stream, so a run scores the
-    answer without writing a chat_requests row for every case.
+    answer without writing a chat_requests row for every case. Scoring the result is inside
+    the try as well, so a case that cannot even be built costs its own row and not the run.
     """
     start = time.perf_counter()
     state: dict = {}
@@ -50,25 +70,27 @@ async def run_case(case: EvalCase) -> CaseResult:
                 if node == ChatNode.RETRIEVE:
                     retrieve_ms = elapsed_ms(start)
                 state |= payload
+        usage = state.get("usage") or {}
+        return CaseResult(
+            case=case,
+            hits=state.get("hits", ()),
+            sources=state.get("sources", ()),
+            answer=state.get("answer", ""),
+            retrieve_ms=retrieve_ms,
+            total_ms=elapsed_ms(start),
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+        )
     except Exception as exc:
-        return CaseResult(case=case, total_ms=elapsed_ms(start), error=describe(exc)[1])
-
-    total_ms = elapsed_ms(start)
-    usage = state.get("usage")
-    return CaseResult(
-        case=case,
-        hits=state.get("hits", ()),
-        sources=state.get("sources", ()),
-        answer=state.get("answer", ""),
-        retrieve_ms=retrieve_ms,
-        synthesize_ms=total_ms - retrieve_ms,
-        total_ms=total_ms,
-        input_tokens=usage["input_tokens"] if usage else None,
-        output_tokens=usage["output_tokens"] if usage else None,
-    )
+        return _failed_case(case, exc, start)
 
 
 async def run_dataset(dataset: EvalDataset, pattern: str | None = None) -> RunResult:
-    """Every matching case, one at a time, so a per-case timing measures the case alone."""
+    """Every matching case, one at a time, so a per-case timing measures the case alone.
+
+    The start is stamped before the first case, not after the last, so a result file can be
+    lined up against the logs of the run that wrote it.
+    """
+    started_at = utc_now()
     results = [await run_case(case) for case in select_cases(dataset, pattern)]
-    return RunResult.from_results(results, dataset.sha256)
+    return RunResult.from_results(results, dataset.sha256, started_at, pattern)

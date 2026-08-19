@@ -1,6 +1,7 @@
 """Evals CLI: exit codes and what `check` prints."""
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -70,7 +71,7 @@ def test_run_prints_the_table_and_writes_a_result_file(fake_run, tmp_path, capsy
 
     out = capsys.readouterr().out
     assert "hit-rate@" in out
-    assert "citation precision" in out
+    assert "cited references" in out
     written = list(tmp_path.glob("*.json"))
     assert len(written) == 1
     assert json.loads(written[0].read_text())["metrics"]["expanded_hit_rate"] == 1.0
@@ -95,3 +96,25 @@ def test_run_exits_nonzero_when_a_case_errored(fake_run, capsys):
 def test_run_says_so_when_the_pattern_matches_no_case(fake_run, capsys):
     assert main(["run", "--case", "nope"]) == 1
     assert "nope" in capsys.readouterr().out
+
+
+def test_a_second_run_in_the_same_second_does_not_overwrite_the_first(fake_run, tmp_path):
+    """Twenty cases that all fail fast take well under a second, and the earlier run's file
+    is evidence rather than something a retry may quietly replace."""
+    fake_run.append(case_result())
+
+    main(["run"])
+    main(["run"])
+
+    written = {path.name for path in tmp_path.glob("*.json")}
+    assert len(written) == 2
+    assert any(name.endswith("-2.json") for name in written)
+
+
+def test_a_result_file_is_named_for_the_instant_its_run_started(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "EVAL_RESULTS_DIR", tmp_path)
+    started = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
+
+    path = cli.result_path(started)
+
+    assert path.name == "20260818T120000Z.json"

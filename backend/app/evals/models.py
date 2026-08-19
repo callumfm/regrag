@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import TypeAdapter, model_validator
+from pydantic import TypeAdapter, computed_field, model_validator
 
 from app.core.clock import utc_now
 from app.core.config import config
@@ -14,7 +14,8 @@ from app.core.models import FrozenModel
 from app.evals.enums import EvalKind
 from app.evals.metrics import (
     is_gate_refusal,
-    score_citation_precision,
+    score_citation_validity,
+    score_reference_citation_rate,
     score_reference_recall,
 )
 from app.retrieval.models import ReferenceTarget, RetrievedChunk, SearchResult
@@ -87,25 +88,44 @@ class UnresolvedReference(FrozenModel):
 
 
 class RunSettings(FrozenModel):
-    """The knobs a run was scored under, so two runs are only compared when comparable."""
+    """The knobs a run was scored under, so two runs are only compared when comparable.
+
+    Every setting that moves a hit is recorded, not only the chat ones: a rerank switched
+    off or a different embedding model changes every number in the file, and a run that
+    did not record it reads as a corpus regression instead of the config change it was.
+
+    rerank_model and min_reranker_relevance are None when the reranker did not run, so a
+    file never advertises a threshold that never applied.
+    """
 
     chat_model: str
     chat_sources: int
     chat_context_chunks: int
     expand_sections: bool
+    embed_model: str
+    search_candidates: int
+    rrf_k: int
+    rerank_enabled: bool
+    rerank_model: str | None
     min_cosine_similarity: float
-    min_reranker_relevance: float
+    min_reranker_relevance: float | None
 
     @classmethod
     def from_config(cls) -> "RunSettings":
         """The settings as the run will really read them."""
+        reranking = config.RERANK_ENABLED
         return cls(
             chat_model=config.CHAT_MODEL,
             chat_sources=config.CHAT_SOURCES,
             chat_context_chunks=config.CHAT_CONTEXT_CHUNKS,
             expand_sections=config.EXPAND_SECTIONS,
+            embed_model=config.EMBED_MODEL,
+            search_candidates=config.SEARCH_CANDIDATES,
+            rrf_k=config.RRF_K,
+            rerank_enabled=reranking,
+            rerank_model=config.RERANK_MODEL if reranking else None,
             min_cosine_similarity=config.MIN_COSINE_SIMILARITY,
-            min_reranker_relevance=config.MIN_RERANKER_RELEVANCE,
+            min_reranker_relevance=config.MIN_RERANKER_RELEVANCE if reranking else None,
         )
 
 
@@ -122,11 +142,16 @@ class CaseResult(FrozenModel):
     sources: tuple[RetrievedChunk, ...] = ()
     answer: str = ""
     retrieve_ms: int = 0
-    synthesize_ms: int = 0
     total_ms: int = 0
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: str | None = None
+
+    @computed_field
+    @property
+    def synthesize_ms(self) -> int:
+        """What the model call cost, once retrieval had already run."""
+        return self.total_ms - self.retrieve_ms
 
     @property
     def raw_recall(self) -> float:
@@ -139,9 +164,14 @@ class CaseResult(FrozenModel):
         return score_reference_recall(self.case.references, self.sources)
 
     @property
-    def citation_precision(self) -> float | None:
-        """Share of the blocks the answer cited that a gold reference names."""
-        return score_citation_precision(self.answer, self.sources, self.case.references)
+    def citation_validity(self) -> float | None:
+        """Share of the answer's markers that address a block it was actually given."""
+        return score_citation_validity(self.answer, self.sources)
+
+    @property
+    def reference_citation_rate(self) -> float | None:
+        """Share of the case's authored references the answer actually cited."""
+        return score_reference_citation_rate(self.answer, self.sources, self.case.references)
 
     @property
     def gate_refused(self) -> bool:
@@ -156,7 +186,7 @@ class CaseResult(FrozenModel):
         return self.case.kind is EvalKind.IN_CORPUS and self.gate_refused and self.raw_recall > 0
 
     def line(self) -> str:
-        """One case on one line: both recalls, citation precision, outcome, cost.
+        """One case on one line: both recalls, both citation scores, outcome, cost.
 
         A column holds a dash where there was nothing to score — an errored case, which the
         run leaves out of its scores, and an out-of-corpus case, which has no reference to
@@ -165,11 +195,12 @@ class CaseResult(FrozenModel):
         recalled = self.case.references and not self.error
         raw = _score(self.raw_recall if recalled else None)
         expanded = _score(self.expanded_recall if recalled else None)
-        cited = _score(self.citation_precision if recalled else None)
+        cited = _score(self.reference_citation_rate if recalled else None)
+        valid = _score(self.citation_validity if not self.error else None)
         outcome = "error" if self.error else ("gate-refused" if self.gate_refused else "answered")
         tokens = f"{self.input_tokens or 0}/{self.output_tokens or 0}"
         line = (
-            f"{self.case.id:<44} raw {raw}  exp {expanded}  cite {cited}  "
+            f"{self.case.id:<44} raw {raw}  exp {expanded}  cite {cited}  ok {valid}  "
             f"{outcome:<12} {self.total_ms / 1000:>5.1f}s {tokens:>12}"
         )
         return f"{line}  {self.error}" if self.error else line
@@ -190,7 +221,8 @@ class RunMetrics(FrozenModel):
     raw_recall: float | None
     expanded_hit_rate: float | None
     expanded_recall: float | None
-    citation_precision: float | None
+    reference_citation_rate: float | None
+    citation_validity: float | None
     gate_refusal_rate: float | None
     false_refusals: int
     gate_refused_a_found_reference: int
@@ -206,7 +238,10 @@ class RunMetrics(FrozenModel):
         scored = [result for result in results if result.error is None]
         in_corpus = [r for r in scored if r.case.kind is EvalKind.IN_CORPUS]
         out_of_corpus = [r for r in scored if r.case.kind is EvalKind.OUT_OF_CORPUS]
-        precisions = [r.citation_precision for r in in_corpus if r.citation_precision is not None]
+        cite_rates = [
+            r.reference_citation_rate for r in in_corpus if r.reference_citation_rate is not None
+        ]
+        validities = [r.citation_validity for r in scored if r.citation_validity is not None]
         return cls(
             cases=len(results),
             in_corpus=len(in_corpus),
@@ -216,7 +251,8 @@ class RunMetrics(FrozenModel):
             raw_recall=_mean([r.raw_recall for r in in_corpus]),
             expanded_hit_rate=_mean([r.expanded_recall > 0 for r in in_corpus]),
             expanded_recall=_mean([r.expanded_recall for r in in_corpus]),
-            citation_precision=_mean(precisions),
+            reference_citation_rate=_mean(cite_rates),
+            citation_validity=_mean(validities),
             gate_refusal_rate=_mean([r.gate_refused for r in out_of_corpus]),
             false_refusals=sum(r.gate_refused for r in in_corpus),
             gate_refused_a_found_reference=sum(r.refused_a_covered_case for r in in_corpus),
@@ -228,38 +264,65 @@ class RunMetrics(FrozenModel):
 
 
 class RunResult(FrozenModel):
-    """One eval run: when it ran, which dataset and settings it scored, and every case."""
+    """One eval run: when it ran, which dataset and settings it scored, and every case.
+
+    dataset_sha hashes the whole dataset; case_pattern names the subset actually scored, so
+    a --case run is never mistaken for a full one that happens to assert the same sha.
+    """
 
     started_at: datetime
     dataset_sha: str
+    case_pattern: str | None = None
     settings: RunSettings
     metrics: RunMetrics
     results: tuple[CaseResult, ...]
 
     @classmethod
-    def from_results(cls, results: Sequence[CaseResult], dataset_sha: str) -> "RunResult":
+    def from_results(
+        cls,
+        results: Sequence[CaseResult],
+        dataset_sha: str,
+        started_at: datetime | None = None,
+        case_pattern: str | None = None,
+    ) -> "RunResult":
         """A finished run, with its cases aggregated and the settings they ran under."""
         return cls(
-            started_at=utc_now(),
+            started_at=started_at or utc_now(),
             dataset_sha=dataset_sha,
+            case_pattern=case_pattern,
             settings=RunSettings.from_config(),
             metrics=RunMetrics.from_cases(results),
             results=tuple(results),
         )
 
     def table(self) -> str:
-        """The per-case rows, then the run's totals."""
+        """The per-case rows, then the run's totals.
+
+        The expansion row is printed only when expansion ran: with EXPAND_SECTIONS off the
+        sources are the hits, and a second row would credit a layer that never widened
+        anything for the recall the raw search had already earned.
+        """
         metrics = self.metrics
+        scope = f"  cases matching {self.case_pattern!r}" if self.case_pattern else ""
         rows = [result.line() for result in self.results]
         summary = [
             "",
             f"cases {metrics.cases}  in-corpus {metrics.in_corpus}  "
-            f"out-of-corpus {metrics.out_of_corpus}  errors {metrics.errors}",
+            f"out-of-corpus {metrics.out_of_corpus}  errors {metrics.errors}{scope}",
             f"hit-rate@{self.settings.chat_sources}      {_score(metrics.raw_hit_rate)}"
             f"      recall {_score(metrics.raw_recall)}   (raw search hits)",
-            f"hit-rate@<={self.settings.chat_context_chunks}   {_score(metrics.expanded_hit_rate)}"
-            f"      recall {_score(metrics.expanded_recall)}   (after section expansion)",
-            f"citation precision {_score(metrics.citation_precision)}",
+        ]
+        if self.settings.expand_sections:
+            summary.append(
+                f"hit-rate@<={self.settings.chat_context_chunks}   "
+                f"{_score(metrics.expanded_hit_rate)}"
+                f"      recall {_score(metrics.expanded_recall)}   (after section expansion)"
+            )
+        summary += [
+            f"cited references   {_score(metrics.reference_citation_rate)}"
+            f"      markers in context {_score(metrics.citation_validity)}",
+            "  (an answer citing a further relevant article is not penalised; whether a"
+            " citation supports its claim is the judge's to score)",
             f"gate refusal rate  {_score(metrics.gate_refusal_rate)}"
             f"      false refusals {metrics.false_refusals}"
             f"   over a found reference {metrics.gate_refused_a_found_reference}",

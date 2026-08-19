@@ -1,9 +1,8 @@
 """Chat graph: retrieve corpus context, then synthesize a cited answer — or refuse,
 before any model call, a question the corpus does not cover."""
 
-from typing import Any
-
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages.ai import UsageMetadata
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -55,7 +54,7 @@ async def retrieve(state: ChatState) -> dict[str, tuple[RetrievedChunk, ...]]:
 
 @llm_retry
 @wrap_provider_errors("chat call")
-async def synthesize(state: ChatState) -> dict[str, Any]:
+async def synthesize(state: ChatState) -> dict[str, str | UsageMetadata | None]:
     """One streamed model call answering from the context with [n] citations.
 
     A transient provider failure is retried like embed and rerank; one that strikes

@@ -40,7 +40,6 @@ def case_result(case: EvalCase | None = None, **overrides: Any) -> CaseResult:
         "sources": (retrieved_chunk(),),
         "answer": "The limit applies [1].",
         "retrieve_ms": 100,
-        "synthesize_ms": 900,
         "total_ms": 1000,
         "input_tokens": 1200,
         "output_tokens": 180,

@@ -4,7 +4,8 @@ from app.chat.prompts import REFUSAL_ANSWER
 from app.evals.metrics import (
     find_cited_markers,
     is_gate_refusal,
-    score_citation_precision,
+    score_citation_validity,
+    score_reference_citation_rate,
     score_reference_recall,
 )
 from app.retrieval.models import ReferenceTarget
@@ -43,6 +44,24 @@ def test_recall_matches_an_annex_target_that_has_no_article() -> None:
     assert score_reference_recall((ANNEX_IV,), (chunk,)) == 1.0
 
 
+def test_an_unnumbered_annex_does_not_match_a_chunk_outside_every_annex() -> None:
+    """Locator documents "" as the act's one unnumbered annex — a different fact from None,
+    which no truthiness test may fold together."""
+    unnumbered = ReferenceTarget(celex="32023R1805", annex="")
+    outside = retrieved_chunk(article=None, annex=None, citation="Preamble")
+
+    assert score_reference_recall((unnumbered,), (outside,)) == 0.0
+    assert score_reference_recall((unnumbered,), (retrieved_chunk(article=None, annex=""),)) == 1.0
+
+
+def test_recall_compares_an_annex_exactly_as_follow_does() -> None:
+    """`follow._targeted` case-folds the article but matches the annex exactly, so scoring
+    must too — otherwise `check` calls a reference stale that `run` calls recalled."""
+    chunk = retrieved_chunk(article=None, annex="iv", citation="Annex iv")
+
+    assert score_reference_recall((ANNEX_IV,), (chunk,)) == 0.0
+
+
 def test_recall_does_not_match_the_right_division_of_another_act() -> None:
     chunk = retrieved_chunk(celex="32015R0757", article="4")
 
@@ -61,27 +80,47 @@ def test_no_markers_when_the_answer_cites_nothing() -> None:
     assert find_cited_markers(REFUSAL_ANSWER) == ()
 
 
-def test_citation_precision_is_one_when_every_cited_block_is_gold() -> None:
+def test_every_authored_reference_cited_scores_one() -> None:
     sources = (retrieved_chunk(),)
 
-    assert score_citation_precision("Half of it [1].", sources, (ARTICLE_4,)) == 1.0
+    assert score_reference_citation_rate("Half of it [1].", sources, (ARTICLE_4,)) == 1.0
 
 
-def test_citation_precision_is_the_share_of_cited_blocks_that_are_gold() -> None:
+def test_citing_a_further_relevant_article_is_not_penalised() -> None:
+    """The authored set names the references an answer must lean on, not every chunk that
+    may support it, so an extra citation must not read as a wrong one."""
     sources = (retrieved_chunk(), retrieved_chunk(id=2, article="99", citation="Article 99"))
 
-    assert score_citation_precision("Both [1][2].", sources, (ARTICLE_4,)) == 0.5
+    assert score_reference_citation_rate("Both [1][2].", sources, (ARTICLE_4,)) == 1.0
 
 
-def test_a_marker_past_the_end_of_the_context_counts_against_precision() -> None:
+def test_the_reference_citation_rate_is_the_share_of_authored_references_cited() -> None:
+    sources = (retrieved_chunk(), retrieved_chunk(id=2, article="20", citation="Article 20"))
+
+    assert score_reference_citation_rate("One [1].", sources, (ARTICLE_4, ARTICLE_20)) == 0.5
+
+
+def test_an_answer_citing_none_of_the_authored_references_scores_zero() -> None:
+    sources = (retrieved_chunk(id=2, article="99", citation="Article 99"),)
+
+    assert score_reference_citation_rate("Elsewhere [1].", sources, (ARTICLE_4,)) == 0.0
+
+
+def test_the_reference_citation_rate_is_unmeasured_when_a_case_names_no_reference() -> None:
+    assert score_reference_citation_rate("Anything [1].", (retrieved_chunk(),), ()) is None
+
+
+def test_validity_is_one_when_every_marker_addresses_a_given_block() -> None:
+    assert score_citation_validity("Half of it [1].", (retrieved_chunk(),)) == 1.0
+
+
+def test_a_marker_past_the_end_of_the_context_counts_against_validity() -> None:
     """The model cited a block it was never given, so the citation is wrong, not skipped."""
-    sources = (retrieved_chunk(),)
-
-    assert score_citation_precision("Claims [1] and [7].", sources, (ARTICLE_4,)) == 0.5
+    assert score_citation_validity("Claims [1] and [7].", (retrieved_chunk(),)) == 0.5
 
 
-def test_citation_precision_is_unmeasured_when_the_answer_cites_nothing() -> None:
-    assert score_citation_precision("No markers here.", (retrieved_chunk(),), (ARTICLE_4,)) is None
+def test_citation_validity_is_unmeasured_when_the_answer_cites_nothing() -> None:
+    assert score_citation_validity("No markers here.", (retrieved_chunk(),)) is None
 
 
 def test_only_the_fixed_wording_marks_a_gate_refusal() -> None:
