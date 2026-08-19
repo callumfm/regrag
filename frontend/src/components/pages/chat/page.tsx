@@ -78,6 +78,7 @@ export function ChatPage() {
 										>
 											<ChatTurn
 												turn={turn}
+												isBusy={isBusy}
 												onOpenMarker={handlers.onOpenMarker}
 												onRetry={handlers.onRetry}
 											/>

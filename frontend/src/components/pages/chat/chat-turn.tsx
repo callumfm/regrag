@@ -9,10 +9,12 @@ import { CitedSourcesLine } from "./cited-sources-line"
 
 export const ChatTurn = memo(function ChatTurn({
 	turn,
+	isBusy,
 	onOpenMarker,
 	onRetry,
 }: {
 	turn: Turn
+	isBusy: boolean
 	onOpenMarker: (marker: number) => void
 	onRetry: () => void
 }) {
@@ -40,6 +42,7 @@ export const ChatTurn = memo(function ChatTurn({
 								variant="outline"
 								size="sm"
 								className="mt-2"
+								disabled={isBusy}
 								onClick={onRetry}
 							>
 								Retry
