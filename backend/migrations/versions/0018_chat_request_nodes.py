@@ -21,10 +21,8 @@ INDEX_NAME = "ix_chat_request_nodes_chat_request_id"
 
 
 def upgrade() -> None:
-    """The path a request took as rows — one per node, in order, with its time and tokens —
-    which outcome alone cannot carry once a tool loop makes the path variable, in place of
-    two hand-picked timings on the request; and what a failed request failed with, beside
-    the outcome that says only that it did."""
+    """A row per node a request ran through, with its time and tokens, and an error column
+    on the request; the per-stage timings on the request go."""
     op.create_table(
         "chat_request_nodes",
         sa.Column("id", sa.Integer(), nullable=False),

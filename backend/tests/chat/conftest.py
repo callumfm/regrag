@@ -83,7 +83,7 @@ def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def recorded_requests(monkeypatch: pytest.MonkeyPatch) -> list[ChatState]:
     """Capture the state stream_chat_events hands to create_chat_request, and give it no session
-    to hand over: the write is covered in test_recording, so no streaming test needs the
+    to hand over: the write is covered in test_service, so no streaming test needs the
     database."""
     states: list[ChatState] = []
 

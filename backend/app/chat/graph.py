@@ -19,7 +19,7 @@ from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import llm_retry, wrap_provider_errors
 from app.retrieval.expand import expand_sections
-from app.retrieval.models import RetrievedChunk, SearchRequest
+from app.retrieval.models import SearchRequest
 from app.retrieval.search import search
 from app.retrieval.thresholds import meets_thresholds
 
@@ -43,7 +43,8 @@ def traced(run: NodeFn) -> NodeFn:
         start = time.perf_counter()
         update = await run(state)
         usage = update.pop("usage", None)
-        return update | {"nodes": (ChatNodeResult(node=node, ms=elapsed_ms(start), usage=usage),)}
+        result = ChatNodeResult.from_usage(node, elapsed_ms(start), usage)
+        return update | {"nodes": (result,)}
 
     return traced_run
 
@@ -53,6 +54,8 @@ def chat_model() -> ChatLiteLLM:
 
     Streaming is set, or litellm answers in one blocking call — even under the graph's
     messages stream — and the SSE stream carries the whole answer in a single token event.
+    Usage is asked for, or litellm strips it from every streamed chunk and the run's
+    tokens are never reported for a non-OpenAI model.
     """
     return ChatLiteLLM(
         model=config.CHAT_MODEL,
@@ -60,6 +63,7 @@ def chat_model() -> ChatLiteLLM:
         max_tokens=config.CHAT_MAX_TOKENS,
         request_timeout=config.CHAT_TIMEOUT,
         streaming=True,
+        stream_options={"include_usage": True},
     )
 
 
@@ -70,11 +74,11 @@ async def retrieve(state: ChatState) -> dict[str, Any]:
     cover the question: that empties the context, and the graph refuses instead."""
     async with get_session(auto_commit=False) as session:
         hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
-        sources: tuple[RetrievedChunk, ...] = ()
-        if meets_thresholds(hits):
-            sources = hits
-            if config.EXPAND_SECTIONS:
-                sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
+        if not meets_thresholds(hits):
+            return {"sources": ()}
+        sources = hits
+        if config.EXPAND_SECTIONS:
+            sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
     return {"sources": sources}
 
 

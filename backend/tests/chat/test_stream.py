@@ -7,11 +7,11 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from app.chat.enums import ChatNode, ChatOutcome
-from app.chat.models import DoneEvent, SourcesEvent, TextEvent
+from app.chat.models import DoneEvent, ErrorEvent, SourcesEvent, TextEvent
 from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.stream import stream_chat_events
 from app.core.llm import LLMError
-from tests.chat.conftest import USAGE, fake_chat_model
+from tests.chat.conftest import fake_chat_model
 from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
@@ -31,7 +31,8 @@ async def test_finished_stream_records_timings_sources_and_usage(
     assert state.outcome is ChatOutcome.DONE
     retrieve, synthesize = state.nodes
     assert (retrieve.node, synthesize.node) == (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE)
-    assert (retrieve.usage, synthesize.usage) == (None, USAGE)
+    assert (retrieve.input_tokens, retrieve.output_tokens) == (None, None)
+    assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
     assert len(state.sources) == 2
     assert state.total_ms is not None
     assert 0 <= sum(result.ms for result in state.nodes) <= state.total_ms
@@ -53,6 +54,25 @@ async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_reque
     assert state.nodes == ()
     assert state.sources == ()
     assert state.token_totals() == (None, None)
+
+
+async def test_unexpected_failure_is_recorded_by_its_type_and_sent_as_the_generic_error(
+    monkeypatch, recorded_requests
+):
+    """The wire says only that something went wrong; the ledger keeps what did."""
+
+    async def exploding_search(session, request):
+        raise RuntimeError("pool exhausted")
+
+    monkeypatch.setattr("app.chat.graph.search", exploding_search)
+
+    events = [event async for event in stream_chat_events("q")]
+
+    assert isinstance(events[-1], ErrorEvent)
+    assert events[-1].data.message == "An unexpected error occurred"
+    [state] = recorded_requests
+    assert state.outcome is ChatOutcome.ERROR
+    assert state.error == "RuntimeError"
 
 
 async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded_requests):

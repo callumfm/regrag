@@ -18,12 +18,25 @@ class ChatQuery(AppModel):
 
 
 class ChatNodeResult(FrozenModel):
-    """One step of the path: the node, how long it took, and the usage it reported if it
-    called a model."""
+    """One step of the path: the node, how long it took, and the tokens it used if it
+    called a model — the shape the ledger persists per node."""
 
     node: ChatNode
     ms: int
-    usage: UsageMetadata | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+    @classmethod
+    def from_usage(cls, node: ChatNode, ms: int, usage: UsageMetadata | None) -> "ChatNodeResult":
+        """The result of a node that reported usage, or none."""
+        if usage is None:
+            return cls(node=node, ms=ms)
+        return cls(
+            node=node,
+            ms=ms,
+            input_tokens=usage["input_tokens"],
+            output_tokens=usage["output_tokens"],
+        )
 
 
 class ChatState(AppModel):
@@ -50,16 +63,16 @@ class ChatState(AppModel):
     def token_totals(self) -> tuple[int | None, int | None]:
         """Input and output tokens summed over the nodes that reported usage — what the
         request cost — or None for each when none did."""
-        used = [result.usage for result in self.nodes if result.usage]
-        if not used:
-            return None, None
-        return sum(u["input_tokens"] for u in used), sum(u["output_tokens"] for u in used)
+        inputs = [r.input_tokens for r in self.nodes if r.input_tokens is not None]
+        outputs = [r.output_tokens for r in self.nodes if r.output_tokens is not None]
+        return (sum(inputs) if inputs else None, sum(outputs) if outputs else None)
 
     def refresh(self, snapshot: dict[str, Any]) -> None:
         """The graph's state as it now stands, folded onto this object: the values stream
-        hands back a fresh dict each step, and the record wants one object per run."""
+        hands back a fresh dict each step, and the record wants one object per run. Only
+        the fields the snapshot carries are touched; what the consumer sets stays."""
         fresh = self.model_validate(snapshot)
-        for field in type(self).model_fields:
+        for field in snapshot:
             setattr(self, field, getattr(fresh, field))
 
     def log_fields(self) -> dict[str, Any]:

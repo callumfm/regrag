@@ -3,7 +3,7 @@
 import logging
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat import service
@@ -25,12 +25,17 @@ def answered_state() -> ChatState:
         question="What must ships report?",
         nodes=(
             ChatNodeResult(node=ChatNode.RETRIEVE, ms=120),
-            ChatNodeResult(node=ChatNode.SYNTHESIZE, ms=1300, usage=USAGE),
+            ChatNodeResult.from_usage(ChatNode.SYNTHESIZE, 1300, USAGE),
         ),
         sources=tuple(retrieved_chunk(id=n) for n in range(6)),
         answer="Ships must report [1].",
         total_ms=1500,
     )
+
+
+def node_rows() -> Select[tuple[ChatRequestNode]]:
+    """The node rows in path order — the order the relationship reads them in."""
+    return select(ChatRequestNode).order_by(ChatRequestNode.position)
 
 
 def stats_lines(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
@@ -63,7 +68,7 @@ async def test_recorded_row_reads_the_stats_and_the_request_context(
     assert row.created_at is not None
     assert len(stats_lines(caplog)) == 1
 
-    nodes = (await db_session.scalars(select(ChatRequestNode))).all()
+    nodes = (await db_session.scalars(node_rows())).all()
     assert [(n.chat_request_id, n.position, n.node, n.ms) for n in nodes] == [
         (row.id, 0, "retrieve", 120),
         (row.id, 1, "synthesize", 1300),
@@ -89,15 +94,14 @@ async def test_log_line_carries_the_stats_but_not_the_content(db_session: AsyncS
     await create_chat_request(db_session, answered_state())
 
     [record] = stats_lines(caplog)
-    message = record.getMessage()
-    assert message.startswith("chat {")
-    assert "'outcome': 'done'" in message
-    assert "'nodes': [{'node': 'retrieve', 'ms': 120, 'usage': None}, " in message
-    assert "'sources': 6" in message
-    assert "Ships must report" not in message
-    assert "What must ships report" not in message
+    assert record.getMessage() == "chat done in 1500ms"
     assert record.__dict__["outcome"] == "done"
-    assert record.__dict__["nodes"][1]["usage"]["input_tokens"] == 1500
+    assert record.__dict__["sources"] == 6
+    assert record.__dict__["nodes"] == [
+        {"node": "retrieve", "ms": 120, "input_tokens": None, "output_tokens": None},
+        {"node": "synthesize", "ms": 1300, "input_tokens": 1500, "output_tokens": 40},
+    ]
+    assert "question" not in record.__dict__
     assert "answer" not in record.__dict__
 
 
@@ -116,6 +120,6 @@ async def test_a_refused_request_is_recorded_as_such(db_session: AsyncSession, c
     [row] = (await db_session.scalars(select(ChatRequest))).all()
     assert row.outcome is ChatOutcome.REFUSED
     assert (row.sources, row.input_tokens) == (0, None)
-    nodes = (await db_session.scalars(select(ChatRequestNode))).all()
+    nodes = (await db_session.scalars(node_rows())).all()
     assert [(n.node, n.ms) for n in nodes] == [("retrieve", 90), ("refuse", 0)]
-    assert "'outcome': 'refused'" in stats_lines(caplog)[0].getMessage()
+    assert stats_lines(caplog)[0].getMessage() == "chat refused in 95ms"

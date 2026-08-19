@@ -16,15 +16,15 @@ logger = logging.getLogger(__name__)
 async def create_chat_request(session: AsyncSession, state: ChatState) -> None:
     """The run as recorded: one stats line, and a chat_requests row with a row per node."""
     fields = state.log_fields()
-    logger.info("chat %s", fields, extra=fields)
+    logger.info("chat %(outcome)s in %(total_ms)sms", fields, extra=fields)
     input_tokens, output_tokens = state.token_totals()
     nodes = [
         ChatRequestNode(
             position=idx,
             node=result.node.value,
             ms=result.ms,
-            input_tokens=result.usage["input_tokens"] if result.usage else None,
-            output_tokens=result.usage["output_tokens"] if result.usage else None,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
         )
         for idx, result in enumerate(state.nodes)
     ]

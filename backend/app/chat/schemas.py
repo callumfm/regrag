@@ -9,9 +9,8 @@ from app.core.db.schema import BaseSchema
 
 
 class ChatRequest(BaseSchema):
-    """One handled question: how it ended, how long it lived, what it cost, and what failed.
-    A spend cap sums tokens over a recent window; the index keeps that off a full scan.
-    The path it took, node by node, is in chat_request_nodes."""
+    """One handled question: how it ended, how long it lived, what it cost, and what failed;
+    its path, node by node, is in chat_request_nodes. The index serves the spend cap's window."""
 
     __tablename__ = "chat_requests"
     __table_args__ = (Index("ix_chat_requests_created_at", "created_at"),)
@@ -34,8 +33,7 @@ class ChatRequest(BaseSchema):
 
 class ChatRequestNode(BaseSchema):
     """One step of a request's path: which node, in what order, how long it took, and the
-    tokens it used if it called a model. The node is a plain string: names will grow with
-    tools, and a String column takes new ones without a migration."""
+    tokens it used if it called a model."""
 
     __tablename__ = "chat_request_nodes"
 
