@@ -1,16 +1,20 @@
+import { memo } from 'react'
 import { Answer } from '@/components/chat/answer'
 import { CitedSourcesLine } from '@/components/chat/cited-sources-line'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
+import { Button } from '@/components/ui/button'
 import { Message, MessageContent } from '@/components/ui/message'
 import type { ChatTurn as Turn } from '@/lib/chat/use-chat-stream'
 
-export function ChatTurn({
+export const ChatTurn = memo(function ChatTurn({
 	turn,
 	onOpenMarker,
+	onRetry,
 }: {
 	turn: Turn
 	onOpenMarker: (marker: number) => void
+	onRetry: () => void
 }) {
 	return (
 		<div className="flex flex-col gap-4">
@@ -32,6 +36,14 @@ export function ChatTurn({
 						<Alert variant="destructive">
 							<AlertTitle>Request failed</AlertTitle>
 							<AlertDescription>{turn.error}</AlertDescription>
+							<Button
+								variant="outline"
+								size="sm"
+								className="mt-2"
+								onClick={onRetry}
+							>
+								Retry
+							</Button>
 						</Alert>
 					) : (
 						<>
@@ -49,4 +61,4 @@ export function ChatTurn({
 			</Message>
 		</div>
 	)
-}
+})

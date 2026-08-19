@@ -76,3 +76,36 @@ test('a citation chip in an earlier turn opens that turn’s own source, not the
 	expect(await screen.findByText(TURN_1_SOURCE.text)).toBeInTheDocument()
 	expect(screen.queryByText(TURN_2_SOURCE.text)).toBeNull()
 })
+
+test('retrying a failed turn re-asks its question and can succeed', async () => {
+	vi.stubGlobal(
+		'fetch',
+		vi
+			.fn()
+			.mockResolvedValueOnce({
+				ok: false,
+				status: 500,
+				json: async () => ({
+					error: 'llm_error',
+					message: 'The model is unavailable right now.',
+					request_id: 'r1',
+				}),
+			})
+			.mockResolvedValueOnce(sseResponse(TURN_1_SOURCE, 'First answer [1].')),
+	)
+
+	render(<Chat />)
+
+	ask('What is FuelEU?')
+	expect(
+		await screen.findByText('The model is unavailable right now.'),
+	).toBeInTheDocument()
+
+	fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+	expect(await screen.findByText(/First answer/)).toBeInTheDocument()
+	expect(
+		screen.getByText('The model is unavailable right now.'),
+	).toBeInTheDocument()
+	expect(screen.getAllByText('What is FuelEU?')).toHaveLength(2)
+})

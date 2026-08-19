@@ -21,6 +21,7 @@ export function SourcePanel({
 				if (!open) onClose()
 			}}
 			swipeDirection="right"
+			modal={false}
 		>
 			<DrawerContent>
 				<DrawerHeader>
