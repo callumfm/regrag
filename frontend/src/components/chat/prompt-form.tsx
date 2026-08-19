@@ -31,6 +31,7 @@ export function PromptForm({
 				value={question}
 				onChange={(event) => setQuestion(event.target.value)}
 				onKeyDown={(event) => {
+					if (isBusy) return
 					if (event.key === 'Enter' && !event.shiftKey) submit(event)
 				}}
 				placeholder="Ask about EU regulation…"

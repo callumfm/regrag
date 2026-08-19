@@ -28,3 +28,31 @@ test('offers stop instead of send while streaming', () => {
 	expect(onStop).toHaveBeenCalled()
 	expect(screen.queryByRole('button', { name: 'Send' })).toBeNull()
 })
+
+test('Enter submits the trimmed question and clears the box', () => {
+	const onSubmit = vi.fn()
+	render(<PromptForm isBusy={false} onSubmit={onSubmit} onStop={noop} />)
+	const box = screen.getByRole('textbox')
+	fireEvent.change(box, { target: { value: '  What is FuelEU?  ' } })
+	fireEvent.keyDown(box, { key: 'Enter', shiftKey: false })
+	expect(onSubmit).toHaveBeenCalledWith('What is FuelEU?')
+	expect(box).toHaveValue('')
+})
+
+test('Enter while streaming does not submit', () => {
+	const onSubmit = vi.fn()
+	render(<PromptForm isBusy={true} onSubmit={onSubmit} onStop={noop} />)
+	const box = screen.getByRole('textbox')
+	fireEvent.change(box, { target: { value: 'What is FuelEU?' } })
+	fireEvent.keyDown(box, { key: 'Enter', shiftKey: false })
+	expect(onSubmit).not.toHaveBeenCalled()
+})
+
+test('Shift+Enter does not submit', () => {
+	const onSubmit = vi.fn()
+	render(<PromptForm isBusy={false} onSubmit={onSubmit} onStop={noop} />)
+	const box = screen.getByRole('textbox')
+	fireEvent.change(box, { target: { value: 'What is FuelEU?' } })
+	fireEvent.keyDown(box, { key: 'Enter', shiftKey: true })
+	expect(onSubmit).not.toHaveBeenCalled()
+})
