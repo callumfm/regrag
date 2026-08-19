@@ -3,11 +3,11 @@
 import pytest
 
 from app.evals import cli
-from app.evals.cli import main
+from app.evals.cli import format_case_lines, main
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalRun, RunSettings, UnresolvedReference
 from app.retrieval.models import ReferenceTarget
-from tests.evals.conftest import eval_case, eval_result
+from tests.evals.conftest import eval_case, eval_result, refused_result
 
 
 @pytest.fixture
@@ -86,3 +86,58 @@ def test_run_exits_nonzero_when_a_case_raised(fake_run, capsys):
 def test_run_exits_nonzero_when_no_case_matches_the_pattern(fake_run, capsys):
     assert main(["run", "--case", "nothing-here"]) == 1
     assert "nothing-here" in capsys.readouterr().out
+
+
+# The per-case lines --verbose adds
+
+
+def test_a_case_line_shows_what_it_retrieved_what_it_cited_and_how_it_ended():
+    [line] = format_case_lines((eval_result(),))
+
+    assert line.startswith("case")
+    assert "raw 1.00" in line
+    assert "exp 1.00" in line
+    assert "cite 1.00" in line
+    assert "done" in line
+    assert "1000ms" in line
+
+
+def test_a_case_with_nothing_to_recall_prints_dashes_rather_than_zeroes():
+    """An out-of-corpus case authors no reference, so its recall is unmeasured; a 0.00
+    would read as a retrieval failure on a case that has nothing to retrieve."""
+    [line] = format_case_lines((refused_result(),))
+
+    assert "raw    -" in line
+    assert "cite    -" in line
+    assert "refused" in line
+
+
+def test_a_case_the_graph_raised_on_scores_nothing_and_is_named_with_its_error():
+    """The aggregate leaves an errored case out, so its line must not show scores either."""
+    [line] = format_case_lines((eval_result(eval_case(id="boom"), error="TimeoutError"),))
+
+    assert line.startswith("boom")
+    assert "raw    -" in line
+    assert "error" in line
+    assert line.rstrip().endswith("TimeoutError")
+
+
+def test_the_case_column_is_sized_to_the_longest_id_in_the_run():
+    """The ids run from 13 to 44 characters, so a fixed column either wraps or wastes."""
+    lines = format_case_lines(
+        (eval_result(eval_case(id="short")), eval_result(eval_case(id="a" * 40)))
+    )
+
+    assert [line.index("raw") for line in lines] == [42, 42]
+
+
+def test_run_lists_every_case_only_when_asked(fake_run, capsys):
+    fake_run.append(eval_result())
+
+    assert main(["run"]) == 0
+    assert "raw 1.00" not in capsys.readouterr().out
+
+    assert main(["run", "--verbose"]) == 0
+    out = capsys.readouterr().out
+    assert "raw 1.00" in out
+    assert '"raw_recall": 1.0' in out
