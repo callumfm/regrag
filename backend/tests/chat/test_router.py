@@ -1,6 +1,7 @@
 """Chat SSE endpoint: event ordering, payload shapes, and the error path."""
 
 import json
+from typing import Any
 
 import httpx
 
@@ -10,9 +11,9 @@ from tests.chat.conftest import THINKING, fake_chat_model, reasoning_chat_model
 from tests.conftest import search_result
 
 
-def read_events(response: httpx.Response) -> list[tuple[str, dict]]:
+def read_events(response: httpx.Response) -> list[tuple[str, Any]]:
     """Parse the SSE body into (event, payload) pairs, ignoring pings."""
-    events: list[tuple[str, dict]] = []
+    events: list[tuple[str, Any]] = []
     name = None
     for line in response.iter_lines():
         if line.startswith("event:"):
@@ -23,7 +24,7 @@ def read_events(response: httpx.Response) -> list[tuple[str, dict]]:
     return events
 
 
-def test_stream_orders_sources_then_tokens_then_done(client, two_results, monkeypatch):
+def test_stream_orders_sources_then_text_then_done(client, two_results, monkeypatch):
     model = fake_chat_model("Two words [1].")
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
 
@@ -35,8 +36,8 @@ def test_stream_orders_sources_then_tokens_then_done(client, two_results, monkey
     names = [name for name, _ in events]
     assert names[0] == "sources"
     assert names[-1] == "done"
-    assert set(names[1:-1]) == {"token"}
-    answer = "".join(payload["text"] for name, payload in events if name == "token")
+    assert set(names[1:-1]) == {"text"}
+    answer = "".join(payload for name, payload in events if name == "text")
     assert answer == "Two words [1]."
 
 
@@ -46,7 +47,7 @@ def test_block_list_content_streams_text_without_reasoning(client, two_results, 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
 
-    answer = "".join(payload["text"] for name, payload in events if name == "token")
+    answer = "".join(payload for name, payload in events if name == "text")
     assert answer == "Ships must comply [1]."
     assert THINKING not in json.dumps(events)
 
@@ -133,10 +134,10 @@ def test_the_frames_are_documented_as_an_event_stream(client):
     assert media_type == "text/event-stream"
     schema = content[media_type]["schema"]
     assert schema["discriminator"]["propertyName"] == "event"
-    assert schema["discriminator"]["mapping"]["token"] == "#/components/schemas/TokenEvent"
-    token_event = spec["components"]["schemas"]["TokenEvent"]
-    assert token_event["properties"]["event"]["const"] == "token"
-    assert set(token_event["required"]) == {"event", "data"}
+    assert schema["discriminator"]["mapping"]["text"] == "#/components/schemas/TextEvent"
+    text_event = spec["components"]["schemas"]["TextEvent"]
+    assert text_event["properties"]["event"]["const"] == "text"
+    assert set(text_event["required"]) == {"event", "data"}
 
 
 def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
@@ -152,7 +153,7 @@ def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
 
     assert events == [
         ("sources", []),
-        ("token", {"text": REFUSAL_ANSWER}),
+        ("text", REFUSAL_ANSWER),
         ("done", {}),
     ]
     assert model.received == []

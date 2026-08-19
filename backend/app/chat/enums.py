@@ -12,10 +12,10 @@ class ChatNode(StrEnum):
 
 
 class ChatEventName(StrEnum):
-    """The SSE event names a chat stream carries."""
+    """The events a chat stream carries, as the SSE frames name them."""
 
     SOURCES = "sources"
-    TOKEN = "token"
+    TEXT = "text"
     DONE = "done"
     ERROR = "error"
 

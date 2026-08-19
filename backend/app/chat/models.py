@@ -1,10 +1,12 @@
 """Chat query, graph state and SSE event values."""
 
+import operator
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field
+from langchain_core.messages.ai import UsageMetadata
+from pydantic import ConfigDict, Field, computed_field
 
-from app.chat.enums import ChatEventName
+from app.chat.enums import ChatEventName, ChatNode, ChatOutcome
 from app.core.models import AppModel, ErrorResponse, FrozenModel
 from app.retrieval.models import RetrievedChunk
 
@@ -15,12 +17,82 @@ class ChatQuery(AppModel):
     question: str = Field(min_length=1, max_length=2000)
 
 
+class ChatNodeResult(FrozenModel):
+    """One step of the path: the node, how long it took, and the tokens it used if it
+    called a model — the shape the ledger persists per node."""
+
+    node: ChatNode
+    ms: int
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+    @classmethod
+    def from_usage(cls, node: ChatNode, ms: int, usage: UsageMetadata | None) -> "ChatNodeResult":
+        """The result of a node that reported usage, or none."""
+        if usage is None:
+            return cls(node=node, ms=ms)
+        return cls(
+            node=node,
+            ms=ms,
+            input_tokens=usage["input_tokens"],
+            output_tokens=usage["output_tokens"],
+        )
+
+
 class ChatState(AppModel):
-    """What flows through the graph for one question."""
+    """Everything one question produced: what the graph accumulates as it runs, then what
+    only the stream's consumer knows once it ends — how long the request lived, and an error.
+
+    nodes: the path taken, each node appending its result as it returns; a sequence, since a
+    tool loop will visit a node more than once.
+    sources: the context blocks that reached the prompt, which the [n] markers number.
+    """
 
     question: str
+    nodes: Annotated[tuple[ChatNodeResult, ...], operator.add] = ()
     sources: tuple[RetrievedChunk, ...] = ()
     answer: str = ""
+    total_ms: int | None = None
+    error: str | None = None
+
+    @property
+    def last_node(self) -> ChatNode | None:
+        """The node that just returned — what a values step announces — or None before any."""
+        return self.nodes[-1].node if self.nodes else None
+
+    def token_totals(self) -> tuple[int | None, int | None]:
+        """Input and output tokens summed over the nodes that reported usage — what the
+        request cost — or None for each when none did."""
+        inputs = [r.input_tokens for r in self.nodes if r.input_tokens is not None]
+        outputs = [r.output_tokens for r in self.nodes if r.output_tokens is not None]
+        return (sum(inputs) if inputs else None, sum(outputs) if outputs else None)
+
+    def refresh(self, snapshot: dict[str, Any]) -> None:
+        """The graph's state as it now stands, folded onto this object: the values stream
+        hands back a fresh dict each step, and the record wants one object per run. Only
+        the fields the snapshot carries are touched; what the consumer sets stays."""
+        fresh = self.model_validate(snapshot)
+        for field in snapshot:
+            setattr(self, field, getattr(fresh, field))
+
+    def log_fields(self) -> dict[str, Any]:
+        """The run as the stats line logs it: everything but the content."""
+        fields = self.model_dump(mode="json", exclude={"question", "sources", "answer"})
+        return fields | {"sources": len(self.sources)}
+
+    @computed_field
+    @property
+    def outcome(self) -> ChatOutcome:
+        """How the run ended, read off the path and the error: a stream that raised, one
+        the gate refused, one that answered, or one the client left before either."""
+        visited = {result.node for result in self.nodes}
+        if self.error:
+            return ChatOutcome.ERROR
+        if ChatNode.REFUSE in visited:
+            return ChatOutcome.REFUSED
+        if ChatNode.SYNTHESIZE in visited:
+            return ChatOutcome.DONE
+        return ChatOutcome.ABORTED
 
 
 class ChatSource(FrozenModel):
@@ -46,17 +118,14 @@ class ChatSource(FrozenModel):
         )
 
 
-class ChatToken(FrozenModel):
-    """One fragment of the answer as the model streams it; the token event's payload."""
-
-    text: str
-
-
 class ChatEventBase(FrozenModel):
-    """One frame of the stream: a fixed event name to narrow on, and that event's data.
-    The name is defaulted per event but always sent, so the schema marks it required."""
+    """One frame of the stream: which event, and that event's data. Each event narrows
+    `event` to its own name — what the union discriminates on — defaulted but always sent,
+    so the schema marks it required."""
 
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    event: ChatEventName
 
 
 class SourcesEvent(ChatEventBase):
@@ -76,11 +145,11 @@ class SourcesEvent(ChatEventBase):
         )
 
 
-class TokenEvent(ChatEventBase):
-    """One fragment of the streamed answer."""
+class TextEvent(ChatEventBase):
+    """One fragment of the answer's text, as the model streams it — or the whole refusal."""
 
-    event: Literal[ChatEventName.TOKEN] = ChatEventName.TOKEN
-    data: ChatToken
+    event: Literal[ChatEventName.TEXT] = ChatEventName.TEXT
+    data: str
 
 
 class DoneEvent(ChatEventBase):
@@ -98,6 +167,6 @@ class ErrorEvent(ChatEventBase):
 
 
 ChatEvent = Annotated[
-    SourcesEvent | TokenEvent | DoneEvent | ErrorEvent, Field(discriminator="event")
+    SourcesEvent | TextEvent | DoneEvent | ErrorEvent, Field(discriminator="event")
 ]
 """Every frame a chat stream carries, told apart by its event name."""

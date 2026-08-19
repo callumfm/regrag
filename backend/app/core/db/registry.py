@@ -3,7 +3,7 @@
 Add new capability schemas here; the guard test fails if one is missing.
 """
 
-from app.chat.observability.schemas import ChatRequest
+from app.chat.schemas import ChatRequest
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.fetch.schemas import RawDocument
 from app.ingestion.schemas import IngestRun
