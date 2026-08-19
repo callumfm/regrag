@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { fetchHealth } from '@/lib/api'
 
 export function HomePage() {
@@ -13,6 +14,9 @@ export function HomePage() {
 				{health.data &&
 					`Backend ${health.data.status} — v${health.data.version}`}
 			</p>
+			<Link to="/chat" className="text-sm underline underline-offset-4">
+				Open chat
+			</Link>
 		</main>
 	)
 }
