@@ -143,6 +143,14 @@ async def test_an_annex_comes_back_in_document_order(
     assert [order[chunk.id] for chunk in found] == sorted(order.values())
 
 
+async def test_a_followed_annex_chunk_carries_its_annex(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    found = await follow_reference(db_session, ReferenceTarget(celex="32015R0757", annex="I"))
+
+    assert {chunk.annex for chunk in found} == {"I"}
+
+
 async def test_an_annex_a_single_annex_act_left_unnumbered_is_still_addressable(
     db_session: AsyncSession,
     corpus: list[DocumentChunk],

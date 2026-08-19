@@ -73,6 +73,7 @@ class RetrievedChunk(FrozenModel):
     topic: str
     citation: str
     article: str | None
+    annex: str | None = None
     title: str | None
     text: str
     references: tuple[Reference, ...] = ()

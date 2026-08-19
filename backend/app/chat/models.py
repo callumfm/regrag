@@ -7,8 +7,9 @@ from langchain_core.messages.ai import UsageMetadata
 from pydantic import ConfigDict, Field, computed_field
 
 from app.chat.enums import ChatEventName, ChatNode, ChatOutcome
+from app.core.exceptions import DomainError
 from app.core.models import AppModel, ErrorResponse, FrozenModel
-from app.retrieval.models import RetrievedChunk
+from app.retrieval.models import RetrievedChunk, SearchResult
 
 
 class ChatQuery(AppModel):
@@ -45,11 +46,13 @@ class ChatState(AppModel):
 
     nodes: the path taken, each node appending its result as it returns; a sequence, since a
     tool loop will visit a node more than once.
+    hits: what search returned, before the gate and before expansion, kept through a refusal.
     sources: the context blocks that reached the prompt, which the [n] markers number.
     """
 
     question: str
     nodes: Annotated[tuple[ChatNodeResult, ...], operator.add] = ()
+    hits: tuple[SearchResult, ...] = ()
     sources: tuple[RetrievedChunk, ...] = ()
     answer: str = ""
     total_ms: int | None = None
@@ -75,10 +78,15 @@ class ChatState(AppModel):
         for field in snapshot:
             setattr(self, field, getattr(fresh, field))
 
+    def record_error(self, exc: Exception) -> None:
+        """The run as failed: named by a DomainError's message, or the type of an unexpected
+        one — what the ledger keeps, while the wire says only that something went wrong."""
+        self.error = exc.message if isinstance(exc, DomainError) else type(exc).__name__
+
     def log_fields(self) -> dict[str, Any]:
         """The run as the stats line logs it: everything but the content."""
-        fields = self.model_dump(mode="json", exclude={"question", "sources", "answer"})
-        return fields | {"sources": len(self.sources)}
+        fields = self.model_dump(mode="json", exclude={"question", "hits", "sources", "answer"})
+        return fields | {"hits": len(self.hits), "sources": len(self.sources)}
 
     @computed_field
     @property

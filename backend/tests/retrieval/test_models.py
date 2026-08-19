@@ -63,6 +63,13 @@ def test_a_retrieved_chunk_cites_nothing_unless_told_otherwise() -> None:
     assert retrieved_chunk().references == ()
 
 
+def test_a_retrieved_chunk_names_the_annex_it_sits_in() -> None:
+    """An annex reference is matched on celex + annex, so a chunk must carry it as it
+    carries its article; None is a chunk outside every annex."""
+    assert retrieved_chunk(article=None, annex="IV", citation="Annex IV").annex == "IV"
+    assert retrieved_chunk().annex is None
+
+
 def test_a_line_shows_every_signal_then_the_citation() -> None:
     result = search_result(rrf_score=0.0328, cosine_similarity=0.7512, reranker_relevance=0.6)
 

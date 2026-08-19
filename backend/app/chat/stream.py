@@ -28,12 +28,6 @@ from app.core.models import ErrorResponse
 logger = logging.getLogger(__name__)
 
 
-def _error_name(exc: Exception) -> str:
-    """What the ledger records a failed run as: a DomainError's message, or the type of an
-    unexpected one — the wire message says only that something went wrong."""
-    return exc.message if isinstance(exc, DomainError) else type(exc).__name__
-
-
 def _error_event(exc: Exception) -> ErrorEvent:
     """The error event for a failed stream, logged like the JSON handlers log theirs."""
     error, message = describe(exc)
@@ -75,7 +69,7 @@ async def stream_chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
         async for event in _stream_graph_events(state):
             yield event
     except Exception as exc:
-        state.error = _error_name(exc)
+        state.record_error(exc)
         yield _error_event(exc)
     finally:
         state.total_ms = elapsed_ms(start)
