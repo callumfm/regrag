@@ -88,15 +88,8 @@ class UnresolvedReference(FrozenModel):
 
 
 class RunSettings(FrozenModel):
-    """The knobs a run was scored under, so two runs are only compared when comparable.
-
-    Every setting that moves a hit is recorded, not only the chat ones: a rerank switched
-    off or a different embedding model changes every number in the file, and a run that
-    did not record it reads as a corpus regression instead of the config change it was.
-
-    rerank_model and min_reranker_relevance are None when the reranker did not run, so a
-    file never advertises a threshold that never applied.
-    """
+    """Every knob that moves a hit, so two runs are only compared when comparable; the
+    reranker's model and threshold are None when it did not run."""
 
     chat_model: str
     chat_sources: int
@@ -132,9 +125,8 @@ class RunSettings(FrozenModel):
 class CaseResult(FrozenModel):
     """One case driven through the graph: what it retrieved, what it answered, what it cost.
 
-    hits: the raw search results, scored, before the gate and before expansion.
-    sources: the context blocks the answer was given, which its [n] markers number.
-    error: what went wrong, when the graph raised; such a case is counted but not scored.
+    hits: the raw search results, before the gate and before expansion.
+    error: what the graph raised; such a case is counted but not scored.
     """
 
     case: EvalCase
@@ -175,23 +167,18 @@ class CaseResult(FrozenModel):
 
     @property
     def gate_refused(self) -> bool:
-        """Whether the score gate refused before any model call. An answer that declines in
-        the model's own words is not this, and this runner does not try to tell it apart."""
+        """Whether the score gate refused before any model call."""
         return is_gate_refusal(self.answer)
 
     @property
     def refused_a_covered_case(self) -> bool:
-        """An in-corpus case refused although search had already found a gold reference:
-        the score gate set too tight, rather than a corpus that does not cover the question."""
+        """An in-corpus case refused though search had found a reference: the gate too
+        tight, rather than a corpus that does not cover the question."""
         return self.case.kind is EvalKind.IN_CORPUS and self.gate_refused and self.raw_recall > 0
 
     def line(self) -> str:
-        """One case on one line: both recalls, both citation scores, outcome, cost.
-
-        A column holds a dash where there was nothing to score — an errored case, which the
-        run leaves out of its scores, and an out-of-corpus case, which has no reference to
-        recall — so an unmeasured column never reads as a score of zero.
-        """
+        """One case on one line: both recalls, both citation scores, outcome, cost, with a
+        dash where there was nothing to score."""
         recalled = self.case.references and not self.error
         raw = _score(self.raw_recall if recalled else None)
         expanded = _score(self.expanded_recall if recalled else None)
@@ -207,11 +194,8 @@ class CaseResult(FrozenModel):
 
 
 class RunMetrics(FrozenModel):
-    """What a run measured, aggregated over the cases that completed.
-
-    A rate is None when the run held no case it applies to, so an absent kind reads as
-    unmeasured rather than as a score of zero.
-    """
+    """What a run measured over the cases that completed; a rate is None when the run held
+    no case it applies to, which is unmeasured rather than zero."""
 
     cases: int
     in_corpus: int
@@ -233,8 +217,7 @@ class RunMetrics(FrozenModel):
 
     @classmethod
     def from_cases(cls, results: Sequence[CaseResult]) -> "RunMetrics":
-        """Aggregate the completed cases; an errored case counts toward `errors` only, so a
-        provider failure does not read as a retrieval regression."""
+        """Aggregate the completed cases; an errored case counts toward `errors` only."""
         scored = [result for result in results if result.error is None]
         in_corpus = [r for r in scored if r.case.kind is EvalKind.IN_CORPUS]
         out_of_corpus = [r for r in scored if r.case.kind is EvalKind.OUT_OF_CORPUS]
@@ -266,8 +249,7 @@ class RunMetrics(FrozenModel):
 class RunResult(FrozenModel):
     """One eval run: when it ran, which dataset and settings it scored, and every case.
 
-    dataset_sha hashes the whole dataset; case_pattern names the subset actually scored, so
-    a --case run is never mistaken for a full one that happens to assert the same sha.
+    dataset_sha hashes the whole dataset; case_pattern names the subset actually scored.
     """
 
     started_at: datetime
@@ -296,12 +278,7 @@ class RunResult(FrozenModel):
         )
 
     def table(self) -> str:
-        """The per-case rows, then the run's totals.
-
-        The expansion row is printed only when expansion ran: with EXPAND_SECTIONS off the
-        sources are the hits, and a second row would credit a layer that never widened
-        anything for the recall the raw search had already earned.
-        """
+        """The per-case rows, then the run's totals, the expansion row only when it ran."""
         metrics = self.metrics
         scope = f"  cases matching {self.case_pattern!r}" if self.case_pattern else ""
         rows = [result.line() for result in self.results]

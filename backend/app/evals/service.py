@@ -37,12 +37,8 @@ def select_cases(dataset: EvalDataset, pattern: str | None = None) -> tuple[Eval
 
 
 def _failed_case(case: EvalCase, exc: Exception, start: float) -> CaseResult:
-    """A case the graph raised on, logged where the traceback still exists.
-
-    The recorded message keeps the exception's own type and detail: `describe` answers an
-    HTTP client, for whom every unexpected failure is one generic sentence, and a run whose
-    whole purpose is diagnosis is the last place to discard the diagnosis.
-    """
+    """A case the graph raised on, logged where the traceback still exists and recorded
+    with the exception's own type and detail rather than the HTTP summary."""
     if isinstance(exc, DomainError):
         logger.warning("eval case %s failed: %s", case.id, exc.message)
         detail = exc.message
@@ -53,12 +49,8 @@ def _failed_case(case: EvalCase, exc: Exception, start: float) -> CaseResult:
 
 
 async def run_case(case: EvalCase) -> CaseResult:
-    """One case driven through the chat graph, timed as each node's update lands.
-
-    The graph is driven directly rather than through the SSE stream, so a run scores the
-    answer without writing a chat_requests row for every case. Scoring the result is inside
-    the try as well, so a case that cannot even be built costs its own row and not the run.
-    """
+    """One case driven through the chat graph, timed as each node's update lands, and
+    scored inside the try so a case that cannot be built costs its own row."""
     start = time.perf_counter()
     state: dict = {}
     retrieve_ms = 0
@@ -86,11 +78,8 @@ async def run_case(case: EvalCase) -> CaseResult:
 
 
 async def run_dataset(dataset: EvalDataset, pattern: str | None = None) -> RunResult:
-    """Every matching case, one at a time, so a per-case timing measures the case alone.
-
-    The start is stamped before the first case, not after the last, so a result file can be
-    lined up against the logs of the run that wrote it.
-    """
+    """Every matching case, one at a time, so a per-case timing measures the case alone,
+    stamped before the first rather than after the last."""
     started_at = utc_now()
     results = [await run_case(case) for case in select_cases(dataset, pattern)]
     return RunResult.from_results(results, dataset.sha256, started_at, pattern)

@@ -41,11 +41,7 @@ def check() -> int:
 
 
 def result_path(started_at: datetime) -> Path:
-    """Where a run started at this instant writes, kept clear of any file already there.
-
-    Two runs can start inside one second — twenty cases that all fail fast take far less —
-    and the earlier run's file is evidence, not something a retry may quietly overwrite.
-    """
+    """Where a run started at this instant writes, kept clear of any file already there."""
     directory = config.EVAL_RESULTS_DIR
     stem = started_at.strftime(RESULT_TIMESTAMP)
     path = directory / f"{stem}.json"

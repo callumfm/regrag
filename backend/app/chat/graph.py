@@ -37,11 +37,7 @@ def chat_model() -> ChatLiteLLM:
 async def retrieve(state: ChatState) -> dict[str, tuple[RetrievedChunk, ...]]:
     """The corpus's best answers, widened to their sections, from a node-scoped session
     so no connection is held while the model streams. Nothing, when the corpus does not
-    cover the question: that empties the context, and the graph refuses instead.
-
-    The raw hits are carried alongside whatever survives the gate, so what search found
-    stays legible next to what the prompt was given.
-    """
+    cover the question: that empties the context, and the graph refuses instead."""
     async with get_session(auto_commit=False) as session:
         hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
         if not meets_thresholds(hits):

@@ -11,13 +11,8 @@ MARKER = re.compile(r"\[(\d+)\]")
 
 
 def _division(item: ReferenceTarget | RetrievedChunk) -> tuple[str, str | None, str | None]:
-    """Which division of which act, at the grain an authored reference names: article or
-    annex, never the paragraph inside one.
-
-    Matched as `follow` matches it — article case-folded so 4a reaches 4A, annex compared
-    exactly — so `check` and `run` never disagree about the same reference. An annex of ""
-    is the act's one unnumbered annex, which no truthiness test may fold into no annex.
-    """
+    """The act and division a reference names, keyed as `follow` matches it: article
+    case-folded, annex verbatim, and "" an unnumbered annex rather than none."""
     article = item.article.lower() if item.article is not None else None
     return item.celex, article, item.annex
 
@@ -25,11 +20,7 @@ def _division(item: ReferenceTarget | RetrievedChunk) -> tuple[str, str | None, 
 def score_reference_recall(
     targets: Sequence[ReferenceTarget], chunks: Sequence[RetrievedChunk]
 ) -> float:
-    """Share of a case's authored references some retrieved chunk covers.
-
-    Applied twice per case — to the raw search hits, then to the expanded sources — so the
-    layer that found the reference is the layer that gets the credit.
-    """
+    """Share of a case's authored references some retrieved chunk covers."""
     if not targets:
         return 0.0
     retrieved = {_division(chunk) for chunk in chunks}
@@ -44,12 +35,8 @@ def find_cited_markers(answer: str) -> tuple[int, ...]:
 
 
 def score_citation_validity(answer: str, sources: Sequence[RetrievedChunk]) -> float | None:
-    """Share of the markers the answer cites that address a block it was actually given;
-    None when it cited nothing, which is unmeasured rather than zero.
-
-    A marker past the end of the context is the one citation fault this can judge without a
-    model: the answer points at a block that was never in its prompt.
-    """
+    """Share of the answer's markers addressing a block it was given; None when it cited
+    nothing, which is unmeasured rather than zero."""
     markers = find_cited_markers(answer)
     if not markers:
         return None
@@ -61,13 +48,8 @@ def score_reference_citation_rate(
     sources: Sequence[RetrievedChunk],
     targets: Sequence[ReferenceTarget],
 ) -> float | None:
-    """Share of a case's authored references the answer actually cited; None when the case
-    names none, which is unmeasured rather than zero.
-
-    Scored over the references rather than over the markers, because the authored set names
-    the references an answer must lean on, not every chunk that may legitimately support it:
-    citing a further relevant article is not an error, and must not read as one.
-    """
+    """Share of a case's authored references the answer cited, scored over the references
+    so an extra citation is not an error; None when the case names none."""
     if not targets:
         return None
     cited = {
@@ -79,9 +61,6 @@ def score_reference_citation_rate(
 
 
 def is_gate_refusal(answer: str) -> bool:
-    """Whether the score gate refused before any model call, which the fixed wording marks.
-
-    A model that declines in its own words has not gate-refused; judging such an answer
-    needs a model of its own, which is the judge's job rather than this runner's.
-    """
+    """Whether the score gate refused before any model call, which the fixed wording marks;
+    a model declining in its own words is the judge's to score, not this."""
     return answer.strip() == REFUSAL_ANSWER

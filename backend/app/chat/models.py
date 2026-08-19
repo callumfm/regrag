@@ -19,11 +19,8 @@ class ChatQuery(AppModel):
 class ChatState(AppModel):
     """What flows through the graph for one question.
 
-    hits: what search returned, before the score gate and before section expansion; kept
-        even when the gate refuses, so a threshold set too tight is visible rather than
-        indistinguishable from a corpus that does not cover the question.
+    hits: what search returned, before the gate and before expansion, kept even on refusal.
     sources: the context blocks that reached the prompt, which the [n] markers number.
-    usage: what the answer cost, once the model has answered.
     """
 
     question: str

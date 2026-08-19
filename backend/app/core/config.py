@@ -219,8 +219,7 @@ class EvalConfig(BaseConfig):
     """Eval tunables.
 
     EVAL_DATASET_PATH: the golden dataset, authored cases versioned as JSON in the repo.
-    EVAL_RESULTS_DIR: where a run writes its result file, outside the package like the
-        fetched corpus, since a run's output is data rather than something to version.
+    EVAL_RESULTS_DIR: where a run writes its result file, outside the package and unversioned.
     """
 
     EVAL_DATASET_PATH: Path = BACKEND_ROOT / "app" / "evals" / "golden.json"
