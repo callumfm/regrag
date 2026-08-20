@@ -18,7 +18,6 @@ def enable_call_cache() -> None:
     and documents in order — so a re-ingest or a model change lands on a different key and
     nothing goes stale. Deleting the directory is the whole invalidation story.
     """
-    config.EVAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     litellm.cache = Cache(
         type=LiteLLMCacheType.DISK,
         disk_cache_dir=str(config.EVAL_CACHE_DIR),

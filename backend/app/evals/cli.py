@@ -91,8 +91,8 @@ def run_evals(pattern: str | None, verbose: bool = False) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging()
-    if args.command != "run":
-        return check_references()
-    if not args.no_cache:
-        enable_call_cache()
-    return run_evals(args.case, args.verbose)
+    if args.command == "run":
+        if not args.no_cache:
+            enable_call_cache()
+        return run_evals(args.case, args.verbose)
+    return check_references()

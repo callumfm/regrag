@@ -13,11 +13,13 @@ from app.evals.cache import enable_call_cache
 
 @pytest.fixture(autouse=True)
 def cache_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """Point the cache at a throwaway directory and leave litellm uncached afterwards,
-    so an enabled cache never outlives the test that enabled it."""
+    """Point the cache at a throwaway directory and leave litellm as it was found: enabling
+    a cache registers callbacks as well as setting one, and neither may outlive its test."""
     directory = tmp_path / "cache" / "evals"
     monkeypatch.setattr(config, "EVAL_CACHE_DIR", directory)
     monkeypatch.setattr(litellm, "cache", None)
+    for callbacks in ("input_callback", "success_callback", "_async_success_callback"):
+        monkeypatch.setattr(litellm, callbacks, list(getattr(litellm, callbacks)))
     return directory
 
 
@@ -26,10 +28,6 @@ def enabled_cache() -> Cache:
     enable_call_cache()
     assert isinstance(litellm.cache, Cache)
     return litellm.cache
-
-
-def cached_calls(cache: Cache) -> set[str]:
-    return set(cache.supported_call_types or ())
 
 
 def test_enable_call_cache_caches_to_the_configured_directory(cache_dir: Path) -> None:
@@ -41,12 +39,9 @@ def test_enable_call_cache_caches_to_the_configured_directory(cache_dir: Path) -
 
 
 def test_enable_call_cache_caches_only_the_paid_retrieval_calls() -> None:
-    assert cached_calls(enabled_cache()) == {"aembedding", "arerank"}
-
-
-def test_enable_call_cache_never_caches_synthesis() -> None:
-    """A run replaying its own answers would measure the cache rather than the model."""
-    assert not cached_calls(enabled_cache()) & {"completion", "acompletion"}
+    """Synthesis is left out: a run replaying its own answers would measure the cache
+    rather than the model."""
+    assert set(enabled_cache().supported_call_types or ()) == {"aembedding", "arerank"}
 
 
 RERANK_CALL = {
@@ -57,16 +52,11 @@ RERANK_CALL = {
 EMBED_CALL = {"model": "voyage/voyage-4-lite", "input": ["which vessels?"], "dimensions": 1024}
 
 
-def cache_key(cache: Cache, **call: object) -> str:
-    """The key litellm itself would file this call under."""
-    return cache.get_cache_key(**call)
-
-
 def test_the_same_call_keys_the_same_both_times() -> None:
     cache = enabled_cache()
 
-    assert cache_key(cache, **RERANK_CALL) == cache_key(cache, **RERANK_CALL)
-    assert cache_key(cache, **EMBED_CALL) == cache_key(cache, **EMBED_CALL)
+    assert cache.get_cache_key(**RERANK_CALL) == cache.get_cache_key(**RERANK_CALL)
+    assert cache.get_cache_key(**EMBED_CALL) == cache.get_cache_key(**EMBED_CALL)
 
 
 @pytest.mark.parametrize(
@@ -86,7 +76,7 @@ def test_a_rerank_key_covers_the_model_the_query_and_the_documents_in_order(
     documents from the key would silently replay stale reranks."""
     cache = enabled_cache()
 
-    assert cache_key(cache, **RERANK_CALL) != cache_key(cache, **{**RERANK_CALL, **changed})
+    assert cache.get_cache_key(**RERANK_CALL) != cache.get_cache_key(**{**RERANK_CALL, **changed})
 
 
 @pytest.mark.parametrize(
@@ -99,4 +89,4 @@ def test_a_rerank_key_covers_the_model_the_query_and_the_documents_in_order(
 def test_an_embed_key_covers_the_model_and_the_query(changed: dict[str, object]) -> None:
     cache = enabled_cache()
 
-    assert cache_key(cache, **EMBED_CALL) != cache_key(cache, **{**EMBED_CALL, **changed})
+    assert cache.get_cache_key(**EMBED_CALL) != cache.get_cache_key(**{**EMBED_CALL, **changed})

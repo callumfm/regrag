@@ -91,11 +91,13 @@ def test_run_exits_nonzero_when_no_case_matches_the_pattern(fake_run, capsys):
 # Which commands replay their paid calls
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def enabled(monkeypatch):
-    """Record whether the command turned the call cache on, without turning it on."""
-    calls: list[None] = []
-    monkeypatch.setattr(cli, "enable_call_cache", lambda: calls.append(None))
+    """Record whether the command turned the call cache on, without turning it on. Autouse
+    so no test here installs a real cache: `run` enables one by default, which would put a
+    cache under the real data directory and leave it set for whatever runs next."""
+    calls: list[bool] = []
+    monkeypatch.setattr(cli, "enable_call_cache", lambda: calls.append(True))
     return calls
 
 
