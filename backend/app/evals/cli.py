@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from app.core.db.session import get_session
 from app.core.logger import setup_logging
+from app.evals.cache import enable_call_cache
 from app.evals.metrics import score_reference_citation_rate, score_reference_recall
 from app.evals.models import EvalDataset, EvalResult, UnresolvedReference
 from app.evals.service import find_unresolved_references, run_dataset
@@ -18,6 +19,11 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run", help="score the dataset against the current chat graph")
     run.add_argument("--case", help="only cases whose id contains this")
     run.add_argument("--verbose", action="store_true", help="list every case with its own scores")
+    run.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="pay for every embed and rerank again instead of replaying the cached ones",
+    )
     return parser
 
 
@@ -85,4 +91,8 @@ def run_evals(pattern: str | None, verbose: bool = False) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging()
-    return run_evals(args.case, args.verbose) if args.command == "run" else check_references()
+    if args.command != "run":
+        return check_references()
+    if not args.no_cache:
+        enable_call_cache()
+    return run_evals(args.case, args.verbose)

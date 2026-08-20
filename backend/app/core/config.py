@@ -219,9 +219,13 @@ class EvalConfig(BaseConfig):
     """Eval tunables.
 
     EVAL_DATASET_PATH: the golden dataset, authored cases versioned as JSON in the repo.
+    EVAL_CACHE_DIR: where repeated runs replay their embed and rerank calls from. Here
+        rather than in RetrievalConfig, which a run records whole as its provenance: a
+        cache hit answers exactly as a miss would, so it is not a setting a run compares on.
     """
 
     EVAL_DATASET_PATH: Path = BACKEND_ROOT / "app" / "evals" / "golden.json"
+    EVAL_CACHE_DIR: Path = PROJECT_ROOT / "data" / "cache" / "evals"
 
 
 class Config(
