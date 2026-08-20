@@ -88,6 +88,39 @@ def test_run_exits_nonzero_when_no_case_matches_the_pattern(fake_run, capsys):
     assert "nothing-here" in capsys.readouterr().out
 
 
+# Which commands replay their paid calls
+
+
+@pytest.fixture(autouse=True)
+def enabled(monkeypatch):
+    """Record whether the command turned the call cache on, without turning it on. Autouse
+    so no test here installs a real cache: `run` enables one by default, which would put a
+    cache under the real data directory and leave it set for whatever runs next."""
+    calls: list[bool] = []
+    monkeypatch.setattr(cli, "enable_call_cache", lambda: calls.append(True))
+    return calls
+
+
+def test_run_replays_its_embed_and_rerank_calls_by_default(fake_run, enabled):
+    fake_run.append(eval_result())
+
+    assert main(["run"]) == 0
+    assert enabled
+
+
+def test_no_cache_makes_a_run_pay_for_its_calls_again(fake_run, enabled):
+    fake_run.append(eval_result())
+
+    assert main(["run", "--no-cache"]) == 0
+    assert not enabled
+
+
+def test_check_never_touches_the_cache(fake_check, enabled):
+    """check only asks the corpus what it holds, so it makes no provider call to replay."""
+    assert main(["check"]) == 0
+    assert not enabled
+
+
 # The per-case lines --verbose adds
 
 

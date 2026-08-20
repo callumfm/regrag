@@ -140,10 +140,13 @@ class EvalRun(FrozenModel):
     """One eval run: which dataset and settings it scored, what it measured, and every case.
 
     dataset_sha hashes the whole dataset; case_pattern names the subset actually scored.
+    cached says the run had the call cache on, so an embed or rerank timing may measure a
+    disk read rather than the provider — a cached run is not a latency baseline.
     """
 
     dataset_sha: str
     case_pattern: str | None = None
+    cached: bool = False
     settings: RunSettings
     metrics: EvalMetrics
     results: tuple[EvalResult, ...]
@@ -151,7 +154,7 @@ class EvalRun(FrozenModel):
     def summary(self) -> str:
         """The provenance and scores as JSON, then any case the graph raised on."""
         body = self.model_dump_json(
-            indent=2, include={"dataset_sha", "case_pattern", "settings", "metrics"}
+            indent=2, include={"dataset_sha", "case_pattern", "cached", "settings", "metrics"}
         )
         errored = [f"  {r.case.id}  {r.state.error}" for r in self.results if r.state.error]
         return "\n".join([body, "", "errored:", *errored]) if errored else body
