@@ -115,6 +115,7 @@ uv run evals check              # every case reference still resolves in the cor
 uv run evals run                # score the dataset against the current graph
 uv run evals run --verbose      # ...listing every case with its own scores
 uv run evals run --case fueleu  # only cases whose id contains this
+uv run evals run --no-cache     # pay for every embed and rerank again
 ```
 
 A run drives the same graph the endpoint runs, one case at a time so a timing
@@ -122,3 +123,12 @@ measures one case, and prints the settings it ran under beside the scores:
 what search found before and after section expansion, what the answers cited,
 what the refusal gate caught, and what the run cost. It exits non-zero if any
 case raised.
+
+Embed and rerank calls are replayed from `data/cache/evals` by default, so only
+the first run over a given dataset pays Voyage for them. Each call is keyed on
+its own request parameters, so a re-ingest or a model change lands on a
+different key and nothing goes stale — deleting the directory is the whole
+invalidation story. Answers are never cached: a run replaying its own answers
+would measure the cache rather than the model. A replayed run reports
+`"cached": true` and its timings measure a disk read, so take a latency
+baseline with `--no-cache`.
