@@ -124,5 +124,4 @@ what search found before and after section expansion, what the answers cited,
 what the refusal gate caught, and what the run cost. It exits non-zero if any
 case raised.
 
-Replayed embed and rerank calls are cached under `data/cache/evals`; deleting
-that directory is the whole invalidation story.
+Replayed embed and rerank calls are cached under `data/cache/evals`.
