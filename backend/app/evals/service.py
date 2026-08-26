@@ -60,12 +60,15 @@ async def run_case(case: EvalCase) -> EvalResult:
     return EvalResult(case=case, state=state)
 
 
-async def run_dataset(dataset: EvalDataset, pattern: str | None = None) -> EvalRun:
+async def run_dataset(
+    dataset: EvalDataset, pattern: str | None = None, cached: bool = False
+) -> EvalRun:
     """Every matching case, one at a time, so a per-case timing measures the case alone."""
     results = [await run_case(case) for case in select_cases(dataset, pattern)]
     return EvalRun(
         dataset_sha=dataset.sha256,
         case_pattern=pattern,
+        cached=cached,
         settings=RunSettings.from_config(),
         metrics=compute_metrics(results),
         results=tuple(results),

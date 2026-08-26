@@ -122,6 +122,16 @@ async def test_run_dataset_scores_only_the_cases_matching_the_pattern(
     assert run.dataset_sha == dataset.sha256
     assert run.metrics.cases == 1
     assert run.settings.root["EXPAND_SECTIONS"] is False
+    assert run.cached is False
+
+
+async def test_a_run_records_that_it_had_the_call_cache_on(answering_graph: None) -> None:
+    """A cached run's node timings may measure a disk read, so the run has to say so or its
+    numbers read as a latency baseline they are not."""
+    run = await run_dataset(eval_dataset(eval_case(id="fueleu-one")), cached=True)
+
+    assert run.cached is True
+    assert '"cached": true' in run.summary()
 
 
 def test_no_pattern_selects_every_case() -> None:

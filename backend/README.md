@@ -115,6 +115,7 @@ uv run evals check              # every case reference still resolves in the cor
 uv run evals run                # score the dataset against the current graph
 uv run evals run --verbose      # ...listing every case with its own scores
 uv run evals run --case fueleu  # only cases whose id contains this
+uv run evals run --no-cache     # pay for every embed and rerank again
 ```
 
 A run drives the same graph the endpoint runs, one case at a time so a timing
@@ -122,3 +123,5 @@ measures one case, and prints the settings it ran under beside the scores:
 what search found before and after section expansion, what the answers cited,
 what the refusal gate caught, and what the run cost. It exits non-zero if any
 case raised.
+
+Replayed embed and rerank calls are cached under `data/cache/evals`.
