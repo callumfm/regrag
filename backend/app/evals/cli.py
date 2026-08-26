@@ -76,9 +76,9 @@ def check_references() -> int:
     return 0
 
 
-def run_evals(pattern: str | None, verbose: bool = False) -> int:
+def run_evals(pattern: str | None, verbose: bool = False, cached: bool = False) -> int:
     """Score the dataset and print what it measured, the cases first when asked for."""
-    run = asyncio.run(run_dataset(EvalDataset.load(), pattern))
+    run = asyncio.run(run_dataset(EvalDataset.load(), pattern, cached))
     if not run.results:
         print(f"no case id contains {pattern!r}" if pattern else "the dataset has no cases")
         return 1
@@ -92,7 +92,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging()
     if args.command == "run":
-        if not args.no_cache:
+        cached = not args.no_cache
+        if cached:
             enable_call_cache()
-        return run_evals(args.case, args.verbose)
+        return run_evals(args.case, args.verbose, cached)
     return check_references()

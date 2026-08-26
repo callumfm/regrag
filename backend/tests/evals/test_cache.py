@@ -8,7 +8,7 @@ from litellm.caching import Cache
 from litellm.caching.disk_cache import DiskCache
 
 from app.core.config import config
-from app.evals.cache import call_cache_enabled, enable_call_cache
+from app.evals.cache import enable_call_cache
 
 
 @pytest.fixture(autouse=True)
@@ -49,12 +49,14 @@ RERANK_CALL = {
     "model": "voyage/rerank-2.5",
     "query": "which vessels does FuelEU cover?",
     "documents": ["chunk one", "chunk two", "chunk three"],
+    "timeout": 5,
 }
 EMBED_CALL = {
     "model": "voyage/voyage-4-lite",
     "input": ["which vessels?"],
     "dimensions": 1024,
     "input_type": "query",
+    "timeout": 5,
 }
 
 
@@ -103,9 +105,12 @@ def test_an_embed_key_covers_the_model_the_query_and_the_input_type(
     assert cache.get_cache_key(**EMBED_CALL) != cache.get_cache_key(**{**EMBED_CALL, **changed})
 
 
-def test_call_cache_enabled_reports_whether_this_process_is_replaying() -> None:
-    assert call_cache_enabled() is False
+def test_a_timeout_change_lands_on_a_different_key() -> None:
+    """The key covers more than the provider's answer depends on: raising a timeout to ride
+    out a flake spends the whole cache, embeds and reranks alike."""
+    cache = enabled_cache()
 
-    enable_call_cache()
-
-    assert call_cache_enabled() is True
+    assert cache.get_cache_key(**RERANK_CALL) != cache.get_cache_key(
+        **{**RERANK_CALL, "timeout": 9}
+    )
+    assert cache.get_cache_key(**EMBED_CALL) != cache.get_cache_key(**{**EMBED_CALL, "timeout": 9})

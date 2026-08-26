@@ -1,7 +1,6 @@
 import logging
 from collections.abc import Callable
 
-import litellm
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -126,14 +125,10 @@ async def test_run_dataset_scores_only_the_cases_matching_the_pattern(
     assert run.cached is False
 
 
-async def test_a_run_records_that_it_replayed_its_calls(
-    answering_graph: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_run_records_that_it_had_the_call_cache_on(answering_graph: None) -> None:
     """A cached run's node timings may measure a disk read, so the run has to say so or its
     numbers read as a latency baseline they are not."""
-    monkeypatch.setattr(litellm, "cache", object())
-
-    run = await run_dataset(eval_dataset(eval_case(id="fueleu-one")))
+    run = await run_dataset(eval_dataset(eval_case(id="fueleu-one")), cached=True)
 
     assert run.cached is True
     assert '"cached": true' in run.summary()

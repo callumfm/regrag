@@ -52,11 +52,12 @@ def fake_run(monkeypatch):
     """Replace the graph run with a stub returning a chosen list of results."""
     results: list = []
 
-    async def _fake(dataset, pattern):
+    async def _fake(dataset, pattern, cached):
         chosen = tuple(results)
         return EvalRun(
             dataset_sha=dataset.sha256,
             case_pattern=pattern,
+            cached=cached,
             settings=RunSettings.from_config(),
             metrics=compute_metrics(chosen),
             results=chosen,

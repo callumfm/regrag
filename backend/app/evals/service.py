@@ -9,7 +9,6 @@ from app.chat.graph import chat_graph
 from app.chat.models import ChatState
 from app.core.clock import elapsed_ms
 from app.core.exceptions import DomainError
-from app.evals.cache import call_cache_enabled
 from app.evals.metrics import compute_metrics
 from app.evals.models import (
     EvalCase,
@@ -61,13 +60,15 @@ async def run_case(case: EvalCase) -> EvalResult:
     return EvalResult(case=case, state=state)
 
 
-async def run_dataset(dataset: EvalDataset, pattern: str | None = None) -> EvalRun:
+async def run_dataset(
+    dataset: EvalDataset, pattern: str | None = None, cached: bool = False
+) -> EvalRun:
     """Every matching case, one at a time, so a per-case timing measures the case alone."""
     results = [await run_case(case) for case in select_cases(dataset, pattern)]
     return EvalRun(
         dataset_sha=dataset.sha256,
         case_pattern=pattern,
-        cached=call_cache_enabled(),
+        cached=cached,
         settings=RunSettings.from_config(),
         metrics=compute_metrics(results),
         results=tuple(results),

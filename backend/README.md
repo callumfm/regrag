@@ -124,11 +124,5 @@ what search found before and after section expansion, what the answers cited,
 what the refusal gate caught, and what the run cost. It exits non-zero if any
 case raised.
 
-Embed and rerank calls are replayed from `data/cache/evals` by default, so only
-the first run over a given dataset pays Voyage for them. Each call is keyed on
-its own request parameters, so a re-ingest or a model change lands on a
-different key and nothing goes stale — deleting the directory is the whole
-invalidation story. Answers are never cached: a run replaying its own answers
-would measure the cache rather than the model. A replayed run reports
-`"cached": true` and its timings measure a disk read, so take a latency
-baseline with `--no-cache`.
+Replayed embed and rerank calls are cached under `data/cache/evals`; deleting
+that directory is the whole invalidation story.
