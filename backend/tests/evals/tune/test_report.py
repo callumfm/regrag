@@ -31,12 +31,12 @@ def test_rows_rank_by_expanded_recall_then_cheaper_context() -> None:
     )
 
     table = format_tune_table(tune_run(worse, same_but_cheaper, better))
-    rows = [line for line in table.splitlines() if "=" in line and "baseline:" not in line]
+    rows = table.splitlines()[1:5]
 
-    assert "CHAT_SOURCES=8" in rows[0]
-    assert "CHAT_CONTEXT_CHUNKS=10" in rows[1]
-    assert "(baseline)" in table.splitlines()[3]
-    assert "CHAT_SOURCES=3" in rows[-1]
+    assert rows[0].split()[1:3] == ["CHAT_SOURCES", "8"]
+    assert rows[1].split()[1:3] == ["CHAT_CONTEXT_CHUNKS", "10"]
+    assert rows[2].split()[1:3] == ["(baseline)", "-"]
+    assert rows[3].split()[1:3] == ["CHAT_SOURCES", "3"]
 
 
 def test_deltas_are_read_against_the_baseline() -> None:

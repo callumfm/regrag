@@ -38,7 +38,7 @@ def test_tune_sweeps_the_curated_params_and_prints_the_table(fake_grid, capsys):
     assert varied <= set(TUNABLE_PARAMS)
     out = capsys.readouterr().out
     assert "(baseline)" in out
-    assert "CHAT_SOURCES=3" in out
+    assert "CHAT_SOURCES" in out
     assert "baseline:" in out
 
 

@@ -13,11 +13,18 @@ class GridPoint(FrozenModel):
     overrides: dict[str, JsonValue] = Field(default_factory=dict)
 
     @property
-    def label(self) -> str:
-        """The point as the table names it: its changed settings, or the baseline."""
+    def param(self) -> str:
+        """The setting this point varies, or the baseline."""
         if not self.overrides:
             return "(baseline)"
-        return " ".join(f"{name}={value}" for name, value in self.overrides.items())
+        return " ".join(self.overrides)
+
+    @property
+    def value(self) -> str:
+        """The varied setting's value; the baseline varies none, so a dash."""
+        if not self.overrides:
+            return "-"
+        return " ".join(str(value) for value in self.overrides.values())
 
 
 class RetrievalMetrics(FrozenModel):

@@ -1,4 +1,4 @@
-"""Tune values: grid point labels and the run's shape."""
+"""Tune values: grid point naming and the run's shape."""
 
 from app.evals.models import RunSettings
 from app.evals.tune.models import GridPoint, TunedPoint, TuneRun
@@ -6,13 +6,15 @@ from tests.evals.tune.conftest import metrics
 
 
 def test_the_empty_point_is_the_baseline() -> None:
-    assert GridPoint().label == "(baseline)"
+    assert GridPoint().param == "(baseline)"
+    assert GridPoint().value == "-"
 
 
-def test_a_point_labels_its_overrides_in_order() -> None:
+def test_a_point_names_its_overrides_in_order() -> None:
     point = GridPoint(overrides={"CHAT_SOURCES": 8, "RERANK_ENABLED": False})
 
-    assert point.label == "CHAT_SOURCES=8 RERANK_ENABLED=False"
+    assert point.param == "CHAT_SOURCES RERANK_ENABLED"
+    assert point.value == "8 False"
 
 
 def test_a_run_names_its_first_result_the_baseline() -> None:

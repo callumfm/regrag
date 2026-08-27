@@ -5,20 +5,21 @@ from app.evals.tune.params import TUNABLE_PARAMS
 
 HEADERS = (
     "rank",
-    "point",
-    "Δexp_rec",
+    "param",
+    "value",
+    "Δexp_recall",
     "Δchunks",
-    "exp_rec",
-    "raw_rec",
-    "refused",
-    "false",
+    "exp_recall",
+    "raw_recall",
+    "refusal_rate",
+    "false_refusals",
     "chunks",
     "chars",
-    "ms",
+    "retrieve_ms",
 )
 
-LABEL_COLUMN = HEADERS.index("point")
-"""The one column that reads left-aligned: a name, not a figure."""
+LABEL_COLUMNS = frozenset((HEADERS.index("param"), HEADERS.index("value")))
+"""The columns that read left-aligned: names, not figures."""
 
 
 def _rate(value: float | None) -> str:
@@ -44,7 +45,8 @@ def _cells(rank: int, result: TunedPoint, baseline: TunedPoint) -> tuple[str, ..
     m, b = result.metrics, baseline.metrics
     return (
         str(rank),
-        result.point.label,
+        result.point.param,
+        result.point.value,
         _delta(m.expanded_recall, b.expanded_recall, 2),
         _delta(m.mean_context_chunks, b.mean_context_chunks, 1),
         _rate(m.expanded_recall),
@@ -62,7 +64,7 @@ def _render(rows: list[tuple[str, ...]]) -> str:
     widths = [max(len(cell) for cell in column) for column in zip(*rows, strict=True)]
     return "\n".join(
         "  ".join(
-            cell.ljust(width) if index == LABEL_COLUMN else cell.rjust(width)
+            cell.ljust(width) if index in LABEL_COLUMNS else cell.rjust(width)
             for index, (cell, width) in enumerate(zip(row, widths, strict=True))
         ).rstrip()
         for row in rows
