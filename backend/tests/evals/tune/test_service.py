@@ -131,24 +131,33 @@ async def test_a_case_retrieve_raises_on_is_recorded_rather_than_raised(
 async def test_run_grid_applies_each_point_and_restores_baseline_between(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    seen: list[int] = []
+    seen: list[tuple[int, bool]] = []
 
     async def fake_run(case):
-        seen.append(config.CHAT_SOURCES)
+        seen.append((config.CHAT_SOURCES, config.RERANK_ENABLED))
         return eval_result(case=case)
 
     monkeypatch.setattr(service, "run_retrieval", fake_run)
-    baseline = config.CHAT_SOURCES
+    baseline_sources = config.CHAT_SOURCES
+    baseline_rerank = config.RERANK_ENABLED
     dataset = eval_dataset(eval_case(id="one"), eval_case(id="two"))
     points = (
-        GridPoint(overrides={"CHAT_SOURCES": baseline + 1}),
-        GridPoint(overrides={"CHAT_SOURCES": baseline + 2}),
+        GridPoint(overrides={"CHAT_SOURCES": baseline_sources + 1}),
+        GridPoint(overrides={"RERANK_ENABLED": not baseline_rerank}),
     )
 
     run = await run_grid(dataset, points)
 
-    assert seen == [baseline, baseline, baseline + 1, baseline + 1, baseline + 2, baseline + 2]
-    assert config.CHAT_SOURCES == baseline
+    assert seen == [
+        (baseline_sources, baseline_rerank),
+        (baseline_sources, baseline_rerank),
+        (baseline_sources + 1, baseline_rerank),
+        (baseline_sources + 1, baseline_rerank),
+        (baseline_sources, not baseline_rerank),
+        (baseline_sources, not baseline_rerank),
+    ]
+    assert config.CHAT_SOURCES == baseline_sources
+    assert config.RERANK_ENABLED == baseline_rerank
     assert run.baseline.point == GridPoint()
     assert [tp.point for tp in run.results[1:]] == list(points)
     assert run.dataset_sha == dataset.sha256
