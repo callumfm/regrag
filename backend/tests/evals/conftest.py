@@ -2,15 +2,26 @@
 
 from typing import Any
 
+import pytest
+
 from app.chat.enums import ChatNode
 from app.chat.models import ChatNodeResult, ChatState
 from app.chat.prompts import REFUSAL_ANSWER
+from app.core.config import config
 from app.evals.enums import EvalKind
 from app.evals.models import EvalCase, EvalDataset, EvalResult
 from app.retrieval.models import ReferenceTarget
 from tests.conftest import retrieved_chunk, search_result
 
 REFERENCE = ReferenceTarget(celex="32023R1805", article="4")
+
+
+@pytest.fixture(autouse=True)
+def no_gather_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Eval tests fake the chat model, not gather — the loop stays off here; its
+    coverage lives in tests/chat."""
+    monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 0)
+
 
 IN_CORPUS_CASE: dict[str, Any] = {
     "id": "case",
