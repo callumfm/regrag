@@ -7,12 +7,9 @@ from app.evals.cli import format_case_lines, main
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalRun, RunSettings, UnresolvedReference
 from app.evals.tune.models import GridPoint, TunedPoint, TuneRun
-from app.evals.tune.service import (
-    parse_settings,  # noqa: F401  (cli imports it; keep the test file honest about the dependency)
-)
 from app.retrieval.models import ReferenceTarget
 from tests.evals.conftest import eval_case, eval_result, refused_result
-from tests.evals.tune.test_table import metrics
+from tests.evals.tune.conftest import metrics
 
 
 @pytest.fixture

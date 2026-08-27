@@ -48,7 +48,8 @@ async def expand_sections(
     is unreachable by relevance — and a section split for length leaves its halves adrift
     of each other. Retrieval ranks the pieces; the section is the unit that answers.
     Sections still arrive contiguous and in rank order: rounds decide what is kept,
-    not how it reads.
+    not how it reads; a distance tie widens backward first, the chapeau before what
+    follows.
     """
     if not chunks:
         return ()

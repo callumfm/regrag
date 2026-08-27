@@ -28,7 +28,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="pay for every embed and rerank again instead of replaying the cached ones",
     )
-    tune = commands.add_parser("tune", help="rank retrieval settings against the dataset")
+    tune = commands.add_parser(
+        "tune",
+        help="rank retrieval settings against the dataset",
+        description="Rank retrieval settings against the dataset. Settings that change the "
+        "rerank request itself (SEARCH_CANDIDATES, RRF_K, EF_SEARCH_PER_CANDIDATE, "
+        "RERANK_POOL, RERANK_MODEL, or CHAT_SOURCES above RERANK_POOL) miss the call cache "
+        "and pay per case; the ticket's six settings replay free.",
+    )
     tune.add_argument(
         "--set",
         dest="sets",
@@ -115,6 +122,9 @@ def run_tune(
         parser.error(str(exc))
     enable_call_cache()
     run = asyncio.run(run_grid(EvalDataset.load(), points, pattern))
+    if run.baseline.metrics.cases == 0:
+        print(f"no case id contains {pattern!r}")
+        return 1
     print(format_tune_table(run))
     return 1 if any(result.metrics.errors for result in run.results) else 0
 

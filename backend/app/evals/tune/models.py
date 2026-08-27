@@ -24,8 +24,9 @@ class RetrievalMetrics(FrozenModel):
     """What a retrieval-only run measured. A rate is None when no case measured it.
 
     The retrieval subset of EvalMetrics — nothing a model call would fill — plus what
-    the recall is bought with: mean context chunks, chars, and retrieve time, each
-    averaged over the scored in-corpus cases.
+    the recall is bought with: mean context chunks and chars, each averaged over the
+    scored in-corpus cases, and mean retrieve time, averaged over all scored cases —
+    retrieve runs on refusals too.
     """
 
     cases: int
