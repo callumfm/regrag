@@ -153,24 +153,20 @@ async def tools(state: ChatState) -> dict[str, Any]:
 
 
 def gather_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
-    """After retrieve: refuse for want of context, skip a switched-off loop, or gather."""
+    """After retrieve: refuse for want of context, else gather — unless the loop is off."""
     if not state.sources:
         return ChatNode.REFUSE
-    if config.GATHER_MAX_ROUNDS == 0:
-        return ChatNode.SYNTHESIZE
-    return ChatNode.GATHER
+    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.GATHER
 
 
 def tools_or_synthesize(state: ChatState) -> ChatNode:
     """After gather: run what it asked for, or answer when it asked for nothing."""
-    return ChatNode.TOOLS if state.pending_calls else ChatNode.SYNTHESIZE
+    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.TOOLS
 
 
 def gather_or_synthesize(state: ChatState) -> ChatNode:
     """After tools: review again while budget remains, else answer with what there is."""
-    if state.tool_rounds() >= config.GATHER_MAX_ROUNDS:
-        return ChatNode.SYNTHESIZE
-    return ChatNode.GATHER
+    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.GATHER
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:
