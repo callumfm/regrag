@@ -2,6 +2,7 @@
 cited answer — or refuse, before any model call, a question the corpus does not cover."""
 
 import functools
+import logging
 import time
 from collections.abc import Awaitable
 from typing import Any, Protocol
@@ -25,11 +26,13 @@ from app.chat.tools import run_tool_call, tool_definitions
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
-from app.core.llm import llm_retry, wrap_provider_errors
+from app.core.llm import LLMError, llm_retry, wrap_provider_errors
 from app.retrieval.expand import expand_sections
 from app.retrieval.models import RetrievedChunk, SearchRequest
 from app.retrieval.search import search
 from app.retrieval.thresholds import meets_thresholds
+
+logger = logging.getLogger(__name__)
 
 
 class NodeFn(Protocol):
@@ -125,19 +128,35 @@ def gather_model() -> Runnable:
     return model.bind_tools(tool_definitions())
 
 
-@traced
 @llm_retry
 @wrap_provider_errors("gather call")
-async def gather(state: ChatState) -> dict[str, Any]:
-    """One review of the context: the calls that would fill what is missing, or none
-    when it suffices. Stateless per round — the grown context is the loop's memory."""
+async def call_gather_model(state: ChatState) -> dict[str, Any]:
+    """One model turn asking what would fill the gaps in the context, capped to the
+    calls a round may run — the rest dropped before state or the ledger sees them."""
     messages = [
         SystemMessage(GATHER_SYSTEM_PROMPT),
         HumanMessage(build_gather_message(state.question, state.sources)),
     ]
     response = await gather_model().ainvoke(messages)
-    calls = tuple(ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls)
+    calls = tuple(
+        ToolCall(name=c["name"], args=c["args"])
+        for c in response.tool_calls[: config.GATHER_MAX_CALLS]
+    )
     return {"pending_calls": calls, "usage": response.usage_metadata}
+
+
+@traced
+async def gather(state: ChatState) -> dict[str, Any]:
+    """One review of the context: the calls that would fill what is missing, or none
+    when it suffices. Stateless per round — the grown context is the loop's memory.
+
+    A gather call that keeps failing does not fail the request: the loop is best-effort,
+    so a request with answerable context already gathered still reaches synthesize."""
+    try:
+        return await call_gather_model(state)
+    except LLMError as exc:
+        logger.warning("gather call failed, settling for the context gathered so far: %s", exc)
+        return {"pending_calls": ()}
 
 
 @traced
@@ -148,6 +167,11 @@ async def tools(state: ChatState) -> dict[str, Any]:
     async with get_session(auto_commit=False) as session:
         for call in state.pending_calls:
             fetched.extend(await run_tool_call(session, call))
+    logger.info(
+        "gather round ran %s -> %d chunks",
+        [f"{call.name}({call.args})" for call in state.pending_calls],
+        len(fetched),
+    )
     cap = config.CHAT_CONTEXT_CHUNKS + config.GATHER_EXTRA_CHUNKS
     return {"sources": merge_sources(state.sources, fetched, cap=cap), "pending_calls": ()}
 

@@ -4,10 +4,12 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import ToolCall
 from app.core.config import config
+from app.core.llm import LLMError
 from app.core.models import FrozenModel
 from app.retrieval.follow import follow_reference
 from app.retrieval.models import ReferenceTarget, RetrievedChunk, SearchFilters, SearchRequest
@@ -85,7 +87,8 @@ def tool_definitions() -> list[dict]:
 
 
 async def run_tool_call(session: AsyncSession, call: ToolCall) -> tuple[RetrievedChunk, ...]:
-    """One call's chunks; an unknown tool or an invalid target yields nothing, never an error."""
+    """One call's chunks; an unknown tool, an invalid target or a failing call yields
+    nothing, never an error — the loop is best-effort and a bad call adds nothing."""
     spec = TOOL_SURFACE.get(call.name)
     if spec is None:
         logger.warning("gather called unknown tool %s", call.name)
@@ -96,4 +99,7 @@ async def run_tool_call(session: AsyncSession, call: ToolCall) -> tuple[Retrieve
         return await run(session, args)
     except ValidationError:
         logger.warning("gather called %s with invalid arguments", call.name)
+        return ()
+    except (LLMError, SQLAlchemyError) as exc:
+        logger.warning("gather call to %s failed: %s", call.name, exc)
         return ()

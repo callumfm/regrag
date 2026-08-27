@@ -3,11 +3,13 @@
 from typing import cast
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import ToolCall
 from app.chat.tools import run_tool_call, tool_definitions
 from app.core.config import config
+from app.core.llm import LLMError
 from app.retrieval.models import ReferenceTarget, SearchFilters, SearchRequest
 from tests.conftest import search_result
 
@@ -77,4 +79,24 @@ async def test_invalid_arguments_return_nothing():
 
 async def test_an_act_without_a_division_returns_nothing():
     call = ToolCall(name="follow_reference", args={"celex": "32023R1805"})
+    assert await run_tool_call(NO_SESSION, call) == ()
+
+
+async def test_a_search_call_that_raises_llmerror_returns_nothing(monkeypatch):
+    async def failing_search(session, request):
+        raise LLMError("embedding call failed")
+
+    monkeypatch.setattr("app.chat.tools.search", failing_search)
+    call = ToolCall(name="search", args={"query": "penalties"})
+
+    assert await run_tool_call(NO_SESSION, call) == ()
+
+
+async def test_a_search_call_that_raises_a_database_error_returns_nothing(monkeypatch):
+    async def failing_search(session, request):
+        raise SQLAlchemyError("connection lost")
+
+    monkeypatch.setattr("app.chat.tools.search", failing_search)
+    call = ToolCall(name="search", args={"query": "penalties"})
+
     assert await run_tool_call(NO_SESSION, call) == ()

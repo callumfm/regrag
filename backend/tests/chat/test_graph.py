@@ -430,3 +430,51 @@ class TestGatherLoop:
 
         assert state.answer == REFUSAL_ANSWER
         assert [r.node for r in state.nodes] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
+
+    async def test_a_persistently_failing_gather_call_still_synthesizes_from_the_context(
+        self, loop_on, one_result, answer_model, monkeypatch
+    ):
+        """A gather round is best-effort: it must never destroy a request that already
+        has answerable context, even when the model keeps failing."""
+        gather = FailingModel(messages=iter([]), failures=10, usage=USAGE)
+        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+
+        state = ChatState(question=QUESTION)
+        state.refresh(await chat_graph.ainvoke(state))
+
+        assert state.answer == "Answered [1]."
+        assert [r.node for r in state.nodes] == [
+            ChatNode.RETRIEVE,
+            ChatNode.GATHER,
+            ChatNode.SYNTHESIZE,
+        ]
+
+    async def test_a_gather_turn_asking_for_more_than_the_cap_runs_only_the_cap(
+        self, loop_on, one_result, answer_model, monkeypatch
+    ):
+        monkeypatch.setattr(config, "GATHER_MAX_CALLS", 1)
+        gather = gather_fake(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "search", "args": {"query": "a"}, "id": "call_1", "type": "tool_call"},
+                    {"name": "search", "args": {"query": "b"}, "id": "call_2", "type": "tool_call"},
+                ],
+            ),
+            AIMessage(content=""),
+        )
+        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+
+        run_calls: list[ToolCall] = []
+
+        async def fake_run_tool_call(session, call):
+            run_calls.append(call)
+            return ()
+
+        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
+
+        state = ChatState(question=QUESTION)
+        state.refresh(await chat_graph.ainvoke(state))
+
+        assert len(run_calls) == 1
+        assert run_calls[0].args == {"query": "a"}

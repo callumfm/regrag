@@ -146,6 +146,7 @@ class ChatConfig(BaseConfig):
     CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt; a guardrail
         against a run of long articles, not a target, so it should rarely bite.
     GATHER_MAX_ROUNDS: tool rounds the gather loop may run; 0 skips the loop entirely.
+    GATHER_MAX_CALLS: the most tool calls one gather round may run; the rest are dropped.
     GATHER_SEARCH_LIMIT: hits one search tool call brings back.
     GATHER_EXTRA_CHUNKS: the most chunks tool rounds may add on top of the initial
         context, which expansion already fills to CHAT_CONTEXT_CHUNKS.
@@ -158,6 +159,7 @@ class ChatConfig(BaseConfig):
     CHAT_SOURCES: int = Field(default=5, ge=1)
     CHAT_CONTEXT_CHUNKS: int = Field(default=15, ge=1)
     GATHER_MAX_ROUNDS: int = Field(default=2, ge=0)
+    GATHER_MAX_CALLS: int = Field(default=4, ge=1)
     GATHER_SEARCH_LIMIT: int = Field(default=5, ge=1)
     GATHER_EXTRA_CHUNKS: int = Field(default=10, ge=0)
 
