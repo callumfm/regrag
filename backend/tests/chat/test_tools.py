@@ -1,6 +1,9 @@
 """Chat tools: definitions the model sees, argument validation, and dispatch."""
 
+from typing import cast
+
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import ToolCall
 from app.chat.tools import run_tool_call, tool_definitions
@@ -9,6 +12,9 @@ from app.retrieval.models import ReferenceTarget, SearchFilters, SearchRequest
 from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
+
+NO_SESSION = cast(AsyncSession, None)
+"""The faked tool paths never touch the session, so a cast null stands in for one."""
 
 
 def test_definitions_name_both_tools_with_parameter_schemas():
@@ -32,7 +38,7 @@ async def test_search_call_dispatches_with_filters_and_the_gather_limit(monkeypa
     monkeypatch.setattr("app.chat.tools.search", fake_search)
     call = ToolCall(name="search", args={"query": "penalties", "celex": "32023R1805"})
 
-    found = await run_tool_call(None, call)
+    found = await run_tool_call(NO_SESSION, call)
 
     assert found == (search_result(),)
     assert requests == [
@@ -54,21 +60,21 @@ async def test_follow_reference_call_dispatches_to_the_named_division(monkeypatc
     monkeypatch.setattr("app.chat.tools.follow_reference", fake_follow)
     call = ToolCall(name="follow_reference", args={"celex": "32023R1805", "article": "6"})
 
-    found = await run_tool_call(None, call)
+    found = await run_tool_call(NO_SESSION, call)
 
     assert found == (search_result(id=7),)
     assert targets == [ReferenceTarget(celex="32023R1805", article="6")]
 
 
 async def test_an_unknown_tool_name_returns_nothing():
-    assert await run_tool_call(None, ToolCall(name="check_in_force", args={})) == ()
+    assert await run_tool_call(NO_SESSION, ToolCall(name="check_in_force", args={})) == ()
 
 
 async def test_invalid_arguments_return_nothing():
     call = ToolCall(name="search", args={"limit": 5})
-    assert await run_tool_call(None, call) == ()
+    assert await run_tool_call(NO_SESSION, call) == ()
 
 
 async def test_an_act_without_a_division_returns_nothing():
     call = ToolCall(name="follow_reference", args={"celex": "32023R1805"})
-    assert await run_tool_call(None, call) == ()
+    assert await run_tool_call(NO_SESSION, call) == ()

@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Awaitable, Callable
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import ToolCall
@@ -50,9 +50,9 @@ async def run_follow_reference(
     return await follow_reference(session, target)
 
 
-type ToolRunner = Callable[[AsyncSession, BaseModel], Awaitable[tuple[RetrievedChunk, ...]]]
-
-TOOL_SURFACE: dict[str, tuple[type[FrozenModel], ToolRunner, str]] = {
+TOOL_SURFACE: dict[
+    str, tuple[type[FrozenModel], Callable[..., Awaitable[tuple[RetrievedChunk, ...]]], str]
+] = {
     "search": (
         SearchArgs,
         run_search,
