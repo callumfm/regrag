@@ -30,28 +30,16 @@ def fake_grid(monkeypatch):
     return calls
 
 
-def test_tune_prints_the_ranked_table(fake_grid, capsys):
-    assert main(["tune", "--set", "CHAT_SOURCES=3,8"]) == 0
-
-    out = capsys.readouterr().out
-    assert "(baseline)" in out
-    assert "CHAT_SOURCES=3" in out
-    assert "CHAT_SOURCES=8" in out
-    assert "baseline:" in out
-
-
-def test_bare_tune_sweeps_the_curated_params(fake_grid, capsys):
+def test_tune_sweeps_the_curated_params_and_prints_the_table(fake_grid, capsys):
     assert main(["tune"]) == 0
 
     varied = {name for point in fake_grid["points"] for name in point.overrides}
     assert varied
     assert varied <= set(TUNABLE_PARAMS)
-
-
-def test_tune_names_a_bad_param_and_exits_two(fake_grid, capsys):
-    assert main(["tune", "--set", "RERANK_TIMEOUT=60"]) == 2
-
-    assert "not a tunable param" in capsys.readouterr().err
+    out = capsys.readouterr().out
+    assert "(baseline)" in out
+    assert "CHAT_SOURCES=3" in out
+    assert "baseline:" in out
 
 
 def test_tune_exits_nonzero_when_a_point_had_errors(monkeypatch, capsys):
@@ -65,4 +53,4 @@ def test_tune_exits_nonzero_when_a_point_had_errors(monkeypatch, capsys):
 
     monkeypatch.setattr(tune_cli, "run_grid", _fake)
 
-    assert main(["tune", "--set", "CHAT_SOURCES=8"]) == 1
+    assert main(["tune"]) == 1

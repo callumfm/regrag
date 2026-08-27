@@ -100,5 +100,5 @@ def main(argv: list[str] | None = None) -> int:
             enable_call_cache()
         return run_evals(args.case, args.verbose, cached)
     if args.command == "tune":
-        return run_tune(args.sets, args.cross, args.case)
+        return run_tune(args.case)
     return check_references()

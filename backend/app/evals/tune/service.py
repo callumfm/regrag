@@ -3,6 +3,7 @@
 import logging
 import time
 from collections.abc import Sequence
+from typing import Any
 
 from app.chat.graph import retrieve
 from app.chat.models import ChatState
@@ -16,6 +17,17 @@ from app.evals.tune.models import GridPoint, TunedPoint, TuneRun
 from app.evals.tune.params import TUNABLE_PARAMS
 
 logger = logging.getLogger(__name__)
+
+
+def build_grid(params: dict[str, tuple[Any, ...]]) -> tuple[GridPoint, ...]:
+    """The grid: one point per value per param, varied alone against baseline. A value
+    equal to baseline adds nothing over the baseline run, so it is dropped."""
+    return tuple(
+        GridPoint(overrides={name: value})
+        for name, values in params.items()
+        for value in dict.fromkeys(values)
+        if value != getattr(config, name)
+    )
 
 
 async def run_retrieval(case: EvalCase) -> EvalResult:
@@ -55,6 +67,7 @@ async def run_grid(
         results.append(await _measure_point(point, dataset, pattern))
         for name in point.overrides:
             setattr(config, name, baseline_values[name])
+
     return TuneRun(
         dataset_sha=dataset.sha256,
         case_pattern=pattern,

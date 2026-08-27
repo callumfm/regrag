@@ -2,7 +2,7 @@
 
 from app.evals.models import RunSettings
 from app.evals.tune.models import GridPoint, TunedPoint, TuneRun
-from app.evals.tune.table import format_tune_table
+from app.evals.tune.report import format_tune_table
 from tests.evals.tune.conftest import metrics
 
 

@@ -1,4 +1,4 @@
-"""The runner: one case through retrieve alone, and the config-override run loop."""
+"""The runner: the grid, one case through retrieve alone, and the config-override run loop."""
 
 import logging
 
@@ -9,11 +9,29 @@ from app.core.config import config
 from app.core.llm import LLMError
 from app.evals.tune import service
 from app.evals.tune.models import GridPoint
-from app.evals.tune.service import run_grid, run_retrieval
+from app.evals.tune.service import build_grid, run_grid, run_retrieval
 from tests.conftest import search_result
 from tests.evals.conftest import eval_case, eval_dataset, eval_result
 
 pytestmark = pytest.mark.anyio
+
+
+def test_build_grid_varies_each_param_alone() -> None:
+    points = build_grid({"CHAT_SOURCES": (3, 8), "RERANK_ENABLED": (False,)})
+
+    assert points == (
+        GridPoint(overrides={"CHAT_SOURCES": 3}),
+        GridPoint(overrides={"CHAT_SOURCES": 8}),
+        GridPoint(overrides={"RERANK_ENABLED": False}),
+    )
+
+
+def test_build_grid_drops_a_value_equal_to_baseline() -> None:
+    baseline = config.CHAT_SOURCES
+
+    points = build_grid({"CHAT_SOURCES": (baseline, baseline + 1)})
+
+    assert points == (GridPoint(overrides={"CHAT_SOURCES": baseline + 1}),)
 
 
 @pytest.fixture

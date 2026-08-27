@@ -1,48 +1,30 @@
-"""Tune CLI: the `evals tune` subcommand, from flags to the printed table."""
+"""Tune CLI: the `evals tune` subcommand, from the curated params to the printed table."""
 
 import asyncio
-import sys
 from typing import Any
-
-from pydantic import ValidationError
 
 from app.evals.cache import enable_call_cache
 from app.evals.models import EvalDataset
-from app.evals.tune.grid import build_points, parse_param_values
-from app.evals.tune.service import run_grid
-from app.evals.tune.table import format_tune_table
+from app.evals.tune.params import get_tunable_params
+from app.evals.tune.report import format_tune_table
+from app.evals.tune.service import build_grid, run_grid
 
 
 def register_tune_command(commands: Any) -> None:
-    """The tune subparser: sweep every curated param, or just the ones named."""
+    """The tune subparser: sweep every curated param at its values, one at a time."""
     tune = commands.add_parser(
         "tune",
         help="rank retrieval settings against the dataset",
-        description="Rank retrieval settings against the dataset. With no --set, sweeps "
-        "every param in TUNABLE_PARAMS at its curated values, one factor at a time. "
-        "The curated params replay their embed and rerank calls from the cache for free.",
-    )
-    tune.add_argument(
-        "--set",
-        dest="sets",
-        action="append",
-        default=[],
-        metavar="NAME=V1,V2",
-        help="values to try for one param; repeatable; omit to sweep every curated param",
-    )
-    tune.add_argument(
-        "--cross", action="store_true", help="cross every param instead of varying one at a time"
+        description="Sweep every param in TUNABLE_PARAMS at its curated values, one factor "
+        "at a time, and print one ranked table. Edit params.py to change what is swept. "
+        "Embed and rerank calls replay from the cache, so a sweep is Postgres time, not spend.",
     )
     tune.add_argument("--case", help="only cases whose id contains this")
 
 
-def run_tune(sets: list[str], cross: bool, pattern: str | None) -> int:
-    """Validate the grid, run it with the call cache on, and print the ranked table."""
-    try:
-        points = build_points(parse_param_values(sets), cross=cross)
-    except (ValueError, ValidationError) as exc:
-        print(f"evals tune: error: {exc}", file=sys.stderr)
-        return 2
+def run_tune(pattern: str | None) -> int:
+    """Sweep the curated grid with the call cache on and print the ranked table."""
+    points = build_grid(get_tunable_params())
     enable_call_cache()
     run = asyncio.run(run_grid(EvalDataset.load(), points, pattern))
     if run.baseline.metrics.cases == 0:
