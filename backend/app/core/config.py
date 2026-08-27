@@ -145,6 +145,10 @@ class ChatConfig(BaseConfig):
     CHAT_SOURCES: search hits the answer draws on, each widened to its section.
     CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt; a guardrail
         against a run of long articles, not a target, so it should rarely bite.
+    GATHER_MAX_ROUNDS: tool rounds the gather loop may run; 0 skips the loop entirely.
+    GATHER_SEARCH_LIMIT: hits one search tool call brings back.
+    GATHER_EXTRA_CHUNKS: the most chunks tool rounds may add on top of the initial
+        context, which expansion already fills to CHAT_CONTEXT_CHUNKS.
     """
 
     ANTHROPIC_API_KEY: SecretStr = SecretStr("")
@@ -153,6 +157,9 @@ class ChatConfig(BaseConfig):
     CHAT_MAX_TOKENS: int = 2048
     CHAT_SOURCES: int = Field(default=5, ge=1)
     CHAT_CONTEXT_CHUNKS: int = Field(default=15, ge=1)
+    GATHER_MAX_ROUNDS: int = Field(default=2, ge=0)
+    GATHER_SEARCH_LIMIT: int = Field(default=5, ge=1)
+    GATHER_EXTRA_CHUNKS: int = Field(default=10, ge=0)
 
 
 class IngestConfig(BaseConfig):

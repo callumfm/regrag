@@ -1,7 +1,8 @@
 """Chat run state: what a graph snapshot refreshes, and what it leaves alone."""
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatNodeResult, ChatState
+from app.chat.models import ChatNodeResult, ChatState, ToolCall, merge_sources
+from app.core.config import config
 from app.core.exceptions import DomainError
 from tests.conftest import search_result
 
@@ -45,3 +46,109 @@ def test_log_fields_count_hits_and_sources_rather_than_dumping_them():
 
     assert (fields["hits"], fields["sources"]) == (2, 1)
     assert "question" not in fields
+
+
+def visited(*nodes: ChatNode) -> tuple[ChatNodeResult, ...]:
+    return tuple(ChatNodeResult(node=node, ms=1) for node in nodes)
+
+
+class TestMergeSources:
+    def test_appends_new_chunks_after_existing_in_arrival_order(self):
+        existing = (search_result(id=1),)
+        additions = [search_result(id=2), search_result(id=3)]
+
+        merged = merge_sources(existing, additions, cap=10)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2, 3)
+
+    def test_deduplicates_by_chunk_id_keeping_the_earlier_chunk(self):
+        existing = (search_result(id=1, text="first form"),)
+        additions = [search_result(id=1, text="refetched form"), search_result(id=2)]
+
+        merged = merge_sources(existing, additions, cap=10)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2)
+        assert merged[0].text == "first form"
+
+    def test_stops_appending_at_the_cap_so_earlier_context_wins(self):
+        existing = (search_result(id=1), search_result(id=2))
+        additions = [search_result(id=3), search_result(id=4)]
+
+        merged = merge_sources(existing, additions, cap=3)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2, 3)
+
+    def test_existing_beyond_the_cap_is_kept_but_nothing_is_added(self):
+        existing = (search_result(id=1), search_result(id=2))
+
+        merged = merge_sources(existing, [search_result(id=3)], cap=2)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2)
+
+
+class TestToolRounds:
+    def test_counts_only_tools_visits(self):
+        state = ChatState(
+            question="q",
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER, ChatNode.TOOLS, ChatNode.GATHER),
+        )
+        assert state.tool_rounds() == 1
+
+
+class TestContextSettled:
+    def test_not_settled_before_any_node(self):
+        assert ChatState(question="q").context_settled is False
+
+    def test_after_retrieve_with_loop_enabled_the_loop_still_runs(self, monkeypatch):
+        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
+        state = ChatState(
+            question="q", nodes=visited(ChatNode.RETRIEVE), sources=(search_result(),)
+        )
+        assert state.context_settled is False
+
+    def test_after_retrieve_with_loop_disabled_context_is_settled(self, monkeypatch):
+        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 0)
+        state = ChatState(
+            question="q", nodes=visited(ChatNode.RETRIEVE), sources=(search_result(),)
+        )
+        assert state.context_settled is True
+
+    def test_after_a_gated_retrieve_context_is_settled_for_the_refusal(self, monkeypatch):
+        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
+        state = ChatState(question="q", nodes=visited(ChatNode.RETRIEVE), sources=())
+        assert state.context_settled is True
+
+    def test_gather_asking_for_tools_is_not_settled(self):
+        state = ChatState(
+            question="q",
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER),
+            sources=(search_result(),),
+            pending_calls=(ToolCall(name="search", args={"query": "penalties"}),),
+        )
+        assert state.context_settled is False
+
+    def test_gather_asking_for_nothing_is_settled(self):
+        state = ChatState(
+            question="q",
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER),
+            sources=(search_result(),),
+        )
+        assert state.context_settled is True
+
+    def test_tools_visit_below_the_round_cap_is_not_settled(self, monkeypatch):
+        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
+        state = ChatState(
+            question="q",
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER, ChatNode.TOOLS),
+            sources=(search_result(),),
+        )
+        assert state.context_settled is False
+
+    def test_tools_visit_consuming_the_round_cap_is_settled(self, monkeypatch):
+        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 1)
+        state = ChatState(
+            question="q",
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER, ChatNode.TOOLS),
+            sources=(search_result(),),
+        )
+        assert state.context_settled is True

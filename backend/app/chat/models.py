@@ -1,12 +1,14 @@
 """Chat query, graph state and SSE event values."""
 
 import operator
+from collections.abc import Sequence
 from typing import Annotated, Any, Literal
 
 from langchain_core.messages.ai import UsageMetadata
 from pydantic import ConfigDict, Field, computed_field
 
 from app.chat.enums import ChatEventName, ChatNode, ChatOutcome
+from app.core.config import config
 from app.core.exceptions import DomainError
 from app.core.models import AppModel, ErrorResponse, FrozenModel
 from app.retrieval.models import RetrievedChunk, SearchResult
@@ -40,6 +42,30 @@ class ChatNodeResult(FrozenModel):
         )
 
 
+class ToolCall(FrozenModel):
+    """One tool call gather asked for, as litellm reports it: the tool, and its arguments."""
+
+    name: str
+    args: dict[str, Any] = {}
+
+
+def merge_sources(
+    sources: tuple[RetrievedChunk, ...], additions: Sequence[RetrievedChunk], *, cap: int
+) -> tuple[RetrievedChunk, ...]:
+    """The context grown by a tool round: new chunks appended in arrival order, a chunk
+    already present kept as it was, and nothing appended once the cap is reached."""
+    merged = list(sources)
+    seen = {chunk.id for chunk in merged}
+    for chunk in additions:
+        if len(merged) >= cap:
+            break
+        if chunk.id in seen:
+            continue
+        seen.add(chunk.id)
+        merged.append(chunk)
+    return tuple(merged)
+
+
 class ChatState(AppModel):
     """Everything one question produced: what the graph accumulates as it runs, then what
     only the stream's consumer knows once it ends — how long the request lived, and an error.
@@ -48,12 +74,14 @@ class ChatState(AppModel):
     tool loop will visit a node more than once.
     hits: what search returned, before the gate and before expansion, kept through a refusal.
     sources: the context blocks that reached the prompt, which the [n] markers number.
+    pending_calls: the tool calls gather asked for, not yet executed.
     """
 
     question: str
     nodes: Annotated[tuple[ChatNodeResult, ...], operator.add] = ()
     hits: tuple[SearchResult, ...] = ()
     sources: tuple[RetrievedChunk, ...] = ()
+    pending_calls: tuple[ToolCall, ...] = ()
     answer: str = ""
     total_ms: int | None = None
     error: str | None = None
@@ -85,8 +113,27 @@ class ChatState(AppModel):
 
     def log_fields(self) -> dict[str, Any]:
         """The run as the stats line logs it: everything but the content."""
-        fields = self.model_dump(mode="json", exclude={"question", "hits", "sources", "answer"})
+        exclude_fields = {"question", "hits", "sources", "answer", "pending_calls"}
+        fields = self.model_dump(mode="json", exclude=exclude_fields)
         return fields | {"hits": len(self.hits), "sources": len(self.sources)}
+
+    def tool_rounds(self) -> int:
+        """How many tool rounds have run — what the loop's budget is spent against."""
+        return sum(1 for result in self.nodes if result.node is ChatNode.TOOLS)
+
+    @property
+    def context_settled(self) -> bool:
+        """Whether the context is final: retrieval ended with the loop off or the gate
+        shut, gather asked for nothing, or the last round consumed the budget."""
+        match self.last_node:
+            case ChatNode.RETRIEVE:
+                return not self.sources or config.GATHER_MAX_ROUNDS == 0
+            case ChatNode.GATHER:
+                return not self.pending_calls
+            case ChatNode.TOOLS:
+                return self.tool_rounds() >= config.GATHER_MAX_ROUNDS
+            case _:
+                return False
 
     @computed_field
     @property
