@@ -1,5 +1,7 @@
 """Eval scoring: what counts as a retrieved reference, a correct citation, a refusal."""
 
+from app.chat.enums import ChatNode
+from app.chat.models import ChatNodeResult
 from app.chat.prompts import REFUSAL_ANSWER
 from app.evals.metrics import (
     compute_cited_references,
@@ -206,6 +208,13 @@ def test_an_in_corpus_refusal_over_hits_holding_the_reference_is_the_gate_too_ti
 
     assert count_false_refusals((too_tight, genuine_miss)) == 2
     assert count_refusals_of_a_found_reference((too_tight, genuine_miss)) == 1
+
+
+def test_a_refusal_is_read_off_empty_sources_not_the_refuse_node() -> None:
+    """A retrieval-only run never visits REFUSE; the gate's mark is the empty context."""
+    retrieval_only = refused_result(nodes=(ChatNodeResult(node=ChatNode.RETRIEVE, ms=80),))
+
+    assert compute_gate_refusal_rate([retrieval_only]) == 1.0
 
 
 def test_citation_metrics_average_over_the_cases_that_measure() -> None:

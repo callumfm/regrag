@@ -4,7 +4,6 @@ and the run's measures, each a plain function over its results."""
 import re
 from collections.abc import Sequence
 
-from app.chat.enums import ChatNode
 from app.evals.enums import EvalKind
 from app.evals.models import EvalMetrics, EvalResult
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
@@ -95,8 +94,9 @@ def _expanded_recall(result: EvalResult) -> float:
 
 
 def _gate_refused(result: EvalResult) -> bool:
-    """Read off the path, not the wording: the graph says which node answered."""
-    return result.state.last_node is ChatNode.REFUSE
+    """No sources means retrieve emptied the context — exactly what synthesize_or_refuse
+    branches on, so it reads the same with or without the graph."""
+    return not result.state.sources
 
 
 def count_errors(results: Sequence[EvalResult]) -> int:
