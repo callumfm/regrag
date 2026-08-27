@@ -6,10 +6,8 @@ from app.evals import cli
 from app.evals.cli import format_case_lines, main
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalRun, RunSettings, UnresolvedReference
-from app.evals.tune.models import GridPoint, TunedPoint, TuneRun
 from app.retrieval.models import ReferenceTarget
 from tests.evals.conftest import eval_case, eval_result, refused_result
-from tests.evals.tune.conftest import metrics
 
 
 @pytest.fixture
@@ -177,63 +175,3 @@ def test_run_lists_every_case_only_when_asked(fake_run, capsys):
     out = capsys.readouterr().out
     assert "raw 1.00" in out
     assert '"raw_recall": 1.0' in out
-
-
-# The tune subcommand
-
-
-@pytest.fixture
-def fake_grid(monkeypatch):
-    """Replace the grid run with a stub returning a canned TuneRun, recording its points."""
-    calls: dict = {}
-
-    async def _fake(dataset, points, pattern=None):
-        calls["points"] = points
-        baseline = TunedPoint(point=GridPoint(), metrics=metrics())
-        varied = tuple(TunedPoint(point=point, metrics=metrics()) for point in points)
-        return TuneRun(
-            dataset_sha=dataset.sha256,
-            case_pattern=pattern,
-            settings=RunSettings.from_config(),
-            results=(baseline, *varied),
-        )
-
-    monkeypatch.setattr(cli, "run_grid", _fake)
-    return calls
-
-
-def test_tune_prints_the_ranked_table(fake_grid, capsys):
-    assert main(["tune", "--set", "CHAT_SOURCES=3,8"]) == 0
-
-    out = capsys.readouterr().out
-    assert "(baseline)" in out
-    assert "CHAT_SOURCES=3" in out
-    assert "CHAT_SOURCES=8" in out
-    assert "baseline:" in out
-
-
-def test_tune_without_set_is_refused(capsys):
-    with pytest.raises(SystemExit):
-        main(["tune"])
-
-
-def test_tune_names_a_bad_setting_and_exits_two(fake_grid, capsys):
-    with pytest.raises(SystemExit) as excinfo:
-        main(["tune", "--set", "NOT_A_SETTING=1"])
-
-    assert excinfo.value.code == 2
-    assert "not a tunable setting" in capsys.readouterr().err
-
-
-def test_tune_exits_nonzero_when_a_point_had_errors(monkeypatch, capsys):
-    async def _fake(dataset, points, pattern=None):
-        return TuneRun(
-            dataset_sha=dataset.sha256,
-            case_pattern=pattern,
-            settings=RunSettings.from_config(),
-            results=(TunedPoint(point=GridPoint(), metrics=metrics(errors=1)),),
-        )
-
-    monkeypatch.setattr(cli, "run_grid", _fake)
-
-    assert main(["tune", "--set", "CHAT_SOURCES=8"]) == 1

@@ -4,16 +4,13 @@ import argparse
 import asyncio
 from collections.abc import Sequence
 
-from pydantic import ValidationError
-
 from app.core.db.session import get_session
 from app.core.logger import setup_logging
 from app.evals.cache import enable_call_cache
 from app.evals.metrics import score_reference_citation_rate, score_reference_recall
 from app.evals.models import EvalDataset, EvalResult, UnresolvedReference
 from app.evals.service import find_unresolved_references, run_dataset
-from app.evals.tune.service import build_points, parse_settings, run_grid
-from app.evals.tune.table import format_tune_table
+from app.evals.tune.cli import register_tune_command, run_tune
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,26 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="pay for every embed and rerank again instead of replaying the cached ones",
     )
-    tune = commands.add_parser(
-        "tune",
-        help="rank retrieval settings against the dataset",
-        description="Rank retrieval settings against the dataset. Settings that change the "
-        "rerank request itself (SEARCH_CANDIDATES, RRF_K, EF_SEARCH_PER_CANDIDATE, "
-        "RERANK_POOL, RERANK_MODEL, or CHAT_SOURCES above RERANK_POOL) miss the call cache "
-        "and pay per case; the ticket's six settings replay free.",
-    )
-    tune.add_argument(
-        "--set",
-        dest="sets",
-        action="append",
-        required=True,
-        metavar="NAME=V1,V2",
-        help="values to try for one setting; repeatable",
-    )
-    tune.add_argument(
-        "--cross", action="store_true", help="cross every --set instead of varying one at a time"
-    )
-    tune.add_argument("--case", help="only cases whose id contains this")
+    register_tune_command(commands)
     return parser
 
 
@@ -112,23 +90,6 @@ def run_evals(pattern: str | None, verbose: bool = False, cached: bool = False) 
     return 1 if run.metrics.errors else 0
 
 
-def run_tune(
-    parser: argparse.ArgumentParser, sets: list[str], cross: bool, pattern: str | None
-) -> int:
-    """Validate the grid, run it with the call cache on, and print the ranked table."""
-    try:
-        points = build_points(parse_settings(sets), cross=cross)
-    except (ValueError, ValidationError) as exc:
-        parser.error(str(exc))
-    enable_call_cache()
-    run = asyncio.run(run_grid(EvalDataset.load(), points, pattern))
-    if run.baseline.metrics.cases == 0:
-        print(f"no case id contains {pattern!r}")
-        return 1
-    print(format_tune_table(run))
-    return 1 if any(result.metrics.errors for result in run.results) else 0
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -139,5 +100,5 @@ def main(argv: list[str] | None = None) -> int:
             enable_call_cache()
         return run_evals(args.case, args.verbose, cached)
     if args.command == "tune":
-        return run_tune(parser, args.sets, args.cross, args.case)
+        return run_tune(args.sets, args.cross, args.case)
     return check_references()
