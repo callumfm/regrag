@@ -1,5 +1,5 @@
-"""Chat graph: retrieve corpus context, then synthesize a cited answer — or refuse,
-before any model call, a question the corpus does not cover."""
+"""Chat graph: retrieve corpus context, run the gather ⇄ tools loop, then synthesize a
+cited answer — or refuse, before any model call, a question the corpus does not cover."""
 
 import functools
 import time
@@ -7,13 +7,21 @@ from collections.abc import Awaitable
 from typing import Any, Protocol
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import Runnable
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatNodeResult, ChatState
-from app.chat.prompts import REFUSAL_ANSWER, SYSTEM_PROMPT, build_user_message
+from app.chat.models import ChatNodeResult, ChatState, ToolCall, merge_sources
+from app.chat.prompts import (
+    GATHER_SYSTEM_PROMPT,
+    REFUSAL_ANSWER,
+    SYSTEM_PROMPT,
+    build_gather_message,
+    build_user_message,
+)
+from app.chat.tools import run_tool_call, tool_definitions
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -106,21 +114,84 @@ async def refuse(state: ChatState) -> dict[str, Any]:
     return {"answer": REFUSAL_ANSWER}
 
 
-def synthesize_or_refuse(state: ChatState) -> ChatNode:
-    """Synthesize from context, or refuse for want of it — the cheap path, ahead of the
-    first model call, that later stages of the graph slot in behind."""
-    return ChatNode.SYNTHESIZE if state.sources else ChatNode.REFUSE
+def gather_model() -> Runnable:
+    """The chat model as gather calls it: one blocking turn, the tool surface bound."""
+    model = ChatLiteLLM(
+        model=config.CHAT_MODEL,
+        api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
+        max_tokens=config.CHAT_MAX_TOKENS,
+        request_timeout=config.CHAT_TIMEOUT,
+    )
+    return model.bind_tools(tool_definitions())
+
+
+@traced
+@llm_retry
+@wrap_provider_errors("gather call")
+async def gather(state: ChatState) -> dict[str, Any]:
+    """One review of the context: the calls that would fill what is missing, or none
+    when it suffices. Stateless per round — the grown context is the loop's memory."""
+    messages = [
+        SystemMessage(GATHER_SYSTEM_PROMPT),
+        HumanMessage(build_gather_message(state.question, state.sources)),
+    ]
+    response = await gather_model().ainvoke(messages)
+    calls = tuple(ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls)
+    return {"pending_calls": calls, "usage": response.usage_metadata}
+
+
+@traced
+async def tools(state: ChatState) -> dict[str, Any]:
+    """The round's calls run and folded into the context: dedup by chunk id, earlier
+    context kept, growth capped — then the request for them cleared."""
+    fetched: list[RetrievedChunk] = []
+    async with get_session(auto_commit=False) as session:
+        for call in state.pending_calls:
+            fetched.extend(await run_tool_call(session, call))
+    cap = config.CHAT_CONTEXT_CHUNKS + config.GATHER_EXTRA_CHUNKS
+    return {"sources": merge_sources(state.sources, fetched, cap=cap), "pending_calls": ()}
+
+
+def gather_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
+    """After retrieve: refuse for want of context, skip a switched-off loop, or gather."""
+    if not state.sources:
+        return ChatNode.REFUSE
+    if config.GATHER_MAX_ROUNDS == 0:
+        return ChatNode.SYNTHESIZE
+    return ChatNode.GATHER
+
+
+def tools_or_synthesize(state: ChatState) -> ChatNode:
+    """After gather: run what it asked for, or answer when it asked for nothing."""
+    return ChatNode.TOOLS if state.pending_calls else ChatNode.SYNTHESIZE
+
+
+def gather_or_synthesize(state: ChatState) -> ChatNode:
+    """After tools: review again while budget remains, else answer with what there is."""
+    if state.tool_rounds() >= config.GATHER_MAX_ROUNDS:
+        return ChatNode.SYNTHESIZE
+    return ChatNode.GATHER
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:
-    """The compiled retrieve → (synthesize | refuse) graph."""
+    """The compiled retrieve → (gather ⇄ tools) → (synthesize | refuse) graph."""
     graph = StateGraph(ChatState)
     graph.add_node(ChatNode.RETRIEVE, retrieve)
+    graph.add_node(ChatNode.GATHER, gather)
+    graph.add_node(ChatNode.TOOLS, tools)
     graph.add_node(ChatNode.SYNTHESIZE, synthesize)
     graph.add_node(ChatNode.REFUSE, refuse)
     graph.add_edge(START, ChatNode.RETRIEVE)
     graph.add_conditional_edges(
-        ChatNode.RETRIEVE, synthesize_or_refuse, [ChatNode.SYNTHESIZE, ChatNode.REFUSE]
+        ChatNode.RETRIEVE,
+        gather_or_synthesize_or_refuse,
+        [ChatNode.GATHER, ChatNode.SYNTHESIZE, ChatNode.REFUSE],
+    )
+    graph.add_conditional_edges(
+        ChatNode.GATHER, tools_or_synthesize, [ChatNode.TOOLS, ChatNode.SYNTHESIZE]
+    )
+    graph.add_conditional_edges(
+        ChatNode.TOOLS, gather_or_synthesize, [ChatNode.GATHER, ChatNode.SYNTHESIZE]
     )
     graph.add_edge(ChatNode.SYNTHESIZE, END)
     graph.add_edge(ChatNode.REFUSE, END)

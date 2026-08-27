@@ -48,6 +48,13 @@ def fake_chat_model(answer: str = "Ships must comply [1].") -> RecordingChatMode
     return RecordingChatModel(messages=iter([AIMessage(content=answer)]), usage=USAGE)
 
 
+def tool_call_message(name: str, args: dict) -> AIMessage:
+    """A gather turn asking for one tool, shaped as litellm parses provider tool calls."""
+    return AIMessage(
+        content="", tool_calls=[{"name": name, "args": args, "id": "call_1", "type": "tool_call"}]
+    )
+
+
 THINKING = "weighing the context"
 ANSWER = "Ships must comply [1]."
 
@@ -83,6 +90,13 @@ def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
     """Expansion is a database walk covered in tests/retrieval; here it is switched off,
     so the graph works from exactly what the faked search found."""
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
+
+
+@pytest.fixture(autouse=True)
+def no_gather_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The loop is off by default so every pre-loop test keeps meaning exactly what it
+    said; a loop test switches it on and fakes gather_model itself."""
+    monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 0)
 
 
 @pytest.fixture(autouse=True)

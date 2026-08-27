@@ -7,16 +7,24 @@ import httpx
 import litellm
 import openai
 import pytest
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.outputs import ChatResult
 
+from app.chat.enums import ChatNode
 from app.chat.graph import chat_graph
-from app.chat.models import ChatState
-from app.chat.prompts import REFUSAL_ANSWER
+from app.chat.models import ChatState, ToolCall
+from app.chat.prompts import GATHER_SYSTEM_PROMPT, REFUSAL_ANSWER
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
-from tests.chat.conftest import ANSWER, THINKING, RecordingChatModel, fake_chat_model
+from tests.chat.conftest import (
+    ANSWER,
+    THINKING,
+    USAGE,
+    RecordingChatModel,
+    fake_chat_model,
+    tool_call_message,
+)
 from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
@@ -287,3 +295,138 @@ async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
     assert state["answer"] == REFUSAL_ANSWER
+
+
+def gather_fake(*turns: AIMessage) -> RecordingChatModel:
+    return RecordingChatModel(messages=iter(list(turns)), usage=USAGE)
+
+
+@pytest.fixture
+def loop_on(monkeypatch):
+    monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
+
+
+@pytest.fixture
+def answer_model(monkeypatch):
+    model = fake_chat_model("Answered [1].")
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    return model
+
+
+class TestGatherLoop:
+    async def test_no_tool_calls_goes_straight_to_synthesize(
+        self, loop_on, one_result, answer_model, monkeypatch
+    ):
+        gather = gather_fake(AIMessage(content=""))
+        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+
+        state = ChatState(question=QUESTION)
+        state.refresh(await chat_graph.ainvoke(state))
+
+        assert state.answer == "Answered [1]."
+        assert [r.node for r in state.nodes] == [
+            ChatNode.RETRIEVE,
+            ChatNode.GATHER,
+            ChatNode.SYNTHESIZE,
+        ]
+
+    async def test_a_tool_round_merges_its_chunks_then_answers(
+        self, loop_on, one_result, answer_model, monkeypatch
+    ):
+        gather = gather_fake(
+            tool_call_message("follow_reference", {"celex": "32023R1805", "article": "6"}),
+            AIMessage(content=""),
+        )
+        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+
+        async def fake_run_tool_call(session, call):
+            assert call == ToolCall(
+                name="follow_reference", args={"celex": "32023R1805", "article": "6"}
+            )
+            return (search_result(id=42, citation="Article 6"),)
+
+        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
+
+        state = ChatState(question=QUESTION)
+        state.refresh(await chat_graph.ainvoke(state))
+
+        assert [r.node for r in state.nodes] == [
+            ChatNode.RETRIEVE,
+            ChatNode.GATHER,
+            ChatNode.TOOLS,
+            ChatNode.GATHER,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert tuple(chunk.id for chunk in state.sources) == (1, 42)
+        assert state.pending_calls == ()
+
+    async def test_the_round_cap_forces_synthesis_with_calls_still_pending(
+        self, loop_on, one_result, answer_model, monkeypatch
+    ):
+        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 1)
+        gather = gather_fake(
+            tool_call_message("search", {"query": "first gap"}),
+            tool_call_message("search", {"query": "never runs"}),
+        )
+        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+
+        async def fake_run_tool_call(session, call):
+            return (search_result(id=2),)
+
+        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
+
+        state = ChatState(question=QUESTION)
+        state.refresh(await chat_graph.ainvoke(state))
+
+        assert [r.node for r in state.nodes] == [
+            ChatNode.RETRIEVE,
+            ChatNode.GATHER,
+            ChatNode.TOOLS,
+            ChatNode.SYNTHESIZE,
+        ]
+
+    async def test_each_gather_visit_records_its_own_usage(
+        self, loop_on, one_result, answer_model, monkeypatch
+    ):
+        gather = gather_fake(tool_call_message("search", {"query": "gap"}), AIMessage(content=""))
+        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+
+        async def fake_run_tool_call(session, call):
+            return ()
+
+        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
+
+        state = ChatState(question=QUESTION)
+        state.refresh(await chat_graph.ainvoke(state))
+
+        gathers = [r for r in state.nodes if r.node is ChatNode.GATHER]
+        assert len(gathers) == 2
+        assert all(r.input_tokens == USAGE["input_tokens"] for r in gathers)
+
+    async def test_gather_sees_the_question_and_numbered_context(
+        self, loop_on, one_result, answer_model, monkeypatch
+    ):
+        gather = gather_fake(AIMessage(content=""))
+        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+
+        state = ChatState(question=QUESTION)
+        state.refresh(await chat_graph.ainvoke(state))
+
+        (prompt,) = gather.received
+        assert prompt[0].content == GATHER_SYSTEM_PROMPT
+        assert "[1] (32023R1805" in prompt[1].content
+        assert str(prompt[1].content).endswith(f"Question: {QUESTION}")
+
+    async def test_a_gated_question_still_refuses_without_any_model_call(
+        self, loop_on, monkeypatch
+    ):
+        async def empty_search(session, request):
+            return ()
+
+        monkeypatch.setattr("app.chat.graph.search", empty_search)
+
+        state = ChatState(question=QUESTION)
+        state.refresh(await chat_graph.ainvoke(state))
+
+        assert state.answer == REFUSAL_ANSWER
+        assert [r.node for r in state.nodes] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
