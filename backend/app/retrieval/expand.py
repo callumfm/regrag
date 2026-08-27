@@ -3,7 +3,7 @@ arrives with the text that gives it meaning."""
 
 from collections.abc import Sequence
 
-from sqlalchemy import ColumnElement, and_, case, or_, select
+from sqlalchemy import ColumnElement, and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import FrozenModel
@@ -40,24 +40,39 @@ class SectionKey(FrozenModel):
 async def expand_sections(
     session: AsyncSession, chunks: Sequence[RetrievedChunk], *, limit: int
 ) -> tuple[RetrievedChunk, ...]:
-    """Each chunk widened to the section it was cut from, at the rank it was found,
-    at most `limit` chunks in all: the tail of the lowest-ranked section goes first.
+    """Each chunk widened to the section it was cut from, selected in rounds — every
+    hit's own chunk first, then each section one chunk wider — so a hit is never
+    evicted by a longer section above it, at most `limit` chunks in all.
 
     A paragraph rarely restates its own subject — "the limit referred to in paragraph 1"
     is unreachable by relevance — and a section split for length leaves its halves adrift
     of each other. Retrieval ranks the pieces; the section is the unit that answers.
+    Sections still arrive contiguous and in rank order: rounds decide what is kept,
+    not how it reads.
     """
     if not chunks:
         return ()
 
-    unique_keys = list(dict.fromkeys(SectionKey.from_chunk(chunk) for chunk in chunks))
-    filters = [key.query_filter() for key in unique_keys]
+    anchors: dict[SectionKey, int] = {}
+    for chunk in chunks:
+        anchors.setdefault(SectionKey.from_chunk(chunk), chunk.position)
+    filters = [key.query_filter() for key in anchors]
     rank = case(*((matches, position) for position, matches in enumerate(filters)))
-    stmt = (
-        select(*CHUNK_COLUMNS)
+    anchor = case(
+        *((matches, position) for matches, position in zip(filters, anchors.values(), strict=True))
+    )
+    distance = func.abs(DocumentChunk.position - anchor)
+    round_number = func.row_number().over(
+        partition_by=rank, order_by=(distance, DocumentChunk.position, DocumentChunk.part)
+    )
+    ranked = (
+        select(*CHUNK_COLUMNS, rank.label("rank"), round_number.label("round"))
         .where(or_(*filters))
-        .order_by(rank, DocumentChunk.position, DocumentChunk.part)
-        .limit(limit)
+        .subquery()
+    )
+    kept = select(ranked).order_by(ranked.c.round, ranked.c.rank).limit(limit).subquery()
+    stmt = select(*(kept.c[name] for name in RetrievedChunk.model_fields)).order_by(
+        kept.c.rank, kept.c.position, kept.c.part
     )
     rows = await session.execute(stmt)
     return tuple(RetrievedChunk.model_validate(row) for row in rows)
