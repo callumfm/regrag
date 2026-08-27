@@ -41,12 +41,6 @@ Design notes for each ingestion stage are in
 | [`backend/`](backend/)   | Ingestion, retrieval and the chat API (FastAPI, SQLAlchemy)  |
 | [`frontend/`](frontend/) | User interface (React, TanStack, Tailwind)                   |
 
-## Status
-
-Ingestion, retrieval and the answering API are complete and tested against the
-live corpus, with a golden dataset scoring a run end to end. The chat interface
-is in progress.
-
 ## Quickstart
 
 ```bash
