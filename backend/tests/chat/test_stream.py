@@ -1,17 +1,22 @@
 """Chat stream orchestration: every way a stream ends records one request with what it reached."""
 
+import json
 import logging
+import re
 
 import anyio
 import pytest
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.outputs import ChatGenerationChunk
 from sqlalchemy.exc import OperationalError
 
 from app.chat.enums import ChatNode, ChatOutcome
 from app.chat.models import DoneEvent, ErrorEvent, SourcesEvent, TextEvent
 from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.stream import stream_chat_events
+from app.core.config import config
 from app.core.llm import LLMError
-from tests.chat.conftest import fake_chat_model
+from tests.chat.conftest import USAGE, RecordingChatModel, fake_chat_model, tool_call_message
 from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
@@ -158,3 +163,83 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
     assert [result.node for result in state.nodes] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
     assert state.sources == ()
     assert state.token_totals() == (None, None)
+
+
+@pytest.fixture
+def one_result(monkeypatch):
+    async def fake_search(session, request):
+        return (search_result(),)
+
+    monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+
+class ToolCallStreamingModel(RecordingChatModel):
+    """Streams tool calls as litellm's real chunks do; the base fake's `_stream` only
+    carries content, so a gather call driven through the messages stream would lose them."""
+
+    def _stream(self, messages, *args, **kwargs):
+        message = self._generate(messages, *args, **kwargs).generations[0].message
+        assert isinstance(message, AIMessage)
+        if message.tool_calls:
+            for call in message.tool_calls:
+                yield ChatGenerationChunk(
+                    message=AIMessageChunk(
+                        content="",
+                        tool_call_chunks=[
+                            {
+                                "name": call["name"],
+                                "args": json.dumps(call["args"]),
+                                "id": call["id"],
+                                "index": 0,
+                            }
+                        ],
+                    )
+                )
+        elif isinstance(message.content, str) and message.content:
+            for token in re.split(r"(\s)", message.content):
+                yield ChatGenerationChunk(message=AIMessageChunk(content=token))
+        if self.usage:
+            yield ChatGenerationChunk(message=AIMessageChunk(content="", usage_metadata=self.usage))
+
+
+class TestLoopStreaming:
+    @pytest.fixture
+    def loop_on(self, monkeypatch):
+        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
+
+    @pytest.fixture
+    def one_gather_round(self, monkeypatch):
+        gather = ToolCallStreamingModel(
+            messages=iter([tool_call_message("search", {"query": "gap"}), AIMessage(content="")]),
+            usage=USAGE,
+        )
+        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+
+        async def fake_run_tool_call(session, call):
+            return (search_result(id=2, citation="Article 5(1)"),)
+
+        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
+
+    async def test_sources_arrive_once_with_the_merged_context(
+        self, loop_on, one_result, one_gather_round, monkeypatch
+    ):
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+
+        events = [event async for event in stream_chat_events("q")]
+
+        sources_events = [e for e in events if isinstance(e, SourcesEvent)]
+        assert len(sources_events) == 1
+        assert [source.chunk_id for source in sources_events[0].data] == [1, 2]
+        assert events.index(sources_events[0]) < events.index(
+            next(e for e in events if isinstance(e, TextEvent))
+        )
+
+    async def test_gather_turns_leak_no_text_events(
+        self, loop_on, one_result, one_gather_round, monkeypatch
+    ):
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model("The answer [1]."))
+
+        events = [event async for event in stream_chat_events("q")]
+
+        text = "".join(e.data for e in events if isinstance(e, TextEvent))
+        assert text == "The answer [1]."
