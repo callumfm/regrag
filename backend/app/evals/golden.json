@@ -105,6 +105,13 @@
     "references": [{"celex": "32016R1928", "article": "3"}]
   },
   {
+    "id": "mrv-verifier-risk-analysis-base-elements",
+    "kind": "in_corpus",
+    "question": "Our MRV verifier says it also has to identify inherent, control and detection risks as part of its risk analysis under Regulation (EU) 2015/757's implementing rules — what does Regulation (EU) 2015/757 itself require the verifier's risk analysis to check, on top of that?",
+    "answer": "Three things. It must identify potential risks related to the monitoring and reporting process by comparing the reported greenhouse gas emissions against estimated data derived from ship tracking data and characteristics such as installed engine power, carrying out further analysis where significant deviations are found. It must identify potential risks related to the different calculation steps by reviewing all the data sources and methodologies used. And it must take into account any effective risk control methods the company applies to reduce the uncertainty associated with the accuracy of its monitoring methods.",
+    "references": [{"celex": "32015R0757", "article": "15"}]
+  },
+  {
     "id": "ooc-ets-allowance-surrender",
     "kind": "out_of_corpus",
     "question": "How many EU ETS allowances does a shipping company have to surrender for its 2025 emissions, and by what date?"
