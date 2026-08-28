@@ -6,7 +6,8 @@ from typing import Annotated, Any, Literal
 from langchain_core.messages.ai import UsageMetadata
 from pydantic import ConfigDict, Field, computed_field
 
-from app.chat.enums import ChatEventName, ChatNode, ChatOutcome
+from app.chat.enums import ChatEventName, ChatNode, ChatOutcome, ToolStep
+from app.core.config import config
 from app.core.exceptions import DomainError
 from app.core.models import AppModel, ErrorResponse, FrozenModel
 from app.retrieval.models import RetrievedChunk, SearchResult
@@ -18,62 +19,77 @@ class ChatQuery(AppModel):
     question: str = Field(min_length=1, max_length=2000)
 
 
-class ChatNodeResult(FrozenModel):
-    """One step of the path: the node, how long it took, and the tokens it used if it
-    called a model — the shape the ledger persists per node."""
+class ChatStepResult(FrozenModel):
+    """One step of the path — a graph node, or one tool call a round ran: what it was, how
+    long it took, and the tokens it used if it called a model. The shape the ledger persists
+    per step, and the trace a run is read back from."""
 
-    node: ChatNode
+    step: ChatNode | ToolStep
     ms: int
     input_tokens: int | None = None
     output_tokens: int | None = None
 
     @classmethod
-    def from_usage(cls, node: ChatNode, ms: int, usage: UsageMetadata | None) -> "ChatNodeResult":
-        """The result of a node that reported usage, or none."""
+    def from_usage(
+        cls, step: ChatNode | ToolStep, ms: int, usage: UsageMetadata | None
+    ) -> "ChatStepResult":
+        """The result of a step that reported usage, or none."""
         if usage is None:
-            return cls(node=node, ms=ms)
+            return cls(step=step, ms=ms)
         return cls(
-            node=node,
+            step=step,
             ms=ms,
             input_tokens=usage["input_tokens"],
             output_tokens=usage["output_tokens"],
         )
 
 
+class ToolCall(FrozenModel):
+    """One tool call assess asked for, as litellm reports it: the tool, and its arguments."""
+
+    name: str
+    args: dict[str, Any] = {}
+
+
 class ChatState(AppModel):
     """Everything one question produced: what the graph accumulates as it runs, then what
     only the stream's consumer knows once it ends — how long the request lived, and an error.
 
-    nodes: the path taken, each node appending its result as it returns; a sequence, since a
-    tool loop will visit a node more than once.
+    steps: the path taken, each node appending its result as it returns and a tool round one
+    per call; a sequence, since the loop visits a node more than once.
     hits: what search returned, before the gate and before expansion, kept through a refusal.
     sources: the context blocks that reached the prompt, which the [n] markers number.
+    retrieved_sources: how many blocks retrieve left, the base the loop's growth is budgeted
+        against; sources grows each round, so the budget cannot be read off it.
+    pending_calls: the tool calls assess asked for, not yet executed.
     """
 
     question: str
-    nodes: Annotated[tuple[ChatNodeResult, ...], operator.add] = ()
+    steps: Annotated[tuple[ChatStepResult, ...], operator.add] = ()
     hits: tuple[SearchResult, ...] = ()
     sources: tuple[RetrievedChunk, ...] = ()
+    retrieved_sources: int = 0
+    pending_calls: tuple[ToolCall, ...] = ()
     answer: str = ""
     total_ms: int | None = None
     error: str | None = None
 
     @property
-    def last_node(self) -> ChatNode | None:
-        """The node that just returned — what a values step announces — or None before any."""
-        return self.nodes[-1].node if self.nodes else None
+    def last_step(self) -> ChatNode | ToolStep | None:
+        """The step that just finished — what a values update announces — or None before any."""
+        return self.steps[-1].step if self.steps else None
 
     def token_totals(self) -> tuple[int | None, int | None]:
-        """Input and output tokens summed over the nodes that reported usage — what the
+        """Input and output tokens summed over the steps that reported usage — what the
         request cost — or None for each when none did."""
-        inputs = [r.input_tokens for r in self.nodes if r.input_tokens is not None]
-        outputs = [r.output_tokens for r in self.nodes if r.output_tokens is not None]
+        inputs = [r.input_tokens for r in self.steps if r.input_tokens is not None]
+        outputs = [r.output_tokens for r in self.steps if r.output_tokens is not None]
         return (sum(inputs) if inputs else None, sum(outputs) if outputs else None)
 
-    def refresh(self, snapshot: dict[str, Any]) -> None:
-        """The graph's state as it now stands, folded onto this object: the values stream
-        hands back a fresh dict each step, and the record wants one object per run. Only
-        the fields the snapshot carries are touched; what the consumer sets stays."""
+    def sync_from_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """Update this state with the graph's latest snapshot, so one object holds the run
+        the ledger records. total_ms and error survive it: no node writes them, so no
+        snapshot carries them."""
         fresh = self.model_validate(snapshot)
         for field in snapshot:
             setattr(self, field, getattr(fresh, field))
@@ -85,15 +101,35 @@ class ChatState(AppModel):
 
     def log_fields(self) -> dict[str, Any]:
         """The run as the stats line logs it: everything but the content."""
-        fields = self.model_dump(mode="json", exclude={"question", "hits", "sources", "answer"})
+        exclude_fields = {"question", "hits", "sources", "answer", "pending_calls"}
+        fields = self.model_dump(mode="json", exclude=exclude_fields)
         return fields | {"hits": len(self.hits), "sources": len(self.sources)}
+
+    def assess_rounds(self) -> int:
+        """How many times assess has asked — what the loop's budget is spent against. Read
+        off assess rather than the tool steps, which number one per call, not per round."""
+        return sum(1 for result in self.steps if result.step is ChatNode.ASSESS)
+
+    @property
+    def context_settled(self) -> bool:
+        """Whether the context is final: retrieval ended with the loop off or the gate
+        shut, assess asked for nothing, or the last round consumed the budget."""
+        match self.last_step:
+            case ChatNode.RETRIEVE:
+                return not self.sources or not config.ASSESS_ENABLED
+            case ChatNode.ASSESS:
+                return not self.pending_calls
+            case ToolStep():
+                return self.assess_rounds() >= config.ASSESS_MAX_ROUNDS
+            case _:
+                return False
 
     @computed_field
     @property
     def outcome(self) -> ChatOutcome:
         """How the run ended, read off the path and the error: a stream that raised, one
         the gate refused, one that answered, or one the client left before either."""
-        visited = {result.node for result in self.nodes}
+        visited = {result.step for result in self.steps}
         if self.error:
             return ChatOutcome.ERROR
         if ChatNode.REFUSE in visited:

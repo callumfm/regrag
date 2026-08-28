@@ -1,7 +1,7 @@
 """Eval scoring: what counts as a retrieved reference, a correct citation, a refusal."""
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatNodeResult
+from app.chat.models import ChatStepResult
 from app.chat.prompts import REFUSAL_ANSWER
 from app.evals.metrics import (
     compute_cited_references,
@@ -10,7 +10,7 @@ from app.evals.metrics import (
     compute_gate_refusal_rate,
     compute_input_tokens,
     compute_markers_in_context,
-    compute_mean_node_ms,
+    compute_mean_step_ms,
     compute_metrics,
     compute_output_tokens,
     compute_raw_recall,
@@ -212,7 +212,7 @@ def test_an_in_corpus_refusal_over_hits_holding_the_reference_is_the_gate_too_ti
 
 def test_a_refusal_is_read_off_empty_sources_not_the_refuse_node() -> None:
     """A retrieval-only run never visits REFUSE; the gate's mark is the empty context."""
-    retrieval_only = refused_result(nodes=(ChatNodeResult(node=ChatNode.RETRIEVE, ms=80),))
+    retrieval_only = refused_result(steps=(ChatStepResult(step=ChatNode.RETRIEVE, ms=80),))
 
     assert compute_gate_refusal_rate([retrieval_only]) == 1.0
 
@@ -228,7 +228,7 @@ def test_citation_metrics_average_over_the_cases_that_measure() -> None:
 def test_node_ms_is_averaged_over_the_cases_that_ran_the_node() -> None:
     results = (eval_result(), refused_result())
 
-    assert compute_mean_node_ms(results) == {"retrieve": 90, "synthesize": 900, "refuse": 0}
+    assert compute_mean_step_ms(results) == {"retrieve": 90, "synthesize": 900, "refuse": 0}
 
 
 def test_tokens_are_summed_over_the_run() -> None:

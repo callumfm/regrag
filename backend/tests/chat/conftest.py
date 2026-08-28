@@ -1,6 +1,6 @@
 """Chat test fakes shared across the chat test modules."""
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -11,8 +11,9 @@ from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
-from app.chat.models import ChatState
+from app.chat.models import ChatState, ToolCall
 from app.core.config import config
+from app.retrieval.models import RetrievedChunk, SearchRequest
 from tests.conftest import search_result
 
 USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
@@ -48,6 +49,13 @@ def fake_chat_model(answer: str = "Ships must comply [1].") -> RecordingChatMode
     return RecordingChatModel(messages=iter([AIMessage(content=answer)]), usage=USAGE)
 
 
+def tool_call_message(name: str, args: dict) -> AIMessage:
+    """An assess turn asking for one tool, shaped as litellm parses provider tool calls."""
+    return AIMessage(
+        content="", tool_calls=[{"name": name, "args": args, "id": "call_1", "type": "tool_call"}]
+    )
+
+
 THINKING = "weighing the context"
 ANSWER = "Ships must comply [1]."
 
@@ -71,6 +79,19 @@ def reasoning_chat_model() -> ReasoningChatModel:
 
 
 @pytest.fixture
+def one_result(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
+    """Search finds one chunk; the returned list collects what it was asked for."""
+    calls: list[SearchRequest] = []
+
+    async def fake_search(session, request):
+        calls.append(request)
+        return (search_result(),)
+
+    monkeypatch.setattr("app.chat.graph.search", fake_search)
+    return calls
+
+
+@pytest.fixture
 def two_results(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_search(session, request):
         return (search_result(), search_result(id=2, citation="Article 5(1)"))
@@ -83,6 +104,65 @@ def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
     """Expansion is a database walk covered in tests/retrieval; here it is switched off,
     so the graph works from exactly what the faked search found."""
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
+
+
+@pytest.fixture(autouse=True)
+def no_assess_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The loop is off by default so every pre-loop test keeps meaning exactly what it
+    said; a loop test takes `loop_on` and fakes assess_model itself."""
+    monkeypatch.setattr(config, "ASSESS_ENABLED", False)
+
+
+@pytest.fixture
+def loop_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The loop back on, with its default two rounds, undoing the autouse switch-off."""
+    monkeypatch.setattr(config, "ASSESS_ENABLED", True)
+    monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 2)
+
+
+@pytest.fixture
+def assess_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[..., RecordingChatModel]:
+    """Install an assess model answering with the given turns in order, and hand back the
+    fake, whose `received` holds the prompts it saw."""
+
+    def install(*turns: AIMessage) -> RecordingChatModel:
+        model = RecordingChatModel(messages=iter(turns), usage=USAGE)
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: model)
+        return model
+
+    return install
+
+
+@pytest.fixture
+def tool_results(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[ToolCall]]:
+    """Install a run_tool_call answering every call with the given chunks, and hand back
+    the list the calls it received accumulate in."""
+
+    def install(*found: RetrievedChunk) -> list[ToolCall]:
+        calls: list[ToolCall] = []
+
+        async def fake_run_tool_call(call):
+            calls.append(call)
+            return found
+
+        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
+        return calls
+
+    return install
+
+
+@pytest.fixture(autouse=True)
+def no_tool_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A tool call opens its own session; the faked tool paths never touch it, so a null
+    one stands in and no chat test reaches the database."""
+
+    @asynccontextmanager
+    async def no_session(**kwargs: Any) -> AsyncIterator[None]:
+        yield None
+
+    monkeypatch.setattr("app.chat.tools.get_session", no_session)
 
 
 @pytest.fixture(autouse=True)

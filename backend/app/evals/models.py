@@ -45,12 +45,12 @@ class EvalMetrics(RetrievalMetrics):
 
     cited_references: share of authored references the answers cited.
     markers_in_context: share of [n] markers addressing a block that was in context.
-    mean_node_ms: a node's mean time over the cases that ran it.
+    mean_step_ms: a step's mean time over the cases that ran it.
     """
 
     cited_references: float | None
     markers_in_context: float | None
-    mean_node_ms: dict[str, int]
+    mean_step_ms: dict[str, int]
     mean_total_ms: int
     input_tokens: int
     output_tokens: int

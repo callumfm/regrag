@@ -7,16 +7,24 @@ import httpx
 import litellm
 import openai
 import pytest
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.outputs import ChatResult
 
-from app.chat.graph import chat_graph
-from app.chat.models import ChatState
-from app.chat.prompts import REFUSAL_ANSWER
+from app.chat.enums import ChatNode, ToolStep
+from app.chat.graph import GRAPH_EDGES, chat_graph, merge_sources
+from app.chat.models import ChatState, ToolCall
+from app.chat.prompts import ASSESS_SYSTEM_PROMPT, REFUSAL_ANSWER
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
-from tests.chat.conftest import ANSWER, THINKING, RecordingChatModel, fake_chat_model
+from tests.chat.conftest import (
+    ANSWER,
+    THINKING,
+    USAGE,
+    RecordingChatModel,
+    fake_chat_model,
+    tool_call_message,
+)
 from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
@@ -41,18 +49,6 @@ class FailingModel(RecordingChatModel):
             self.received.append(list(messages))
             raise rate_limited()
         return super()._generate(messages, *args, **kwargs)
-
-
-@pytest.fixture
-def one_result(monkeypatch):
-    calls: list[SearchRequest] = []
-
-    async def fake_search(session, request):
-        calls.append(request)
-        return (search_result(),)
-
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
-    return calls
 
 
 async def test_graph_retrieves_then_answers(one_result, monkeypatch):
@@ -166,7 +162,7 @@ async def test_the_chat_client_asks_litellm_for_usage_and_the_node_records_it(
     state = ChatState.model_validate(await chat_graph.ainvoke(ChatState(question=QUESTION)))
 
     assert calls[0]["stream_options"] == {"include_usage": True}
-    [_retrieve, synthesize] = state.nodes
+    [_retrieve, synthesize] = state.steps
     assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
 
 
@@ -287,3 +283,274 @@ async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
     assert state["answer"] == REFUSAL_ANSWER
+
+
+@pytest.fixture
+def answer_model(monkeypatch):
+    model = fake_chat_model("Answered [1].")
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    return model
+
+
+async def run_graph() -> ChatState:
+    """The graph run, folded back onto the state it started from."""
+    state = ChatState(question=QUESTION)
+    state.sync_from_snapshot(await chat_graph.ainvoke(state))
+    return state
+
+
+class TestMergeSources:
+    def test_appends_new_chunks_after_existing_in_arrival_order(self):
+        existing = (search_result(id=1),)
+        additions = [search_result(id=2), search_result(id=3)]
+
+        merged = merge_sources(existing, additions, cap=10)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2, 3)
+
+    def test_deduplicates_by_chunk_id_keeping_the_earlier_chunk(self):
+        existing = (search_result(id=1, text="first form"),)
+        additions = [search_result(id=1, text="refetched form"), search_result(id=2)]
+
+        merged = merge_sources(existing, additions, cap=10)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2)
+        assert merged[0].text == "first form"
+
+    def test_stops_appending_at_the_cap_so_earlier_context_wins(self):
+        existing = (search_result(id=1), search_result(id=2))
+        additions = [search_result(id=3), search_result(id=4)]
+
+        merged = merge_sources(existing, additions, cap=3)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2, 3)
+
+    def test_existing_beyond_the_cap_is_kept_but_nothing_is_added(self):
+        existing = (search_result(id=1), search_result(id=2))
+
+        merged = merge_sources(existing, [search_result(id=3)], cap=2)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2)
+
+
+class TestAssessLoop:
+    async def test_no_tool_calls_goes_straight_to_synthesize(
+        self, loop_on, one_result, answer_model, assess_turns
+    ):
+        assess_turns(AIMessage(content=""))
+
+        state = await run_graph()
+
+        assert state.answer == "Answered [1]."
+        assert [r.step for r in state.steps] == [
+            ChatNode.RETRIEVE,
+            ChatNode.ASSESS,
+            ChatNode.SYNTHESIZE,
+        ]
+
+    async def test_a_tool_round_merges_its_chunks_then_answers(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
+    ):
+        assess_turns(
+            tool_call_message("follow_reference", {"celex": "32023R1805", "article": "6"}),
+            AIMessage(content=""),
+        )
+        run_calls = tool_results(search_result(id=42, citation="Article 6"))
+
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.RETRIEVE,
+            ChatNode.ASSESS,
+            ToolStep.FOLLOW_REFERENCE,
+            ChatNode.ASSESS,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert run_calls == [
+            ToolCall(name="follow_reference", args={"celex": "32023R1805", "article": "6"})
+        ]
+        assert tuple(chunk.id for chunk in state.sources) == (1, 42)
+        assert state.pending_calls == ()
+
+    async def test_the_round_cap_forces_synthesis_with_calls_still_pending(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
+    ):
+        monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 1)
+        assess_turns(
+            tool_call_message("search", {"query": "first gap"}),
+            tool_call_message("search", {"query": "never runs"}),
+        )
+        tool_results(search_result(id=2))
+
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.RETRIEVE,
+            ChatNode.ASSESS,
+            ToolStep.SEARCH,
+            ChatNode.SYNTHESIZE,
+        ]
+
+    async def test_a_call_to_a_tool_the_surface_does_not_have_is_still_a_step(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
+    ):
+        """A model asking for a tool that does not exist is worth reading off the path,
+        and the round it spent still shows there."""
+        assess_turns(tool_call_message("summarize", {"query": "gap"}), AIMessage(content=""))
+        tool_results()
+
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.RETRIEVE,
+            ChatNode.ASSESS,
+            ToolStep.UNKNOWN,
+            ChatNode.ASSESS,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert state.answer == "Answered [1]."
+
+    async def test_each_tool_call_of_a_round_is_timed_as_its_own_step(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
+    ):
+        """Two calls in one round leave two steps, so a slow round names the call that
+        was slow rather than reporting the pair as one number."""
+        assess_turns(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "search", "args": {"query": "a"}, "id": "c1", "type": "tool_call"},
+                    {
+                        "name": "follow_reference",
+                        "args": {"celex": "32023R1805", "article": "6"},
+                        "id": "c2",
+                        "type": "tool_call",
+                    },
+                ],
+            ),
+            AIMessage(content=""),
+        )
+        tool_results(search_result(id=7))
+
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.RETRIEVE,
+            ChatNode.ASSESS,
+            ToolStep.SEARCH,
+            ToolStep.FOLLOW_REFERENCE,
+            ChatNode.ASSESS,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert state.assess_rounds() == 2
+
+    async def test_each_assess_visit_records_its_own_usage(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
+    ):
+        assess_turns(tool_call_message("search", {"query": "gap"}), AIMessage(content=""))
+        tool_results()
+
+        state = await run_graph()
+
+        assesses = [r for r in state.steps if r.step is ChatNode.ASSESS]
+        assert len(assesses) == 2
+        assert all(r.input_tokens == USAGE["input_tokens"] for r in assesses)
+
+    async def test_assess_sees_the_question_and_numbered_context(
+        self, loop_on, one_result, answer_model, assess_turns
+    ):
+        assess = assess_turns(AIMessage(content=""))
+
+        await run_graph()
+
+        (prompt,) = assess.received
+        assert prompt[0].content == ASSESS_SYSTEM_PROMPT
+        assert "[1] (32023R1805" in prompt[1].content
+        assert str(prompt[1].content).endswith(f"Question: {QUESTION}")
+
+    async def test_a_gated_question_still_refuses_without_any_model_call(
+        self, loop_on, monkeypatch
+    ):
+        async def empty_search(session, request):
+            return ()
+
+        monkeypatch.setattr("app.chat.graph.search", empty_search)
+
+        state = await run_graph()
+
+        assert state.answer == REFUSAL_ANSWER
+        assert [r.step for r in state.steps] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
+
+    async def test_a_persistently_failing_assess_call_still_synthesizes_from_the_context(
+        self, loop_on, one_result, answer_model, monkeypatch
+    ):
+        """An assess round is best-effort: it must never destroy a request that already
+        has answerable context, even when the model keeps failing."""
+        assess = FailingModel(messages=iter([]), failures=10, usage=USAGE)
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
+
+        state = await run_graph()
+
+        assert state.answer == "Answered [1]."
+        assert [r.step for r in state.steps] == [
+            ChatNode.RETRIEVE,
+            ChatNode.ASSESS,
+            ChatNode.SYNTHESIZE,
+        ]
+
+    async def test_an_assess_turn_asking_for_more_than_the_cap_runs_only_the_cap(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
+    ):
+        monkeypatch.setattr(config, "ASSESS_MAX_CALLS", 1)
+        assess_turns(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "search", "args": {"query": "a"}, "id": "call_1", "type": "tool_call"},
+                    {"name": "search", "args": {"query": "b"}, "id": "call_2", "type": "tool_call"},
+                ],
+            ),
+            AIMessage(content=""),
+        )
+        run_calls = tool_results()
+
+        await run_graph()
+
+        assert run_calls == [ToolCall(name="search", args={"query": "a"})]
+
+    async def test_growth_is_budgeted_from_the_context_retrieve_left(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
+    ):
+        """The budget is what the loop may add, not a ceiling the initial context is assumed
+        to already fill: retrieve left one chunk, so two more is all two rounds may append."""
+        monkeypatch.setattr(config, "ASSESS_EXTRA_CHUNKS", 2)
+        monkeypatch.setattr(config, "CHAT_CONTEXT_CHUNKS", 15)
+        assess_turns(
+            tool_call_message("search", {"query": "gap"}),
+            tool_call_message("search", {"query": "more"}),
+        )
+        tool_results(search_result(id=2), search_result(id=3), search_result(id=4))
+
+        state = await run_graph()
+
+        assert state.retrieved_sources == 1
+        assert tuple(chunk.id for chunk in state.sources) == (1, 2, 3)
+
+    async def test_a_zero_budget_reads_the_context_without_growing_it(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
+    ):
+        monkeypatch.setattr(config, "ASSESS_EXTRA_CHUNKS", 0)
+        assess_turns(tool_call_message("search", {"query": "gap"}), AIMessage(content=""))
+        tool_results(search_result(id=2))
+
+        state = await run_graph()
+
+        assert tuple(chunk.id for chunk in state.sources) == (1,)
+
+
+def test_the_compiled_graph_has_the_edges_the_readme_draws():
+    """The README's diagram is hand-drawn, so the edge list it was drawn from is asserted
+    here: an edge added to the graph fails this until the drawing catches up."""
+    edges = {(edge.source, edge.target) for edge in chat_graph.get_graph().edges}
+
+    assert edges == {(source, target) for source, target in GRAPH_EDGES}

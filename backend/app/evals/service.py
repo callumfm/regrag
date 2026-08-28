@@ -34,7 +34,7 @@ async def evaluate_case(case: EvalCase, graph: EvalGraph = _full_chat_graph) -> 
     state = ChatState(question=case.question)
     start = time.perf_counter()
     try:
-        state.refresh(await graph(state))
+        state.sync_from_snapshot(await graph(state))
     except Exception as exc:
         state.record_error(exc)
         if isinstance(exc, DomainError):

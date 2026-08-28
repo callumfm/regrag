@@ -5,7 +5,7 @@ from collections.abc import Sequence
 
 from app.chat.enums import ChatNode
 from app.evals.metrics import (
-    compute_mean_node_ms,
+    compute_mean_step_ms,
     compute_retrieval_metrics,
     mean_or_none,
     scored_in_corpus,
@@ -28,7 +28,7 @@ def compute_mean_context_chars(results: Sequence[EvalResult]) -> float | None:
 
 def compute_mean_retrieve_ms(results: Sequence[EvalResult]) -> int | None:
     """The retrieve node's mean time over the cases that ran it; None when none did."""
-    return compute_mean_node_ms(results).get(ChatNode.RETRIEVE.value)
+    return compute_mean_step_ms(results).get(ChatNode.RETRIEVE.value)
 
 
 def compute_tune_metrics(results: Sequence[EvalResult]) -> TuneMetrics:

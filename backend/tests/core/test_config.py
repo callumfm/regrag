@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings
 from app.core.config import (
     BACKEND_ROOT,
     EVAL_CONFIG_SECTIONS,
+    AssessConfig,
     BaseConfig,
     ChatConfig,
     Config,
@@ -178,6 +179,22 @@ def test_chat_defaults():
 
 def test_config_includes_chat_settings():
     assert "CHAT_MODEL" in Config.model_fields
+
+
+def test_assess_defaults():
+    assess = AssessConfig()
+    assert assess.ASSESS_ENABLED is True
+    assert assess.ASSESS_MAX_ROUNDS == 2
+    assert assess.ASSESS_MAX_CALLS == 4
+    assert assess.ASSESS_SEARCH_LIMIT == 5
+    assert assess.ASSESS_EXTRA_CHUNKS == 10
+
+
+def test_the_loop_needs_at_least_one_round_when_it_is_on():
+    """ASSESS_ENABLED is the off switch, so a round budget of zero is a misconfiguration
+    rather than a second way to say off."""
+    with pytest.raises(ValidationError, match="ASSESS_MAX_ROUNDS"):
+        AssessConfig(ASSESS_MAX_ROUNDS=0)
 
 
 # What a run records about the settings it read

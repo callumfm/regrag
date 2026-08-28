@@ -41,7 +41,7 @@ async def test_a_case_runs_through_the_graph_and_keeps_the_state_it_ended_in(
     assert result.state.question == "q?"
     assert result.state.answer == "Half of it [1]."
     assert result.state.hits == (search_result(),)
-    assert [n.node for n in result.state.nodes] == [ChatNode.RETRIEVE, ChatNode.SYNTHESIZE]
+    assert [n.step for n in result.state.steps] == [ChatNode.RETRIEVE, ChatNode.SYNTHESIZE]
     assert result.state.outcome is ChatOutcome.DONE
     assert result.state.total_ms is not None
     assert result.state.token_totals() == (USAGE["input_tokens"], USAGE["output_tokens"])

@@ -5,7 +5,7 @@ import re
 from collections.abc import Sequence
 
 from app.chat.enums import ChatNode, ChatOutcome
-from app.chat.graph import synthesize_or_refuse
+from app.chat.graph import assess_or_synthesize_or_refuse
 from app.evals.dataset.enums import EvalKind
 from app.evals.models import EvalMetrics, EvalResult, RetrievalMetrics
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
@@ -104,7 +104,7 @@ def _gate_refused(result: EvalResult) -> bool:
     """The branch the graph took, observed off the path so a routing bug shows up here.
     A retrieval-only run never routes, so its gate is read the way the graph would route."""
     if result.state.outcome is ChatOutcome.ABORTED:
-        return synthesize_or_refuse(result.state) is ChatNode.REFUSE
+        return assess_or_synthesize_or_refuse(result.state) is ChatNode.REFUSE
     return result.state.outcome is ChatOutcome.REFUSED
 
 
@@ -172,12 +172,12 @@ def count_refusals_of_a_found_reference(results: Sequence[EvalResult]) -> int:
     return sum(_gate_refused(r) and _raw_recall(r) > 0 for r in scored_in_corpus(results))
 
 
-def compute_mean_node_ms(results: Sequence[EvalResult]) -> dict[str, int]:
-    """Each node's mean time over the cases that ran it, in the order nodes first appear."""
+def compute_mean_step_ms(results: Sequence[EvalResult]) -> dict[str, int]:
+    """Each step's mean time over the cases that ran it, in the order steps first appear."""
     timings: dict[str, list[int]] = {}
     for result in _scored(results):
-        for node in result.state.nodes:
-            timings.setdefault(node.node.value, []).append(node.ms)
+        for step in result.state.steps:
+            timings.setdefault(step.step.value, []).append(step.ms)
     return {name: sum(ms) // len(ms) for name, ms in timings.items()}
 
 
@@ -216,7 +216,7 @@ def compute_metrics(results: Sequence[EvalResult]) -> EvalMetrics:
         **compute_retrieval_metrics(results).model_dump(),
         cited_references=compute_cited_references(results),
         markers_in_context=compute_markers_in_context(results),
-        mean_node_ms=compute_mean_node_ms(results),
+        mean_step_ms=compute_mean_step_ms(results),
         mean_total_ms=compute_mean_total_ms(results),
         input_tokens=compute_input_tokens(results),
         output_tokens=compute_output_tokens(results),

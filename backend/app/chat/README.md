@@ -10,13 +10,18 @@ curl -N localhost:8000/chat -H 'content-type: application/json' \
 ## The graph
 
 ```
-START → retrieve ─┬→ synthesize → END
-                  └→ refuse     → END
+START → retrieve ─┬→ refuse ──────────────→ END   nothing cleared the gate
+                  │
+                  ├→ assess ⇄ tools              while assess asks and the budget remains
+                  │      │
+                  └──────┴→ synthesize ────→ END   the context is settled
 ```
 
-`retrieve` searches the corpus and checks the hits against the refusal gate ([`../retrieval/README.md`](../retrieval/README.md)). If nothing clears the gate the context is empty, and the edge takes us to `refuse`, which returns fixed wording and calls no model. Otherwise `synthesize` makes one streamed call answering from the numbered context blocks.
+`retrieve` searches the corpus and checks the hits against the refusal gate ([`../retrieval/README.md`](../retrieval/README.md)). If nothing clears the gate the context is empty, and the edge takes us to `refuse`, which returns fixed wording and calls no model.
 
-Two nodes do not need a graph framework today. LangGraph is here because multi-turn conversation and tool use are on the roadmap, and both are edges added to this graph rather than a rewrite.
+Otherwise the assess loop runs. `assess` makes one blocking model call over the context so far and answers with the tool calls that would fill what is missing — a fresh `search`, or a `follow_reference` fetching a division the context cites. `tools` runs them and merges what they find into the context, keeping the earlier blocks in place so the `[n]` markers a client already holds keep meaning what they meant. What a call may add is bounded twice over: a search's hits face the same score bar `retrieve` holds its own to, so what the gate would refuse to answer from cannot arrive by the back door, and the merge stops once the loop has added `ASSESS_EXTRA_CHUNKS` on top of what retrieval left. Each call runs on its own session, so one that fails on the database costs its own result and no other's. The loop ends when assess asks for nothing or `ASSESS_MAX_ROUNDS` is spent, and `ASSESS_ENABLED=false` skips it entirely, leaving the two-node graph this started as. Whichever way it ends, `synthesize` makes one streamed call answering from the numbered context blocks.
+
+The loop is best-effort: a failed assess call or a failed tool call costs the answer that round's context, never the request. The diagram is hand-drawn, and a test holds the compiled graph to the edge list it was drawn from.
 
 ## The stream
 
@@ -24,7 +29,7 @@ Two nodes do not need a graph framework today. LangGraph is here because multi-t
 
 | Event | When | Data |
 | ----- | ---- | ---- |
-| `sources` | once, as soon as retrieval returns | the context blocks, each bound to the `[n]` marker the answer will cite it by |
+| `sources` | once, as soon as the context settles — after retrieval, or after the loop's last round | the context blocks, each bound to the `[n]` marker the answer will cite it by |
 | `text` | repeatedly as the model writes, or once for a refusal | a fragment of the answer |
 | `done` | last, on a completed stream | empty |
 | `error` | last, in place of everything after it | the app's one error shape, with the request id |
@@ -33,6 +38,8 @@ Markers run `1..n` in context order and match the numbering the prompt gave the 
 
 ## The ledger
 
-Every request is recorded however it ended — answered, refused, errored, or abandoned by the client — as a `chat_requests` row with a `chat_request_nodes` row per step, holding the question, the outcome, and the timings and tokens each node spent. It is what a spend cap sums over and what a slow path is diagnosed from.
+Every request is recorded however it ended — answered, refused, errored, or abandoned by the client — as a `chat_requests` row with a `chat_request_steps` row per step it ran through, holding the question, the outcome, and the timings and tokens each step spent. A step is a graph node, or one tool call an assess round ran, named `tool_search` / `tool_follow_reference` so one column holds both. It is what a spend cap sums over and what a slow path is diagnosed from.
+
+This is deliberately the tracing, in place of a tracing library: the request row has to exist for the spend cap anyway, and the per-step timings come with it. It is a flat span list ordered by `position`, not a tree — a tool step's parent is the assess step before it — which is enough while the graph nests only one level deep.
 
 The answer text itself is not stored. Keeping it is a separate decision with its own retention question, and nothing needs it yet.
