@@ -4,7 +4,7 @@ cited answer — or refuse, before any model call, a question the corpus does no
 import functools
 import logging
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sequence
 from typing import Any, Protocol
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -14,7 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatNodeResult, ChatState, ToolCall, merge_sources
+from app.chat.models import ChatState, ChatStepResult, ToolCall
 from app.chat.prompts import (
     ASSESS_SYSTEM_PROMPT,
     REFUSAL_ANSWER,
@@ -22,7 +22,7 @@ from app.chat.prompts import (
     build_assess_message,
     build_user_message,
 )
-from app.chat.tools import TOOL_DEFINITIONS, run_tool_call
+from app.chat.tools import TOOL_DEFINITIONS, run_tool_call, tool_step
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 class NodeFn(Protocol):
     """A node: the state so far in, the fields it sets out — plus `usage`, if it called a
-    model, which its result carries rather than the state. Named for the ChatNode it is."""
+    model, which its step carries rather than the state. Named for the ChatNode it is."""
 
     __name__: str
 
@@ -45,8 +45,9 @@ class NodeFn(Protocol):
 
 
 def traced(run: NodeFn) -> NodeFn:
-    """The node as the graph runs it, appending its result — how long it took, and the usage
-    it reported — to the path. Outermost on a node, so a retried call is traced as a whole."""
+    """The node as the graph runs it, appending one step — how long it took, and the usage
+    it reported — to the path. Outermost on a node, so a retried call is traced as a whole.
+    The tools node times each call instead, so it records its own steps."""
     node = ChatNode(run.__name__)
 
     @functools.wraps(run)
@@ -54,8 +55,8 @@ def traced(run: NodeFn) -> NodeFn:
         start = time.perf_counter()
         update = await run(state)
         usage = update.pop("usage", None)
-        result = ChatNodeResult.from_usage(node, elapsed_ms(start), usage)
-        return update | {"nodes": (result,)}
+        step = ChatStepResult.from_usage(node, elapsed_ms(start), usage)
+        return update | {"steps": (step,)}
 
     return traced_run
 
@@ -154,21 +155,43 @@ async def assess(state: ChatState) -> dict[str, Any]:
         return {"pending_calls": ()}
 
 
-@traced
+def merge_sources(
+    sources: tuple[RetrievedChunk, ...], additions: Sequence[RetrievedChunk], *, cap: int
+) -> tuple[RetrievedChunk, ...]:
+    """The context grown by a tool round: new chunks appended in arrival order, a chunk
+    already present kept as it was, and nothing appended once the cap is reached."""
+    merged = list(sources)
+    seen = {chunk.id for chunk in merged}
+    for chunk in additions:
+        if len(merged) >= cap:
+            break
+        if chunk.id in seen:
+            continue
+        seen.add(chunk.id)
+        merged.append(chunk)
+    return tuple(merged)
+
+
 async def tools(state: ChatState) -> dict[str, Any]:
     """The round's calls run and folded into the context: dedup by chunk id, earlier
-    context kept, growth capped — then the request for them cleared."""
+    context kept, growth capped — then the request for them cleared.
+
+    Each call is timed and recorded as its own step, so the path says which tool was
+    called and what it cost — including a call to a tool the surface does not have."""
     fetched: list[RetrievedChunk] = []
+    steps: list[ChatStepResult] = []
     async with get_session(auto_commit=False) as session:
         for call in state.pending_calls:
+            start = time.perf_counter()
             fetched.extend(await run_tool_call(session, call))
-    logger.info(
-        "gather round ran %s -> %d chunks",
-        [f"{call.name}({call.args})" for call in state.pending_calls],
-        len(fetched),
-    )
+            steps.append(ChatStepResult(step=tool_step(call.name), ms=elapsed_ms(start)))
+
     cap = config.CHAT_CONTEXT_CHUNKS + config.ASSESS_EXTRA_CHUNKS
-    return {"sources": merge_sources(state.sources, fetched, cap=cap), "pending_calls": ()}
+    return {
+        "sources": merge_sources(state.sources, fetched, cap=cap),
+        "pending_calls": (),
+        "steps": tuple(steps),
+    }
 
 
 def assess_or_synthesize(state: ChatState) -> ChatNode:
@@ -184,6 +207,22 @@ def tools_or_synthesize(state: ChatState) -> ChatNode:
 def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
     """After retrieve: refuse for want of context, else pick up the loop as tools does."""
     return ChatNode.REFUSE if not state.sources else assess_or_synthesize(state)
+
+
+GRAPH_EDGES = (
+    (START, ChatNode.RETRIEVE),
+    (ChatNode.RETRIEVE, ChatNode.ASSESS),
+    (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE),
+    (ChatNode.RETRIEVE, ChatNode.REFUSE),
+    (ChatNode.ASSESS, ChatNode.TOOLS),
+    (ChatNode.ASSESS, ChatNode.SYNTHESIZE),
+    (ChatNode.TOOLS, ChatNode.ASSESS),
+    (ChatNode.TOOLS, ChatNode.SYNTHESIZE),
+    (ChatNode.SYNTHESIZE, END),
+    (ChatNode.REFUSE, END),
+)
+"""Every edge the graph has, as the README draws them. A test holds the compiled graph to
+this, so an edge added here without redrawing the README fails before it is merged."""
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:

@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chat.enums import ToolStep
 from app.chat.models import ToolCall
 from app.core.config import config
 from app.core.llm import LLMError
@@ -55,9 +56,10 @@ async def run_follow_reference(
 
 class ToolSpec(NamedTuple):
     """One tool the model may call: how it is named and described to the model, the
-    arguments it takes, and what runs it."""
+    arguments it takes, what runs it, and the step a call to it records."""
 
     name: str
+    step: ToolStep
     args_model: type[FrozenModel]
     run: Callable[..., Awaitable[tuple[RetrievedChunk, ...]]]
     description: str
@@ -79,6 +81,7 @@ TOOL_SURFACE = {
     for spec in (
         ToolSpec(
             "search",
+            ToolStep.SEARCH,
             SearchArgs,
             run_search,
             "Search the corpus for text matching a query, optionally within one act (celex). "
@@ -87,6 +90,7 @@ TOOL_SURFACE = {
         ),
         ToolSpec(
             "follow_reference",
+            ToolStep.FOLLOW_REFERENCE,
             FollowReferenceArgs,
             run_follow_reference,
             "Fetch the full text of one cited division: an article (optionally one paragraph) "
@@ -97,6 +101,12 @@ TOOL_SURFACE = {
 
 TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
 """The surface as the model is shown it, built once: it depends on nothing at call time."""
+
+
+def tool_step(name: str) -> ToolStep:
+    """The step a call to this tool records; a tool the surface does not have records that."""
+    spec = TOOL_SURFACE.get(name)
+    return spec.step if spec else ToolStep.UNKNOWN
 
 
 async def run_tool_call(session: AsyncSession, call: ToolCall) -> tuple[RetrievedChunk, ...]:

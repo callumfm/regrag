@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatNodeResult, ChatState
+from app.chat.models import ChatState, ChatStepResult
 from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.evals.dataset.enums import EvalKind
@@ -50,9 +50,9 @@ def eval_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
     state's fields overridable — nodes, hits, sources, answer, error."""
     defaults: dict[str, Any] = {
         "question": "q?",
-        "nodes": (
-            ChatNodeResult(node=ChatNode.RETRIEVE, ms=100),
-            ChatNodeResult(node=ChatNode.SYNTHESIZE, ms=900, input_tokens=1500, output_tokens=40),
+        "steps": (
+            ChatStepResult(step=ChatNode.RETRIEVE, ms=100),
+            ChatStepResult(step=ChatNode.SYNTHESIZE, ms=900, input_tokens=1500, output_tokens=40),
         ),
         "hits": (search_result(),),
         "sources": (retrieved_chunk(),),
@@ -63,8 +63,8 @@ def eval_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
 
 
 REFUSED_PATH = (
-    ChatNodeResult(node=ChatNode.RETRIEVE, ms=80),
-    ChatNodeResult(node=ChatNode.REFUSE, ms=0),
+    ChatStepResult(step=ChatNode.RETRIEVE, ms=80),
+    ChatStepResult(step=ChatNode.REFUSE, ms=0),
 )
 """The path a gate refusal leaves: retrieve ran, then refuse, and no model call."""
 
@@ -72,7 +72,7 @@ REFUSED_PATH = (
 def refused_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
     """A case the gate refused: the refusal path, no sources, the fixed answer."""
     defaults: dict[str, Any] = {
-        "nodes": REFUSED_PATH,
+        "steps": REFUSED_PATH,
         "hits": (),
         "sources": (),
         "answer": REFUSAL_ANSWER,

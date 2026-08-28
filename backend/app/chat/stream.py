@@ -51,7 +51,7 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
             if not sources_sent and state.context_settled:
                 sources_sent = True
                 yield SourcesEvent.from_results(state.sources)
-            if state.last_node is ChatNode.REFUSE:
+            if state.last_step is ChatNode.REFUSE:
                 yield TextEvent(data=state.answer)
         else:
             chunk, metadata = item

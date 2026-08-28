@@ -33,13 +33,13 @@ async def test_finished_stream_records_timings_sources_and_usage(
     [state] = recorded_requests
     assert state.question == "q"
     assert state.outcome is ChatOutcome.DONE
-    retrieve, synthesize = state.nodes
-    assert (retrieve.node, synthesize.node) == (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE)
+    retrieve, synthesize = state.steps
+    assert (retrieve.step, synthesize.step) == (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE)
     assert (retrieve.input_tokens, retrieve.output_tokens) == (None, None)
     assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
     assert len(state.sources) == 2
     assert state.total_ms is not None
-    assert 0 <= sum(result.ms for result in state.nodes) <= state.total_ms
+    assert 0 <= sum(result.ms for result in state.steps) <= state.total_ms
     assert state.error is None
 
 
@@ -55,7 +55,7 @@ async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_reque
     [state] = recorded_requests
     assert state.outcome is ChatOutcome.ERROR
     assert state.error == "embedding call failed"
-    assert state.nodes == ()
+    assert state.steps == ()
     assert state.sources == ()
     assert state.token_totals() == (None, None)
 
@@ -90,7 +90,7 @@ async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded
     [state] = recorded_requests
     assert state.outcome is ChatOutcome.ABORTED
     assert len(state.sources) == 2
-    assert [result.node for result in state.nodes] == [ChatNode.RETRIEVE]
+    assert [result.step for result in state.steps] == [ChatNode.RETRIEVE]
 
 
 async def test_failed_write_is_logged_not_raised(two_results, monkeypatch, caplog):
@@ -159,7 +159,7 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
     assert model.received == []
     [state] = recorded_requests
     assert state.outcome is ChatOutcome.REFUSED
-    assert [result.node for result in state.nodes] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
+    assert [result.step for result in state.steps] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
     assert state.sources == ()
     assert state.token_totals() == (None, None)
 

@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat import service
 from app.chat.enums import ChatNode, ChatOutcome
-from app.chat.models import ChatNodeResult, ChatState
-from app.chat.schemas import ChatRequest, ChatRequestNode
+from app.chat.models import ChatState, ChatStepResult
+from app.chat.schemas import ChatRequest, ChatRequestStep
 from app.chat.service import create_chat_request
 from app.core.config import config
 from app.core.logger import request_id_var
@@ -23,9 +23,9 @@ def answered_state() -> ChatState:
     """A state as the graph leaves it once an answer has been synthesized."""
     return ChatState(
         question="What must ships report?",
-        nodes=(
-            ChatNodeResult(node=ChatNode.RETRIEVE, ms=120),
-            ChatNodeResult.from_usage(ChatNode.SYNTHESIZE, 1300, USAGE),
+        steps=(
+            ChatStepResult(step=ChatNode.RETRIEVE, ms=120),
+            ChatStepResult.from_usage(ChatNode.SYNTHESIZE, 1300, USAGE),
         ),
         sources=tuple(retrieved_chunk(id=n) for n in range(6)),
         answer="Ships must report [1].",
@@ -33,9 +33,9 @@ def answered_state() -> ChatState:
     )
 
 
-def node_rows() -> Select[tuple[ChatRequestNode]]:
+def node_rows() -> Select[tuple[ChatRequestStep]]:
     """The node rows in path order — the order the relationship reads them in."""
-    return select(ChatRequestNode).order_by(ChatRequestNode.position)
+    return select(ChatRequestStep).order_by(ChatRequestStep.position)
 
 
 def stats_lines(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
@@ -69,7 +69,7 @@ async def test_recorded_row_reads_the_stats_and_the_request_context(
     assert len(stats_lines(caplog)) == 1
 
     nodes = (await db_session.scalars(node_rows())).all()
-    assert [(n.chat_request_id, n.position, n.node, n.ms) for n in nodes] == [
+    assert [(n.chat_request_id, n.position, n.step, n.ms) for n in nodes] == [
         (row.id, 0, "retrieve", 120),
         (row.id, 1, "synthesize", 1300),
     ]
@@ -87,7 +87,7 @@ async def test_failed_run_records_its_error_and_nulls_where_it_never_got(
     assert row.error == "embedding call failed"
     assert (row.input_tokens, row.output_tokens) == (None, None)
     assert row.sources == 0
-    assert (await db_session.scalars(select(ChatRequestNode))).all() == []
+    assert (await db_session.scalars(select(ChatRequestStep))).all() == []
 
 
 async def test_log_line_carries_the_stats_but_not_the_content(db_session: AsyncSession, caplog):
@@ -97,9 +97,9 @@ async def test_log_line_carries_the_stats_but_not_the_content(db_session: AsyncS
     assert record.getMessage() == "chat done in 1500ms"
     assert record.__dict__["outcome"] == "done"
     assert record.__dict__["sources"] == 6
-    assert record.__dict__["nodes"] == [
-        {"node": "retrieve", "ms": 120, "input_tokens": None, "output_tokens": None},
-        {"node": "synthesize", "ms": 1300, "input_tokens": 1500, "output_tokens": 40},
+    assert record.__dict__["steps"] == [
+        {"step": "retrieve", "ms": 120, "input_tokens": None, "output_tokens": None},
+        {"step": "synthesize", "ms": 1300, "input_tokens": 1500, "output_tokens": 40},
     ]
     assert "question" not in record.__dict__
     assert "answer" not in record.__dict__
@@ -109,9 +109,9 @@ async def test_a_refused_request_is_recorded_as_such(db_session: AsyncSession, c
     """The gate's outcome fits the column as migrated: refused is no longer than aborted."""
     refused = ChatState(
         question="best pizza topping?",
-        nodes=(
-            ChatNodeResult(node=ChatNode.RETRIEVE, ms=90),
-            ChatNodeResult(node=ChatNode.REFUSE, ms=0),
+        steps=(
+            ChatStepResult(step=ChatNode.RETRIEVE, ms=90),
+            ChatStepResult(step=ChatNode.REFUSE, ms=0),
         ),
         total_ms=95,
     )
@@ -121,5 +121,5 @@ async def test_a_refused_request_is_recorded_as_such(db_session: AsyncSession, c
     assert row.outcome is ChatOutcome.REFUSED
     assert (row.sources, row.input_tokens) == (0, None)
     nodes = (await db_session.scalars(node_rows())).all()
-    assert [(n.node, n.ms) for n in nodes] == [("retrieve", 90), ("refuse", 0)]
+    assert [(n.step, n.ms) for n in nodes] == [("retrieve", 90), ("refuse", 0)]
     assert stats_lines(caplog)[0].getMessage() == "chat refused in 95ms"

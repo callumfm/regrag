@@ -10,8 +10,8 @@ import pytest
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.outputs import ChatResult
 
-from app.chat.enums import ChatNode
-from app.chat.graph import chat_graph
+from app.chat.enums import ChatNode, ToolStep
+from app.chat.graph import GRAPH_EDGES, chat_graph, merge_sources
 from app.chat.models import ChatState, ToolCall
 from app.chat.prompts import ASSESS_SYSTEM_PROMPT, REFUSAL_ANSWER
 from app.core.config import config
@@ -162,7 +162,7 @@ async def test_the_chat_client_asks_litellm_for_usage_and_the_node_records_it(
     state = ChatState.model_validate(await chat_graph.ainvoke(ChatState(question=QUESTION)))
 
     assert calls[0]["stream_options"] == {"include_usage": True}
-    [_retrieve, synthesize] = state.nodes
+    [_retrieve, synthesize] = state.steps
     assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
 
 
@@ -299,7 +299,41 @@ async def run_graph() -> ChatState:
     return state
 
 
-class TestGatherLoop:
+class TestMergeSources:
+    def test_appends_new_chunks_after_existing_in_arrival_order(self):
+        existing = (search_result(id=1),)
+        additions = [search_result(id=2), search_result(id=3)]
+
+        merged = merge_sources(existing, additions, cap=10)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2, 3)
+
+    def test_deduplicates_by_chunk_id_keeping_the_earlier_chunk(self):
+        existing = (search_result(id=1, text="first form"),)
+        additions = [search_result(id=1, text="refetched form"), search_result(id=2)]
+
+        merged = merge_sources(existing, additions, cap=10)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2)
+        assert merged[0].text == "first form"
+
+    def test_stops_appending_at_the_cap_so_earlier_context_wins(self):
+        existing = (search_result(id=1), search_result(id=2))
+        additions = [search_result(id=3), search_result(id=4)]
+
+        merged = merge_sources(existing, additions, cap=3)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2, 3)
+
+    def test_existing_beyond_the_cap_is_kept_but_nothing_is_added(self):
+        existing = (search_result(id=1), search_result(id=2))
+
+        merged = merge_sources(existing, [search_result(id=3)], cap=2)
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2)
+
+
+class TestAssessLoop:
     async def test_no_tool_calls_goes_straight_to_synthesize(
         self, loop_on, one_result, answer_model, assess_turns
     ):
@@ -308,7 +342,7 @@ class TestGatherLoop:
         state = await run_graph()
 
         assert state.answer == "Answered [1]."
-        assert [r.node for r in state.nodes] == [
+        assert [r.step for r in state.steps] == [
             ChatNode.RETRIEVE,
             ChatNode.ASSESS,
             ChatNode.SYNTHESIZE,
@@ -325,10 +359,10 @@ class TestGatherLoop:
 
         state = await run_graph()
 
-        assert [r.node for r in state.nodes] == [
+        assert [r.step for r in state.steps] == [
             ChatNode.RETRIEVE,
             ChatNode.ASSESS,
-            ChatNode.TOOLS,
+            ToolStep.FOLLOW_REFERENCE,
             ChatNode.ASSESS,
             ChatNode.SYNTHESIZE,
         ]
@@ -350,12 +384,65 @@ class TestGatherLoop:
 
         state = await run_graph()
 
-        assert [r.node for r in state.nodes] == [
+        assert [r.step for r in state.steps] == [
             ChatNode.RETRIEVE,
             ChatNode.ASSESS,
-            ChatNode.TOOLS,
+            ToolStep.SEARCH,
             ChatNode.SYNTHESIZE,
         ]
+
+    async def test_a_call_to_a_tool_the_surface_does_not_have_is_still_a_step(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
+    ):
+        """A model asking for a tool that does not exist is worth reading off the path,
+        and the round it spent still shows there."""
+        assess_turns(tool_call_message("summarize", {"query": "gap"}), AIMessage(content=""))
+        tool_results()
+
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.RETRIEVE,
+            ChatNode.ASSESS,
+            ToolStep.UNKNOWN,
+            ChatNode.ASSESS,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert state.answer == "Answered [1]."
+
+    async def test_each_tool_call_of_a_round_is_timed_as_its_own_step(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
+    ):
+        """Two calls in one round leave two steps, so a slow round names the call that
+        was slow rather than reporting the pair as one number."""
+        assess_turns(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "search", "args": {"query": "a"}, "id": "c1", "type": "tool_call"},
+                    {
+                        "name": "follow_reference",
+                        "args": {"celex": "32023R1805", "article": "6"},
+                        "id": "c2",
+                        "type": "tool_call",
+                    },
+                ],
+            ),
+            AIMessage(content=""),
+        )
+        tool_results(search_result(id=7))
+
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.RETRIEVE,
+            ChatNode.ASSESS,
+            ToolStep.SEARCH,
+            ToolStep.FOLLOW_REFERENCE,
+            ChatNode.ASSESS,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert state.assess_rounds() == 2
 
     async def test_each_assess_visit_records_its_own_usage(
         self, loop_on, one_result, answer_model, assess_turns, tool_results
@@ -365,7 +452,7 @@ class TestGatherLoop:
 
         state = await run_graph()
 
-        assesses = [r for r in state.nodes if r.node is ChatNode.ASSESS]
+        assesses = [r for r in state.steps if r.step is ChatNode.ASSESS]
         assert len(assesses) == 2
         assert all(r.input_tokens == USAGE["input_tokens"] for r in assesses)
 
@@ -392,7 +479,7 @@ class TestGatherLoop:
         state = await run_graph()
 
         assert state.answer == REFUSAL_ANSWER
-        assert [r.node for r in state.nodes] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
+        assert [r.step for r in state.steps] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
 
     async def test_a_persistently_failing_assess_call_still_synthesizes_from_the_context(
         self, loop_on, one_result, answer_model, monkeypatch
@@ -405,7 +492,7 @@ class TestGatherLoop:
         state = await run_graph()
 
         assert state.answer == "Answered [1]."
-        assert [r.node for r in state.nodes] == [
+        assert [r.step for r in state.steps] == [
             ChatNode.RETRIEVE,
             ChatNode.ASSESS,
             ChatNode.SYNTHESIZE,
@@ -430,3 +517,11 @@ class TestGatherLoop:
         await run_graph()
 
         assert run_calls == [ToolCall(name="search", args={"query": "a"})]
+
+
+def test_the_compiled_graph_has_the_edges_the_readme_draws():
+    """The README's diagram is hand-drawn, so the edge list it was drawn from is asserted
+    here: an edge added to the graph fails this until the drawing catches up."""
+    edges = {(edge.source, edge.target) for edge in chat_graph.get_graph().edges}
+
+    assert edges == {(source, target) for source, target in GRAPH_EDGES}
