@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chat.enums import ToolStep
 from app.chat.models import ToolCall
 from app.core.config import config
+from app.core.db.session import get_session
 from app.core.llm import LLMError
 from app.core.models import FrozenModel
 from app.retrieval.follow import follow_reference
 from app.retrieval.models import ReferenceTarget, RetrievedChunk, SearchFilters, SearchRequest
 from app.retrieval.search import search
+from app.retrieval.thresholds import meets_thresholds
 
 logger = logging.getLogger(__name__)
 
@@ -37,21 +39,27 @@ class FollowReferenceArgs(FrozenModel):
 
 
 async def run_search(session: AsyncSession, args: SearchArgs) -> tuple[RetrievedChunk, ...]:
+    """A call's hits, or nothing when they miss the bar retrieval holds its own hits to:
+    what the gate refuses to answer from, the loop may not add to the context either."""
     request = SearchRequest(
         query=args.query,
         filters=SearchFilters(celex=args.celex),
         limit=config.ASSESS_SEARCH_LIMIT,
     )
-    return await search(session, request)
+    hits = await search(session, request)
+    return hits if meets_thresholds(hits) else ()
 
 
 async def run_follow_reference(
     session: AsyncSession, args: FollowReferenceArgs
 ) -> tuple[RetrievedChunk, ...]:
+    """The division's text from the top, capped: a long article or annex would otherwise
+    spend the round's whole budget on one call. No score to gate on — the context cited it."""
     target = ReferenceTarget(
         celex=args.celex, article=args.article, paragraph=args.paragraph, annex=args.annex
     )
-    return await follow_reference(session, target)
+    chunks = await follow_reference(session, target)
+    return chunks[: config.ASSESS_FOLLOW_LIMIT]
 
 
 class ToolSpec(NamedTuple):
@@ -109,16 +117,21 @@ def tool_step(name: str) -> ToolStep:
     return spec.step if spec else ToolStep.UNKNOWN
 
 
-async def run_tool_call(session: AsyncSession, call: ToolCall) -> tuple[RetrievedChunk, ...]:
+async def run_tool_call(call: ToolCall) -> tuple[RetrievedChunk, ...]:
     """One call's chunks; an unknown tool, an invalid target or a failing call yields
-    nothing, never an error — the loop is best-effort and a bad call adds nothing."""
+    nothing, never an error — the loop is best-effort and a bad call adds nothing.
+
+    The session is the call's own, so a database error rolls back only the call that hit it;
+    shared, the rollback it leaves owing would fail every later call in the round.
+    """
     spec = TOOL_SURFACE.get(call.name)
     if spec is None:
         logger.warning("assess called unknown tool %s", call.name)
         return ()
     try:
         args = spec.args_model.model_validate(call.args)
-        return await spec.run(session, args)
+        async with get_session(auto_commit=False) as session:
+            return await spec.run(session, args)
     except ValidationError:
         logger.warning("assess called %s with invalid arguments", call.name)
         return ()

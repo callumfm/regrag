@@ -143,7 +143,7 @@ def tool_results(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[ToolCall
     def install(*found: RetrievedChunk) -> list[ToolCall]:
         calls: list[ToolCall] = []
 
-        async def fake_run_tool_call(session, call):
+        async def fake_run_tool_call(call):
             calls.append(call)
             return found
 
@@ -151,6 +151,18 @@ def tool_results(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[ToolCall
         return calls
 
     return install
+
+
+@pytest.fixture(autouse=True)
+def no_tool_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A tool call opens its own session; the faked tool paths never touch it, so a null
+    one stands in and no chat test reaches the database."""
+
+    @asynccontextmanager
+    async def no_session(**kwargs: Any) -> AsyncIterator[None]:
+        yield None
+
+    monkeypatch.setattr("app.chat.tools.get_session", no_session)
 
 
 @pytest.fixture(autouse=True)

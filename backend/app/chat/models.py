@@ -59,6 +59,8 @@ class ChatState(AppModel):
     per call; a sequence, since the loop visits a node more than once.
     hits: what search returned, before the gate and before expansion, kept through a refusal.
     sources: the context blocks that reached the prompt, which the [n] markers number.
+    retrieved_sources: how many blocks retrieve left, the base the loop's growth is budgeted
+        against; sources grows each round, so the budget cannot be read off it.
     pending_calls: the tool calls assess asked for, not yet executed.
     """
 
@@ -66,6 +68,7 @@ class ChatState(AppModel):
     steps: Annotated[tuple[ChatStepResult, ...], operator.add] = ()
     hits: tuple[SearchResult, ...] = ()
     sources: tuple[RetrievedChunk, ...] = ()
+    retrieved_sources: int = 0
     pending_calls: tuple[ToolCall, ...] = ()
     answer: str = ""
     total_ms: int | None = None

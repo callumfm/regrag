@@ -202,7 +202,7 @@ class TestLoopStreaming:
         )
         monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
-        async def fake_run_tool_call(session, call):
+        async def fake_run_tool_call(call):
             return (search_result(id=2, citation="Article 5(1)"),)
 
         monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)

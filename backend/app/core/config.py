@@ -163,14 +163,17 @@ class AssessConfig(BaseConfig):
     ASSESS_MAX_ROUNDS: times assess may ask for tool calls before the answer is written.
     ASSESS_MAX_CALLS: the most tool calls one round may run; the rest are dropped.
     ASSESS_SEARCH_LIMIT: hits one search tool call brings back.
-    ASSESS_EXTRA_CHUNKS: the most chunks the loop may add on top of the initial context,
-        which expansion already fills to CHAT_CONTEXT_CHUNKS.
+    ASSESS_FOLLOW_LIMIT: chunks one follow_reference call brings back, so a long division
+        cannot spend the whole budget in a single call.
+    ASSESS_EXTRA_CHUNKS: the most chunks the loop may add on top of the context retrieve
+        produced, whatever its size; at 0 the loop reads the context but never grows it.
     """
 
     ASSESS_ENABLED: bool = True
     ASSESS_MAX_ROUNDS: int = Field(default=2, ge=1)
     ASSESS_MAX_CALLS: int = Field(default=4, ge=1)
     ASSESS_SEARCH_LIMIT: int = Field(default=5, ge=1)
+    ASSESS_FOLLOW_LIMIT: int = Field(default=5, ge=1)
     ASSESS_EXTRA_CHUNKS: int = Field(default=10, ge=0)
 
 

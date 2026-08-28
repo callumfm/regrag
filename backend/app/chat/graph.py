@@ -88,11 +88,11 @@ async def retrieve(state: ChatState) -> dict[str, Any]:
     async with get_session(auto_commit=False) as session:
         hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
         if not meets_thresholds(hits):
-            return {"hits": hits, "sources": ()}
+            return {"hits": hits, "sources": (), "retrieved_sources": 0}
         sources: tuple[RetrievedChunk, ...] = hits
         if config.EXPAND_SECTIONS:
             sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
-    return {"hits": hits, "sources": sources}
+    return {"hits": hits, "sources": sources, "retrieved_sources": len(sources)}
 
 
 @traced
@@ -155,7 +155,8 @@ def merge_sources(
     sources: tuple[RetrievedChunk, ...], additions: Sequence[RetrievedChunk], *, cap: int
 ) -> tuple[RetrievedChunk, ...]:
     """The context grown by a tool round: new chunks appended in arrival order, a chunk
-    already present kept as it was, and nothing appended once the cap is reached."""
+    already present kept as it was, and nothing appended once the cap is reached. The cap
+    counts the whole context, so it is read against what retrieve produced, not this round."""
     merged = list(sources)
     seen = {chunk.id for chunk in merged}
     for chunk in additions:
@@ -173,13 +174,12 @@ async def tools(state: ChatState) -> dict[str, Any]:
     kept, growth capped. Each call is timed as its own step, so the path says what it cost."""
     fetched: list[RetrievedChunk] = []
     steps: list[ChatStepResult] = []
-    async with get_session(auto_commit=False) as session:
-        for call in state.pending_calls:
-            start = time.perf_counter()
-            fetched.extend(await run_tool_call(session, call))
-            steps.append(ChatStepResult(step=tool_step(call.name), ms=elapsed_ms(start)))
+    for call in state.pending_calls:
+        start = time.perf_counter()
+        fetched.extend(await run_tool_call(call))
+        steps.append(ChatStepResult(step=tool_step(call.name), ms=elapsed_ms(start)))
 
-    cap = config.CHAT_CONTEXT_CHUNKS + config.ASSESS_EXTRA_CHUNKS
+    cap = state.retrieved_sources + config.ASSESS_EXTRA_CHUNKS
     return {
         "sources": merge_sources(state.sources, fetched, cap=cap),
         "pending_calls": (),

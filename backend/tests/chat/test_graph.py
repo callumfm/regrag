@@ -518,6 +518,35 @@ class TestAssessLoop:
 
         assert run_calls == [ToolCall(name="search", args={"query": "a"})]
 
+    async def test_growth_is_budgeted_from_the_context_retrieve_left(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
+    ):
+        """The budget is what the loop may add, not a ceiling the initial context is assumed
+        to already fill: retrieve left one chunk, so two more is all two rounds may append."""
+        monkeypatch.setattr(config, "ASSESS_EXTRA_CHUNKS", 2)
+        monkeypatch.setattr(config, "CHAT_CONTEXT_CHUNKS", 15)
+        assess_turns(
+            tool_call_message("search", {"query": "gap"}),
+            tool_call_message("search", {"query": "more"}),
+        )
+        tool_results(search_result(id=2), search_result(id=3), search_result(id=4))
+
+        state = await run_graph()
+
+        assert state.retrieved_sources == 1
+        assert tuple(chunk.id for chunk in state.sources) == (1, 2, 3)
+
+    async def test_a_zero_budget_reads_the_context_without_growing_it(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
+    ):
+        monkeypatch.setattr(config, "ASSESS_EXTRA_CHUNKS", 0)
+        assess_turns(tool_call_message("search", {"query": "gap"}), AIMessage(content=""))
+        tool_results(search_result(id=2))
+
+        state = await run_graph()
+
+        assert tuple(chunk.id for chunk in state.sources) == (1,)
+
 
 def test_the_compiled_graph_has_the_edges_the_readme_draws():
     """The README's diagram is hand-drawn, so the edge list it was drawn from is asserted
