@@ -60,20 +60,20 @@ async def expand_sections(
     if not chunks:
         return ()
 
-    anchors: dict[SectionKey, list[int]] = {}
+    hit_positions: dict[SectionKey, list[int]] = {}
     for chunk in chunks:
-        anchors.setdefault(SectionKey.from_chunk(chunk), []).append(chunk.position)
+        hit_positions.setdefault(SectionKey.from_chunk(chunk), []).append(chunk.position)
 
-    filters = [key.query_filter() for key in anchors]
-    rank = case(*((matches, position) for position, matches in enumerate(filters)))
-    distance = case(
+    filters = [key.query_filter() for key in hit_positions]
+    section_rank = case(*((matches, order) for order, matches in enumerate(filters)))
+    hit_distance = case(
         *(
             (matches, _nearest_hit_distance(positions))
-            for matches, positions in zip(filters, anchors.values(), strict=True)
+            for matches, positions in zip(filters, hit_positions.values(), strict=True)
         )
     )
     labeled = (
-        select(*CHUNK_COLUMNS, rank.label("rank"), distance.label("distance"))
+        select(*CHUNK_COLUMNS, section_rank.label("rank"), hit_distance.label("distance"))
         .where(or_(*filters))
         .subquery()
     )
@@ -81,10 +81,10 @@ async def expand_sections(
         partition_by=labeled.c.rank,
         order_by=(labeled.c.distance, labeled.c.position, labeled.c.part),
     )
-    ranked = select(labeled, round_number.label("round")).subquery()
+    rounds = select(labeled, round_number.label("round")).subquery()
     stmt = (
-        select(ranked).order_by(ranked.c.distance != 0, ranked.c.round, ranked.c.rank).limit(limit)
+        select(rounds).order_by(rounds.c.distance != 0, rounds.c.round, rounds.c.rank).limit(limit)
     )
     rows = await session.execute(stmt)
-    kept = sorted(rows, key=lambda row: (row.rank, row.position, row.part))
-    return tuple(RetrievedChunk.model_validate(row) for row in kept)
+    reading_order = sorted(rows, key=lambda row: (row.rank, row.position, row.part))
+    return tuple(RetrievedChunk.model_validate(row) for row in reading_order)
