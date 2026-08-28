@@ -147,7 +147,7 @@ def test_retrieval_defaults_match_the_shipped_tunables():
     assert retrieval.RERANK_MODEL == "voyage/rerank-2.5"
     assert retrieval.RERANK_TIMEOUT == 30
     assert retrieval.RERANK_POOL == 30
-    assert retrieval.EXPAND_SECTIONS is True
+    assert retrieval.EXPAND_SECTIONS is False
 
 
 @pytest.mark.parametrize(

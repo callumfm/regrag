@@ -193,8 +193,8 @@ class RetrievalConfig(BaseConfig):
     RERANK_MODEL: which cross-encoder rescores the fused results.
     RERANK_TIMEOUT: seconds to wait for the cross-encoder.
     RERANK_POOL: fused results the cross-encoder rescores.
-    EXPAND_SECTIONS: section expansion's off switch; a paragraph rarely restates its
-        own subject, so the section is the unit that answers.
+    EXPAND_SECTIONS: widens each hit to its whole section; off by default, as the tune
+        showed it doubling context cost for no recall or citation gain.
     MIN_COSINE_SIMILARITY / MIN_RERANKER_RELEVANCE: the refusal gate's bars, cleared by
         the best hit per signal rather than by one hit on both. Set permissively: the
         gate is for junk, and a false refusal costs more than a wasted call.
@@ -210,7 +210,7 @@ class RetrievalConfig(BaseConfig):
     RERANK_TIMEOUT: int = 30
     RERANK_POOL: int = 30
 
-    EXPAND_SECTIONS: bool = True
+    EXPAND_SECTIONS: bool = False
 
     MIN_COSINE_SIMILARITY: float = Field(default=0.30, ge=0.0)
     MIN_RERANKER_RELEVANCE: float = Field(default=0.45, ge=0.0)
