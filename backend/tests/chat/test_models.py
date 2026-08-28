@@ -100,21 +100,21 @@ class TestContextSettled:
         assert ChatState(question="q").context_settled is False
 
     def test_after_retrieve_with_loop_enabled_the_loop_still_runs(self, monkeypatch):
-        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
+        monkeypatch.setattr(config, "ASSESS_ENABLED", True)
         state = ChatState(
             question="q", nodes=visited(ChatNode.RETRIEVE), sources=(search_result(),)
         )
         assert state.context_settled is False
 
     def test_after_retrieve_with_loop_disabled_context_is_settled(self, monkeypatch):
-        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 0)
+        monkeypatch.setattr(config, "ASSESS_ENABLED", False)
         state = ChatState(
             question="q", nodes=visited(ChatNode.RETRIEVE), sources=(search_result(),)
         )
         assert state.context_settled is True
 
     def test_after_a_gated_retrieve_context_is_settled_for_the_refusal(self, monkeypatch):
-        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
+        monkeypatch.setattr(config, "ASSESS_ENABLED", True)
         state = ChatState(question="q", nodes=visited(ChatNode.RETRIEVE), sources=())
         assert state.context_settled is True
 
@@ -136,7 +136,7 @@ class TestContextSettled:
         assert state.context_settled is True
 
     def test_tools_visit_below_the_round_cap_is_not_settled(self, monkeypatch):
-        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
+        monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 2)
         state = ChatState(
             question="q",
             nodes=visited(ChatNode.RETRIEVE, ChatNode.ASSESS, ChatNode.TOOLS),
@@ -145,7 +145,7 @@ class TestContextSettled:
         assert state.context_settled is False
 
     def test_tools_visit_consuming_the_round_cap_is_settled(self, monkeypatch):
-        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 1)
+        monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 1)
         state = ChatState(
             question="q",
             nodes=visited(ChatNode.RETRIEVE, ChatNode.ASSESS, ChatNode.TOOLS),

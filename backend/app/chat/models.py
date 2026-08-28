@@ -127,11 +127,11 @@ class ChatState(AppModel):
         shut, assess asked for nothing, or the last round consumed the budget."""
         match self.last_node:
             case ChatNode.RETRIEVE:
-                return not self.sources or config.GATHER_MAX_ROUNDS == 0
+                return not self.sources or not config.ASSESS_ENABLED
             case ChatNode.ASSESS:
                 return not self.pending_calls
             case ChatNode.TOOLS:
-                return self.tool_rounds() >= config.GATHER_MAX_ROUNDS
+                return self.tool_rounds() >= config.ASSESS_MAX_ROUNDS
             case _:
                 return False
 

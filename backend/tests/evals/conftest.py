@@ -17,10 +17,10 @@ REFERENCE = CaseReference(celex="32023R1805", article="4")
 
 
 @pytest.fixture(autouse=True)
-def no_gather_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+def no_assess_loop(monkeypatch: pytest.MonkeyPatch) -> None:
     """Eval tests fake the chat model, not assess — the loop stays off here; its
     coverage lives in tests/chat."""
-    monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 0)
+    monkeypatch.setattr(config, "ASSESS_ENABLED", False)
 
 
 IN_CORPUS_CASE: dict[str, Any] = {

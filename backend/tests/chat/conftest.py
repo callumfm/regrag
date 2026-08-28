@@ -107,16 +107,17 @@ def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def no_gather_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+def no_assess_loop(monkeypatch: pytest.MonkeyPatch) -> None:
     """The loop is off by default so every pre-loop test keeps meaning exactly what it
     said; a loop test takes `loop_on` and fakes assess_model itself."""
-    monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 0)
+    monkeypatch.setattr(config, "ASSESS_ENABLED", False)
 
 
 @pytest.fixture
 def loop_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two gather rounds, undoing the autouse switch-off."""
-    monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
+    """The loop back on, with its default two rounds, undoing the autouse switch-off."""
+    monkeypatch.setattr(config, "ASSESS_ENABLED", True)
+    monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 2)
 
 
 @pytest.fixture

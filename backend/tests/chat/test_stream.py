@@ -195,7 +195,7 @@ class ToolCallStreamingModel(RecordingChatModel):
 
 class TestLoopStreaming:
     @pytest.fixture
-    def one_gather_round(self, monkeypatch):
+    def one_assess_round(self, monkeypatch):
         assess = ToolCallStreamingModel(
             messages=iter([tool_call_message("search", {"query": "gap"}), AIMessage(content="")]),
             usage=USAGE,
@@ -208,7 +208,7 @@ class TestLoopStreaming:
         monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
 
     async def test_sources_arrive_once_with_the_merged_context(
-        self, loop_on, one_result, one_gather_round, monkeypatch
+        self, loop_on, one_result, one_assess_round, monkeypatch
     ):
         monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
 
@@ -222,7 +222,7 @@ class TestLoopStreaming:
         )
 
     async def test_assess_turns_leak_no_text_events(
-        self, loop_on, one_result, one_gather_round, monkeypatch
+        self, loop_on, one_result, one_assess_round, monkeypatch
     ):
         monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model("The answer [1]."))
 

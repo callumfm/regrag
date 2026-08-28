@@ -1,4 +1,4 @@
-"""The gather loop's tool surface: what the model may call, and how each call runs."""
+"""The assess loop's tool surface: what the model may call, and how each call runs."""
 
 import logging
 from collections.abc import Awaitable, Callable
@@ -39,7 +39,7 @@ async def run_search(session: AsyncSession, args: SearchArgs) -> tuple[Retrieved
     request = SearchRequest(
         query=args.query,
         filters=SearchFilters(celex=args.celex),
-        limit=config.GATHER_SEARCH_LIMIT,
+        limit=config.ASSESS_SEARCH_LIMIT,
     )
     return await search(session, request)
 

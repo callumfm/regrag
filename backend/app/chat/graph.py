@@ -135,7 +135,7 @@ async def call_assess_model(state: ChatState) -> dict[str, Any]:
     response = await assess_model().ainvoke(messages)
     calls = tuple(
         ToolCall(name=c["name"], args=c["args"])
-        for c in response.tool_calls[: config.GATHER_MAX_CALLS]
+        for c in response.tool_calls[: config.ASSESS_MAX_CALLS]
     )
     return {"pending_calls": calls, "usage": response.usage_metadata}
 
@@ -167,7 +167,7 @@ async def tools(state: ChatState) -> dict[str, Any]:
         [f"{call.name}({call.args})" for call in state.pending_calls],
         len(fetched),
     )
-    cap = config.CHAT_CONTEXT_CHUNKS + config.GATHER_EXTRA_CHUNKS
+    cap = config.CHAT_CONTEXT_CHUNKS + config.ASSESS_EXTRA_CHUNKS
     return {"sources": merge_sources(state.sources, fetched, cap=cap), "pending_calls": ()}
 
 

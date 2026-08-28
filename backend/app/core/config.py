@@ -146,11 +146,6 @@ class ChatConfig(BaseConfig):
     CHAT_SOURCES: search hits the answer draws on, each widened to its section.
     CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt; a guardrail
         against a run of long articles, not a target, so it should rarely bite.
-    GATHER_MAX_ROUNDS: tool rounds the gather loop may run; 0 skips the loop entirely.
-    GATHER_MAX_CALLS: the most tool calls one gather round may run; the rest are dropped.
-    GATHER_SEARCH_LIMIT: hits one search tool call brings back.
-    GATHER_EXTRA_CHUNKS: the most chunks tool rounds may add on top of the initial
-        context, which expansion already fills to CHAT_CONTEXT_CHUNKS.
     """
 
     ANTHROPIC_API_KEY: SecretStr = SecretStr("")
@@ -159,10 +154,24 @@ class ChatConfig(BaseConfig):
     CHAT_MAX_TOKENS: int = 2048
     CHAT_SOURCES: int = Field(default=5, ge=1)
     CHAT_CONTEXT_CHUNKS: int = Field(default=15, ge=1)
-    GATHER_MAX_ROUNDS: int = Field(default=2, ge=0)
-    GATHER_MAX_CALLS: int = Field(default=4, ge=1)
-    GATHER_SEARCH_LIMIT: int = Field(default=5, ge=1)
-    GATHER_EXTRA_CHUNKS: int = Field(default=10, ge=0)
+
+
+class AssessConfig(BaseConfig):
+    """The assess ⇄ tools loop, which grows the retrieved context before the answer.
+
+    ASSESS_ENABLED: the loop's off switch; off, the graph answers from retrieval alone.
+    ASSESS_MAX_ROUNDS: times assess may ask for tool calls before the answer is written.
+    ASSESS_MAX_CALLS: the most tool calls one round may run; the rest are dropped.
+    ASSESS_SEARCH_LIMIT: hits one search tool call brings back.
+    ASSESS_EXTRA_CHUNKS: the most chunks the loop may add on top of the initial context,
+        which expansion already fills to CHAT_CONTEXT_CHUNKS.
+    """
+
+    ASSESS_ENABLED: bool = True
+    ASSESS_MAX_ROUNDS: int = Field(default=2, ge=1)
+    ASSESS_MAX_CALLS: int = Field(default=4, ge=1)
+    ASSESS_SEARCH_LIMIT: int = Field(default=5, ge=1)
+    ASSESS_EXTRA_CHUNKS: int = Field(default=10, ge=0)
 
 
 class IngestConfig(BaseConfig):
@@ -243,6 +252,7 @@ class Config(
     PostgresConfig,
     EmbeddingConfig,
     ChatConfig,
+    AssessConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,
@@ -259,6 +269,7 @@ _CONFIG_SECTIONS = (
     PostgresConfig,
     EmbeddingConfig,
     ChatConfig,
+    AssessConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,
@@ -267,6 +278,7 @@ _CONFIG_SECTIONS = (
 EVAL_CONFIG_SECTIONS = (
     EmbeddingConfig,
     ChatConfig,
+    AssessConfig,
     RetrievalConfig,
 )
 

@@ -28,7 +28,7 @@ def test_definitions_name_both_tools_with_parameter_schemas():
         assert definition["function"]["description"]
 
 
-async def test_search_call_dispatches_with_filters_and_the_gather_limit(monkeypatch):
+async def test_search_call_dispatches_with_filters_and_the_assess_limit(monkeypatch):
     requests: list[SearchRequest] = []
 
     async def fake_search(session, request):
@@ -45,7 +45,7 @@ async def test_search_call_dispatches_with_filters_and_the_gather_limit(monkeypa
         SearchRequest(
             query="penalties",
             filters=SearchFilters(celex="32023R1805"),
-            limit=config.GATHER_SEARCH_LIMIT,
+            limit=config.ASSESS_SEARCH_LIMIT,
         )
     ]
 

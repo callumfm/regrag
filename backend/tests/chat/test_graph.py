@@ -341,7 +341,7 @@ class TestGatherLoop:
     async def test_the_round_cap_forces_synthesis_with_calls_still_pending(
         self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
     ):
-        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 1)
+        monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 1)
         assess_turns(
             tool_call_message("search", {"query": "first gap"}),
             tool_call_message("search", {"query": "never runs"}),
@@ -397,7 +397,7 @@ class TestGatherLoop:
     async def test_a_persistently_failing_assess_call_still_synthesizes_from_the_context(
         self, loop_on, one_result, answer_model, monkeypatch
     ):
-        """A gather round is best-effort: it must never destroy a request that already
+        """An assess round is best-effort: it must never destroy a request that already
         has answerable context, even when the model keeps failing."""
         assess = FailingModel(messages=iter([]), failures=10, usage=USAGE)
         monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
@@ -414,7 +414,7 @@ class TestGatherLoop:
     async def test_an_assess_turn_asking_for_more_than_the_cap_runs_only_the_cap(
         self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
     ):
-        monkeypatch.setattr(config, "GATHER_MAX_CALLS", 1)
+        monkeypatch.setattr(config, "ASSESS_MAX_CALLS", 1)
         assess_turns(
             AIMessage(
                 content="",
