@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from app.evals.cache import enable_call_cache
-from app.evals.models import EvalDataset
+from app.evals.dataset.models import EvalDataset
 from app.evals.tune.params import TUNABLE_PARAMS
 from app.evals.tune.report import format_tune_table
 from app.evals.tune.service import tune

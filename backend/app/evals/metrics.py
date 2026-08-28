@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 from app.chat.enums import ChatNode, ChatOutcome
 from app.chat.graph import synthesize_or_refuse
-from app.evals.enums import EvalKind
+from app.evals.dataset.enums import EvalKind
 from app.evals.models import EvalMetrics, EvalResult, RetrievalMetrics
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
 

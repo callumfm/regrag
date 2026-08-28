@@ -32,12 +32,6 @@ def _targeted(stmt: Select, target: ReferenceTarget) -> Select:
     return stmt
 
 
-async def reference_exists(session: AsyncSession, target: ReferenceTarget) -> bool:
-    """Whether any stored chunk sits in the division the target names."""
-    stmt = _targeted(select(DocumentChunk.id), target).limit(1)
-    return await session.scalar(stmt) is not None
-
-
 async def follow_reference(
     session: AsyncSession, target: ReferenceTarget
 ) -> tuple[RetrievedChunk, ...]:
@@ -46,3 +40,12 @@ async def follow_reference(
     stmt = _targeted(select(*CHUNK_COLUMNS), target).order_by(*order)
     rows = await session.execute(stmt)
     return tuple(RetrievedChunk.model_validate(row) for row in rows)
+
+
+async def division_content_hashes(
+    session: AsyncSession, target: ReferenceTarget
+) -> tuple[str, ...]:
+    """The content hash of every chunk covering the division, in the order a reader meets them."""
+    order = ANNEX_ORDER if target.annex is not None else ARTICLE_ORDER
+    stmt = _targeted(select(DocumentChunk.content_hash), target).order_by(*order)
+    return tuple(await session.scalars(stmt))

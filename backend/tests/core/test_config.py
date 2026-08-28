@@ -197,7 +197,7 @@ def test_a_snapshot_records_the_requested_sections_whole(monkeypatch):
 
 
 def test_a_snapshot_leaves_out_the_secrets(monkeypatch):
-    """Provenance is printed and pasted around; a key is not a knob a run reproduces."""
+    """The snapshot is printed and pasted around; a key is not a knob a run reproduces."""
     monkeypatch.setattr(config, "ANTHROPIC_API_KEY", SecretStr("sk-never-recorded"))
 
     snapshot = get_config_snapshot()
