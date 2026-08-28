@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from app.evals.metrics import format_rate
-from app.evals.tune.models import TuneMetrics, TuneRun
+from app.evals.tune.models import TuneMetrics, TuneResult, TuneRun
 from app.evals.tune.params import TUNABLE_PARAMS
 
 NULL_CHAR: str = "-"
@@ -68,6 +68,15 @@ def _format_context_chars(value: float | None) -> str:
 def _format_latency(value: float | None) -> str:
     """Format latency retrieval speed."""
     return str(value) if value is not None else NULL_CHAR
+
+
+def _format_param(result: TuneResult) -> str:
+    """The knob a row moved — with its companion settings, or the row would claim the
+    knob alone made its delta."""
+    if not result.requires:
+        return result.param
+    companions = " ".join(f"{name}={value}" for name, value in sorted(result.requires.items()))
+    return f"{result.param}[{companions}]"
 
 
 def _format_baseline(run: TuneRun) -> str:
@@ -150,7 +159,7 @@ def format_tune_table(run: TuneRun) -> str:
     """Format a tune run as a ranked table with baseline comparisons."""
     entries = [
         ("(baseline)", NULL_CHAR, run.baseline),
-        *((result.param, str(result.value), result.metrics) for result in run.results),
+        *((_format_param(result), str(result.value), result.metrics) for result in run.results),
     ]
     ranked = sorted(entries, key=lambda entry: _sort_key(entry[2]))
     rows = [

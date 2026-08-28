@@ -7,35 +7,49 @@ from typing import Any
 
 from pydantic import Field
 
-from app.core.config import Config, config
+from app.core.config import EVAL_CONFIG_SECTIONS, Config, config
 from app.core.models import FrozenModel
 from app.evals.models import RetrievalMetrics
 
 
 class TunableParam(FrozenModel):
-    """A config parameter and the values to test for it."""
+    """A config parameter, the values to test for it, and the companion settings it is
+    only read under — a gated knob is measured with its companions applied."""
 
     name: str
     values: tuple[Any, ...]
+    requires: dict[str, Any] = Field(default_factory=dict)
 
     def validate_config(self) -> None:
-        if self.name not in Config.model_fields:
-            raise ValueError(f"{self.name} is no longer a config field; update TUNABLE_PARAMS")
+        recorded = {name for section in EVAL_CONFIG_SECTIONS for name in section.model_fields}
+        for name in (self.name, *self.requires):
+            if name not in Config.model_fields:
+                raise ValueError(f"{name} is no longer a config field; update TUNABLE_PARAMS")
+            if name not in recorded:
+                raise ValueError(
+                    f"{name} is a setting the run's snapshot does not record; "
+                    "tune only over the EVAL_CONFIG_SECTIONS fields"
+                )
 
         probe = config.model_copy()
+        for name, value in self.requires.items():
+            setattr(probe, name, value)
         for value in self.values:
             setattr(probe, self.name, value)
 
     @contextmanager
     def override(self, value: Any) -> Iterator[None]:
-        """Temporarily apply a value to this parameter."""
-        previous = getattr(config, self.name)
+        """Temporarily apply a value to this parameter, and its required companions."""
+        applied = {**self.requires, self.name: value}
+        previous = {name: getattr(config, name) for name in applied}
 
         try:
-            setattr(config, self.name, value)
+            for name, new_value in applied.items():
+                setattr(config, name, new_value)
             yield
         finally:
-            setattr(config, self.name, previous)
+            for name, old_value in previous.items():
+                setattr(config, name, old_value)
 
 
 class TuneMetrics(RetrievalMetrics):
@@ -51,6 +65,7 @@ class TuneResult(FrozenModel):
 
     param: str
     value: Any
+    requires: dict[str, Any] = Field(default_factory=dict)
     metrics: TuneMetrics
 
 

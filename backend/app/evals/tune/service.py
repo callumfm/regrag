@@ -31,7 +31,7 @@ async def tune(dataset: EvalDataset, params: Sequence[TunableParam]) -> TuneRun:
         param.validate_config()
 
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
-    baseline = await _measure(dataset.cases)
+    baseline = await _measure(dataset.selected_cases)
 
     results: list[TuneResult] = []
     for param in params:
@@ -40,9 +40,11 @@ async def tune(dataset: EvalDataset, params: Sequence[TunableParam]) -> TuneRun:
                 continue
 
             with param.override(value):
-                metrics = await _measure(dataset.cases)
+                metrics = await _measure(dataset.selected_cases)
 
-            result = TuneResult(param=param.name, value=value, metrics=metrics)
+            result = TuneResult(
+                param=param.name, value=value, requires=param.requires, metrics=metrics
+            )
             results.append(result)
 
     return TuneRun(

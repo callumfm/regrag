@@ -142,3 +142,33 @@ async def test_a_value_that_raises_still_restores_the_baseline(
         await tune(dataset, (TunableParam(name="CHAT_SOURCES", values=(baseline + 1,)),))
 
     assert config.CHAT_SOURCES == baseline
+
+
+async def test_a_gated_value_is_measured_with_its_companions_applied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A knob read only under a companion setting is measured with that setting on."""
+    seen: list[tuple[bool, int]] = []
+
+    async def fake_evaluate(case, graph=None):
+        seen.append((config.EXPAND_SECTIONS, config.CHAT_CONTEXT_CHUNKS))
+        return eval_result(case=case)
+
+    monkeypatch.setattr(service, "evaluate_case", fake_evaluate)
+    baseline_expand = config.EXPAND_SECTIONS
+    baseline_chunks = config.CHAT_CONTEXT_CHUNKS
+    dataset = eval_dataset(eval_case(id="one"))
+    param = TunableParam(
+        name="CHAT_CONTEXT_CHUNKS",
+        values=(baseline_chunks + 5,),
+        requires={"EXPAND_SECTIONS": not baseline_expand},
+    )
+
+    run = await tune(dataset, (param,))
+
+    assert seen == [
+        (baseline_expand, baseline_chunks),
+        (not baseline_expand, baseline_chunks + 5),
+    ]
+    assert config.EXPAND_SECTIONS is baseline_expand
+    assert run.results[0].requires == {"EXPAND_SECTIONS": not baseline_expand}

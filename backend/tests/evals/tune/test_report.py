@@ -70,3 +70,17 @@ def test_the_footer_names_every_tunable_baseline_value_and_the_provenance() -> N
     assert provenance.startswith("run:")
     assert "dataset_sha=aaaaaaaaaaaa" in provenance
     assert "cached=False" in provenance
+
+
+def test_a_gated_row_names_the_companions_it_ran_with() -> None:
+    """The row changed two settings; a bare param name would claim it changed one."""
+    gated = TuneResult(
+        param="CHAT_CONTEXT_CHUNKS",
+        value=10,
+        requires={"EXPAND_SECTIONS": True},
+        metrics=metrics(),
+    )
+
+    table = format_tune_table(tune_run(gated))
+
+    assert "CHAT_CONTEXT_CHUNKS[EXPAND_SECTIONS=True]" in table
