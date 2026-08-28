@@ -46,33 +46,29 @@ def _error_event(exc: Exception) -> ErrorEvent:
 
 
 async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, None]:
-    """The graph run as chat events: the context once it settles, then the answer as it is
-    written — or the refusal in its place — and done when the graph ends."""
+    """The graph run as chat events. LangGraph provides two streams: 'values' - a snapshot of
+    the state after each node, and 'messages' - the tokens a node's model call produces."""
     sources_sent = False
-    # Two streams interleaved: `values`, a snapshot of the whole state after each node, and
-    # `messages`, the tokens a node's model call produces as it produces them.
     graph_stream: AsyncIterator[Any] = chat_graph.astream(
         state, stream_mode=[VALUES_MODE, MESSAGES_MODE]
     )
     async for mode, payload in graph_stream:
         if mode == VALUES_MODE:
-            # The snapshot copied onto the one state this run is recorded from.
             state.apply_snapshot(payload)
-            # The context is final once the loop stops growing it, so the markers the
-            # answer is about to cite can be sent — once, however many rounds ran.
+
             if not sources_sent and state.context_settled:
                 sources_sent = True
                 yield SourcesEvent.from_results(state.sources)
-            # A refusal writes no tokens, so its fixed answer is sent as the one text frame.
+
             if state.last_step is ChatNode.REFUSE:
                 yield TextEvent(data=state.answer)
         else:
-            # Only synthesize's tokens are the answer; assess calls a model too.
             chunk, metadata = payload
             if metadata.get("langgraph_node") != ChatNode.SYNTHESIZE:
                 continue
             if text := chunk.text:
                 yield TextEvent(data=text)
+
     yield DoneEvent()
 
 
