@@ -29,7 +29,7 @@ def answering_graph(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
     monkeypatch.setattr("app.chat.graph.search", fake_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model("Half of it [1]."))
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model("Half of it [1]."))
 
 
 async def test_a_case_runs_through_the_graph_and_keeps_the_state_it_ended_in(
