@@ -24,15 +24,15 @@ chat API that answers from them.
 
 ## Layout
 
-| Directory        | Contents                                                      |
-| ---------------- | ------------------------------------------------------------- |
-| `app/core/`      | Shared contracts: config, db session, http, llm, storage      |
-| `app/ingestion/` | The corpus pipeline: discover → fetch → parse → chunk → embed |
-| `app/retrieval/` | The read side: hybrid search and exact article lookup         |
-| `app/chat/`      | The answering graph, its SSE endpoint, and the request ledger |
-| `app/evals/`     | The golden dataset and the runner that scores the graph on it |
-| `migrations/`    | Alembic revisions                                             |
-| `tests/`         | Mirrors `app/`, with shared fixtures in `tests/conftest.py`   |
+| Directory                                            | Contents                                                      |
+| ---------------------------------------------------- | ------------------------------------------------------------- |
+| `app/core/`                                          | Shared contracts: config, db session, http, llm, storage      |
+| [`app/ingestion/`](app/ingestion/README.md)          | The corpus pipeline: discover → fetch → parse → chunk → embed |
+| [`app/retrieval/`](app/retrieval/README.md)          | The read side: hybrid search and exact article lookup         |
+| [`app/chat/`](app/chat/README.md)                    | The answering graph, its SSE endpoint, and the request ledger |
+| [`app/evals/`](app/evals/README.md)                  | The golden dataset and the runner that scores the graph on it |
+| `migrations/`                                        | Alembic revisions                                             |
+| `tests/`                                             | Mirrors `app/`, with shared fixtures in `tests/conftest.py`   |
 
 `app/core/` holds only what two or more capabilities use. Anything used by one
 capability lives in that capability's package.
@@ -51,6 +51,9 @@ Each capability package follows the same file convention:
 
 New ORM schemas must be imported in `app/core/db/registry.py` so their mappers
 register; a guard test fails if one is missing.
+
+The four capability directories link to their own READMEs, which cover how each
+works and why it is built that way.
 
 ## Setup
 
@@ -74,54 +77,18 @@ uv run fastapi dev
 The API is then on `http://localhost:8000`, with `/health` reporting database
 connectivity and `/docs` serving the OpenAPI schema.
 
-## Ingest
+## Commands
 
 ```bash
-uv run ingest             # every seed topic
-uv run ingest fueleu      # one topic
+uv run ingest                  # build the corpus; `ingest fueleu` for one topic
+uv run retrieve "query"        # search it from the terminal
+uv run evals run               # score the chat graph against the golden dataset
+uv run evals tune              # sweep retrieval settings against the same cases
 ```
 
-A run stores the documents it downloads and calls the embedding model, so it
-needs `VOYAGE_API_KEY` set. Re-running is cheap and safe: unchanged documents
-are neither downloaded nor re-embedded.
+Each is an argparse entry point that self-documents: `--help` prints what it
+does and every flag it takes.
 
-Where the documents are stored depends on `STORAGE_BACKEND`. It defaults to
-`local`, writing files under `RAW_DATA_DIR` (`<repo>/data/raw`), so dev and
-tests need no network. Set it to `r2` and fill in the `R2_*` variables to use
-the Cloudflare bucket instead.
-
-What each stage does, and why, is in
-[`app/ingestion/README.md`](app/ingestion/README.md).
-
-## Chat
-
-`POST /chat` streams a cited answer over SSE: one `sources` frame naming the
-context blocks the answer may cite, `text` frames as the model writes, then
-`done` — or a single `error` frame. A question the corpus does not cover is
-refused before any model call, and every request is recorded with the path it
-took through the graph, its timings and its tokens.
-
-It calls the answering model, so it needs `ANTHROPIC_API_KEY`. Which model, and
-how much context it is given, are the `CHAT_*` settings in `app/core/config.py`.
-
-## Evals
-
-`app/evals/golden.json` holds authored cases: a question, what a right answer
-must say, and the articles it must come from — plus out-of-corpus questions the
-system is expected to refuse.
-
-```bash
-uv run evals check              # every case reference still resolves in the corpus
-uv run evals run                # score the dataset against the current graph
-uv run evals run --verbose      # ...listing every case with its own scores
-uv run evals run --case fueleu  # only cases whose id contains this
-uv run evals run --no-cache     # pay for every embed and rerank again
-```
-
-A run drives the same graph the endpoint runs, one case at a time so a timing
-measures one case, and prints the settings it ran under beside the scores:
-what search found before and after section expansion, what the answers cited,
-what the refusal gate caught, and what the run cost. It exits non-zero if any
-case raised.
-
-Replayed embed and rerank calls are cached under `data/cache/evals`.
+`ingest` needs `VOYAGE_API_KEY`, `evals run` also needs `ANTHROPIC_API_KEY`, and
+re-running `ingest` is cheap — unchanged documents are neither downloaded nor
+re-embedded.

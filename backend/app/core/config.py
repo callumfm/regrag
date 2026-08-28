@@ -47,6 +47,7 @@ class BaseConfig(BaseSettings):
         env_file=get_env_file(),
         env_ignore_empty=True,
         extra="ignore",
+        validate_assignment=True,
     )
 
 
@@ -92,7 +93,7 @@ class PostgresConfig(BaseConfig):
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
     DB_USER: str = "postgres"
-    DB_PASS: str = "postgres"
+    DB_PASS: SecretStr = SecretStr("postgres")
     DB_NAME: str = "regrag"
 
     DB_POOL_SIZE: int = 3
@@ -107,7 +108,7 @@ class PostgresConfig(BaseConfig):
     def SQLALCHEMY_DATABASE_URI(self) -> str:
         """Build SQLAlchemy database URI."""
         return (
-            f"postgresql+psycopg://{self.DB_USER}:{self.DB_PASS}"
+            f"postgresql+psycopg://{self.DB_USER}:{self.DB_PASS.get_secret_value()}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
 
@@ -201,8 +202,8 @@ class RetrievalConfig(BaseConfig):
     RERANK_MODEL: which cross-encoder rescores the fused results.
     RERANK_TIMEOUT: seconds to wait for the cross-encoder.
     RERANK_POOL: fused results the cross-encoder rescores.
-    EXPAND_SECTIONS: section expansion's off switch; a paragraph rarely restates its
-        own subject, so the section is the unit that answers.
+    EXPAND_SECTIONS: widens each hit to its whole section; off by default, as the tune
+        showed it doubling context cost for no recall or citation gain.
     MIN_COSINE_SIMILARITY / MIN_RERANKER_RELEVANCE: the refusal gate's bars, cleared by
         the best hit per signal rather than by one hit on both. Set permissively: the
         gate is for junk, and a false refusal costs more than a wasted call.
@@ -218,7 +219,7 @@ class RetrievalConfig(BaseConfig):
     RERANK_TIMEOUT: int = 30
     RERANK_POOL: int = 30
 
-    EXPAND_SECTIONS: bool = True
+    EXPAND_SECTIONS: bool = False
 
     MIN_COSINE_SIMILARITY: float = Field(default=0.30, ge=0.0)
     MIN_RERANKER_RELEVANCE: float = Field(default=0.45, ge=0.0)
@@ -229,11 +230,11 @@ class EvalConfig(BaseConfig):
 
     EVAL_DATASET_PATH: the golden dataset, authored cases versioned as JSON in the repo.
     EVAL_CACHE_DIR: where repeated runs replay their embed and rerank calls from. Here
-        rather than in RetrievalConfig, which a run records whole as its provenance: a
+        rather than in RetrievalConfig, which a run records whole in its settings: a
         cache hit answers exactly as a miss would, so it is not a setting a run compares on.
     """
 
-    EVAL_DATASET_PATH: Path = BACKEND_ROOT / "app" / "evals" / "golden.json"
+    EVAL_DATASET_PATH: Path = BACKEND_ROOT / "app" / "evals" / "dataset" / "golden.json"
     EVAL_CACHE_DIR: Path = PROJECT_ROOT / "data" / "cache" / "evals"
 
 
@@ -251,3 +252,34 @@ class Config(
 
 
 config = Config()
+
+
+_CONFIG_SECTIONS = (
+    AppConfig,
+    PostgresConfig,
+    EmbeddingConfig,
+    ChatConfig,
+    IngestConfig,
+    RetrievalConfig,
+    StorageConfig,
+    EvalConfig,
+)
+EVAL_CONFIG_SECTIONS = (
+    EmbeddingConfig,
+    ChatConfig,
+    RetrievalConfig,
+)
+
+
+def get_config_snapshot(
+    sections: tuple[type[BaseConfig], ...] | None = None,
+) -> dict[str, Any]:
+    """Return non-secret settings from the requested config sections."""
+    sections = sections or _CONFIG_SECTIONS
+
+    return {
+        name: getattr(config, name)
+        for section in sections
+        for name, field in sorted(section.model_fields.items())
+        if field.annotation is not SecretStr
+    }

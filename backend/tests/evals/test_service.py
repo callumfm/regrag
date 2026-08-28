@@ -1,63 +1,19 @@
-import logging
-from collections.abc import Callable
+"""Driving the golden cases through the chat graph."""
 
+import logging
+
+import litellm
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.enums import ChatNode, ChatOutcome
 from app.core.config import config
 from app.core.llm import LLMError
-from app.evals.models import UnresolvedReference
-from app.evals.service import find_unresolved_references, run_case, run_dataset, select_cases
-from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.schemas import IngestRun
-from app.retrieval.models import ReferenceTarget
+from app.evals.service import evaluate_all_cases, evaluate_case
 from tests.chat.conftest import USAGE, fake_chat_model
 from tests.conftest import search_result
-from tests.evals.conftest import REFERENCE, eval_case, eval_dataset, out_of_corpus_case
+from tests.evals.conftest import eval_case, eval_dataset
 
 pytestmark = pytest.mark.anyio
-
-STORED_ANNEX = ReferenceTarget(celex="32023R1805", annex="IV")
-MISSING = ReferenceTarget(celex="32023R1805", article="999")
-
-
-async def test_a_reference_a_stored_chunk_answers_to_is_resolved(
-    db_session: AsyncSession, ingest_run: IngestRun, make_chunk_row: Callable[..., DocumentChunk]
-) -> None:
-    db_session.add(make_chunk_row(ingest_run))
-    db_session.add(
-        make_chunk_row(
-            ingest_run, article=None, annex="IV", citation="Annex IV", content_hash="c" * 64
-        )
-    )
-    await db_session.flush()
-
-    unresolved = await find_unresolved_references(
-        db_session, eval_dataset(eval_case(references=(REFERENCE, STORED_ANNEX)))
-    )
-
-    assert unresolved == ()
-
-
-async def test_a_reference_no_chunk_answers_to_is_reported_with_its_case(
-    db_session: AsyncSession, ingest_run: IngestRun, make_chunk_row: Callable[..., DocumentChunk]
-) -> None:
-    db_session.add(make_chunk_row(ingest_run))
-    await db_session.flush()
-
-    unresolved = await find_unresolved_references(
-        db_session,
-        eval_dataset(eval_case(id="ok"), eval_case(id="stale", references=(MISSING,))),
-    )
-
-    assert unresolved == (UnresolvedReference(case_id="stale", target=MISSING),)
-
-
-async def test_out_of_corpus_cases_have_nothing_to_resolve(db_session: AsyncSession) -> None:
-    unresolved = await find_unresolved_references(db_session, eval_dataset(out_of_corpus_case()))
-
-    assert unresolved == ()
 
 
 # Running the dataset through the chat graph
@@ -79,7 +35,7 @@ def answering_graph(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_a_case_runs_through_the_graph_and_keeps_the_state_it_ended_in(
     answering_graph: None,
 ) -> None:
-    result = await run_case(eval_case())
+    result = await evaluate_case(eval_case())
 
     assert result.case == eval_case()
     assert result.state.question == "q?"
@@ -102,7 +58,7 @@ async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
     monkeypatch.setattr("app.chat.graph.search", failing_search)
 
     with caplog.at_level(logging.WARNING):
-        result = await run_case(eval_case())
+        result = await evaluate_case(eval_case())
 
     assert result.state.error == "embedding call failed"
     assert result.state.outcome is ChatOutcome.ERROR
@@ -110,32 +66,49 @@ async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
     assert "eval case case failed: embedding call failed" in caplog.text
 
 
-async def test_run_dataset_scores_only_the_cases_matching_the_pattern(
+async def test_a_run_scores_every_case_and_records_what_it_ran_against(
     answering_graph: None,
 ) -> None:
-    dataset = eval_dataset(eval_case(id="fueleu-one"), eval_case(id="mrv-one"))
+    dataset = eval_dataset(eval_case(id="fueleu-one"), case_filter="fueleu")
 
-    run = await run_dataset(dataset, "fueleu")
+    run = await evaluate_all_cases(dataset)
 
     assert [r.case.id for r in run.results] == ["fueleu-one"]
-    assert run.case_pattern == "fueleu"
+    assert run.case_filter == "fueleu"
     assert run.dataset_sha == dataset.sha256
     assert run.metrics.cases == 1
-    assert run.settings.root["EXPAND_SECTIONS"] is False
+    assert run.settings["EXPAND_SECTIONS"] is False
     assert run.cached is False
 
 
-async def test_a_run_records_that_it_had_the_call_cache_on(answering_graph: None) -> None:
+async def test_a_run_records_that_it_had_the_call_cache_on(
+    answering_graph: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A cached run's node timings may measure a disk read, so the run has to say so or its
-    numbers read as a latency baseline they are not."""
-    run = await run_dataset(eval_dataset(eval_case(id="fueleu-one")), cached=True)
+    numbers read as a latency baseline they are not. The flag is read off the live litellm
+    cache, so it cannot disagree with what served the calls."""
+    monkeypatch.setattr(litellm, "cache", object())
+
+    run = await evaluate_all_cases(eval_dataset(eval_case(id="fueleu-one")))
 
     assert run.cached is True
     assert '"cached": true' in run.summary()
 
 
-def test_no_pattern_selects_every_case() -> None:
-    dataset = eval_dataset(eval_case(id="a"), out_of_corpus_case(id="b"))
+async def test_a_filtered_run_scores_only_the_selected_cases(answering_graph: None) -> None:
+    dataset = eval_dataset(eval_case(id="fueleu-one"), eval_case(id="mrv-one"), case_filter="mrv")
 
-    assert select_cases(dataset) == dataset.cases
-    assert select_cases(dataset, "b") == (out_of_corpus_case(id="b"),)
+    run = await evaluate_all_cases(dataset)
+
+    assert [r.case.id for r in run.results] == ["mrv-one"]
+
+
+async def test_a_run_carries_the_corpus_it_was_measured_against(answering_graph: None) -> None:
+    """Read before the run and carried through it, so a score always says which text it was
+    measured against and which cases owe a re-review."""
+    run = await evaluate_all_cases(
+        eval_dataset(eval_case()), corpus_version="2026-08-01-a3f1c2", stale_cases=("amended",)
+    )
+
+    assert run.corpus_version == "2026-08-01-a3f1c2"
+    assert run.stale_cases == ("amended",)
