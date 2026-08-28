@@ -78,13 +78,30 @@ async def test_expand_sections_never_drops_a_hit_it_was_given(
     db_session: AsyncSession,
     corpus: list[DocumentChunk],
 ) -> None:
-    """expanded_recall >= raw_recall by construction: round one always fits the hits."""
+    """expanded_recall >= raw_recall by construction: every hit is kept before any widening."""
     hits = [
         await chunk_at(db_session, "32023R1805", "Article 5(1)"),
         await chunk_at(db_session, "32023R1805", "Article 4(1)"),
     ]
 
     for limit in (2, 3, 5, NO_LIMIT):
+        expanded = await expand_sections(db_session, hits, limit=limit)
+        assert {hit.id for hit in hits} <= {chunk.id for chunk in expanded}
+
+
+async def test_expand_sections_keeps_a_second_hit_in_the_same_section(
+    db_session: AsyncSession,
+    corpus: list[DocumentChunk],
+) -> None:
+    """Two non-adjacent hits in one article are both hits; neither may lose its place to
+    another section's widening under a tight cap."""
+    hits = [
+        await chunk_at(db_session, "32023R1805", "Article 4(1)"),
+        await chunk_at(db_session, "32023R1805", "Article 4(3)"),
+        await chunk_at(db_session, "32023R1805", "Article 5(1)"),
+    ]
+
+    for limit in (3, 4, NO_LIMIT):
         expanded = await expand_sections(db_session, hits, limit=limit)
         assert {hit.id for hit in hits} <= {chunk.id for chunk in expanded}
 

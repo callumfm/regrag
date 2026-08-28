@@ -37,43 +37,54 @@ class SectionKey(FrozenModel):
         return DocumentChunk.id == self.chunk_id
 
 
+def _nearest_hit_distance(positions: Sequence[int]) -> ColumnElement[int]:
+    """How far a stored chunk sits from the closest hit of its section."""
+    gaps = [func.abs(DocumentChunk.position - position) for position in positions]
+    return gaps[0] if len(gaps) == 1 else func.least(*gaps)
+
+
 async def expand_sections(
     session: AsyncSession, chunks: Sequence[RetrievedChunk], *, limit: int
 ) -> tuple[RetrievedChunk, ...]:
-    """Each chunk widened to the section it was cut from, selected in rounds — every
-    hit's own chunk first, then each section one chunk wider — so a hit is never
-    evicted by a longer section above it, at most `limit` chunks in all.
+    """Each chunk widened to the section it was cut from — every hit's own chunk kept
+    first, then each section one chunk wider per round — so a hit is never evicted by
+    the widening, at most `limit` chunks in all.
 
     A paragraph rarely restates its own subject — "the limit referred to in paragraph 1"
     is unreachable by relevance — and a section split for length leaves its halves adrift
     of each other. Retrieval ranks the pieces; the section is the unit that answers.
-    Sections still arrive contiguous and in rank order: rounds decide what is kept,
-    not how it reads; a distance tie widens backward first, the chapeau before what
-    follows.
+    What is kept still reads in rank then document order; distance is measured to the
+    nearest hit, so a second hit in the same section counts as a hit, not as widening,
+    though a tight cap may then leave a gap between two hits it kept.
     """
     if not chunks:
         return ()
 
-    anchors: dict[SectionKey, int] = {}
+    anchors: dict[SectionKey, list[int]] = {}
     for chunk in chunks:
-        anchors.setdefault(SectionKey.from_chunk(chunk), chunk.position)
+        anchors.setdefault(SectionKey.from_chunk(chunk), []).append(chunk.position)
+
     filters = [key.query_filter() for key in anchors]
     rank = case(*((matches, position) for position, matches in enumerate(filters)))
-    anchor = case(
-        *((matches, position) for matches, position in zip(filters, anchors.values(), strict=True))
+    distance = case(
+        *(
+            (matches, _nearest_hit_distance(positions))
+            for matches, positions in zip(filters, anchors.values(), strict=True)
+        )
     )
-    distance = func.abs(DocumentChunk.position - anchor)
-    round_number = func.row_number().over(
-        partition_by=rank, order_by=(distance, DocumentChunk.position, DocumentChunk.part)
-    )
-    ranked = (
-        select(*CHUNK_COLUMNS, rank.label("rank"), round_number.label("round"))
+    labeled = (
+        select(*CHUNK_COLUMNS, rank.label("rank"), distance.label("distance"))
         .where(or_(*filters))
         .subquery()
     )
-    kept = select(ranked).order_by(ranked.c.round, ranked.c.rank).limit(limit).subquery()
-    stmt = select(*(kept.c[name] for name in RetrievedChunk.model_fields)).order_by(
-        kept.c.rank, kept.c.position, kept.c.part
+    round_number = func.row_number().over(
+        partition_by=labeled.c.rank,
+        order_by=(labeled.c.distance, labeled.c.position, labeled.c.part),
+    )
+    ranked = select(labeled, round_number.label("round")).subquery()
+    stmt = (
+        select(ranked).order_by(ranked.c.distance != 0, ranked.c.round, ranked.c.rank).limit(limit)
     )
     rows = await session.execute(stmt)
-    return tuple(RetrievedChunk.model_validate(row) for row in rows)
+    kept = sorted(rows, key=lambda row: (row.rank, row.position, row.part))
+    return tuple(RetrievedChunk.model_validate(row) for row in kept)

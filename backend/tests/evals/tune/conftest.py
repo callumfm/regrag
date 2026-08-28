@@ -1,9 +1,23 @@
-"""Tune test factories shared across the tune test modules."""
+"""Tune test factories and guards shared across the tune test modules."""
 
-from app.evals.tune.models import RetrievalMetrics
+import pytest
+
+from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
+from app.evals.tune import cli as tune_cli
+from app.evals.tune.models import TuneMetrics, TuneResult, TuneRun
 
 
-def metrics(**overrides) -> RetrievalMetrics:
+@pytest.fixture(autouse=True)
+def enabled(monkeypatch):
+    """Record whether the command turned the call cache on, without turning it on. Autouse
+    so no test here installs a real cache: tune enables one by default, which would put a
+    cache under the real data directory and leave it set for whatever runs next."""
+    calls: list[bool] = []
+    monkeypatch.setattr(tune_cli, "enable_call_cache", lambda: calls.append(True))
+    return calls
+
+
+def metrics(**overrides) -> TuneMetrics:
     defaults = dict(
         cases=20,
         in_corpus=15,
@@ -20,4 +34,14 @@ def metrics(**overrides) -> RetrievalMetrics:
         mean_context_chars=28100.0,
         mean_retrieve_ms=412,
     )
-    return RetrievalMetrics(**{**defaults, **overrides})
+    return TuneMetrics(**{**defaults, **overrides})
+
+
+def tune_run(*results: TuneResult) -> TuneRun:
+    """A run with a healthy baseline and the given varied results."""
+    return TuneRun(
+        dataset_sha="a" * 64,
+        settings=get_config_snapshot(EVAL_CONFIG_SECTIONS),
+        baseline=metrics(),
+        results=results,
+    )

@@ -3,11 +3,12 @@
 import hashlib
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
-from pydantic import ConfigDict, JsonValue, RootModel, SecretStr, TypeAdapter, model_validator
+from pydantic import TypeAdapter, model_validator
 
 from app.chat.models import ChatState
-from app.core.config import ChatConfig, EmbeddingConfig, RetrievalConfig, config
+from app.core.config import config
 from app.core.models import FrozenModel
 from app.evals.enums import EvalKind
 from app.retrieval.models import ReferenceTarget
@@ -37,15 +38,31 @@ class EvalCase(FrozenModel):
 _cases = TypeAdapter(tuple[EvalCase, ...])
 
 
+class EmptyError(ValueError):
+    """A dataset load that selected no cases."""
+
+
 class EvalDataset(FrozenModel):
     """The golden dataset: every authored case."""
 
     cases: tuple[EvalCase, ...]
+    case_filter: str | None = None
 
     @classmethod
-    def load(cls, path: Path = config.EVAL_DATASET_PATH) -> "EvalDataset":
+    def load(
+        cls, path: Path = config.EVAL_DATASET_PATH, case_filter: str | None = None
+    ) -> "EvalDataset":
         """Read and validate the JSON file at path."""
-        return cls(cases=_cases.validate_json(path.read_bytes()))
+        cases = _cases.validate_json(path.read_bytes())
+        if not cases:
+            raise EmptyError("The dataset has no cases")
+
+        if case_filter is not None:
+            cases = tuple(case for case in cases if case_filter in case.id)
+            if not cases:
+                raise EmptyError(f"No cases found matching filter: {case_filter}")
+
+        return cls(cases=cases, case_filter=case_filter)
 
     @property
     def sha256(self) -> str:
@@ -77,44 +94,16 @@ class EvalResult(FrozenModel):
     state: ChatState
 
 
-_RECORDED_SECTIONS = (EmbeddingConfig, ChatConfig, RetrievalConfig)
-"""The settings sections a run reads; taken whole, so a new knob is recorded without
-anyone remembering to add it here."""
-
-
-class RunSettings(RootModel[dict[str, JsonValue]]):
-    """Every setting the chat graph and its retrieval read, keyed by the environment
-    variable that sets it, so two runs are only compared when comparable. A secret is
-    typed SecretStr and is not a setting a run reproduces, so it is left out."""
-
-    model_config = ConfigDict(frozen=True)
-
-    @classmethod
-    def from_config(cls) -> "RunSettings":
-        """The settings as the run will really read them."""
-        return cls(
-            {
-                name: getattr(config, name)
-                for section in _RECORDED_SECTIONS
-                for name, field in sorted(section.model_fields.items())
-                if field.annotation is not SecretStr
-            }
-        )
-
-
-class EvalMetrics(FrozenModel):
-    """What a run measured. A rate is None when no case measured it — unmeasured, not zero.
+class RetrievalMetrics(FrozenModel):
+    """The measures retrieval alone fills. A rate is None when no case measured it.
 
     in_corpus / out_of_corpus: how the run's cases were authored, counted whether or not
         they scored, so errors overlaps them rather than partitioning with them.
     raw_*: scored on what search found; expanded_*: on what reached the prompt.
-    cited_references: share of authored references the answers cited.
-    markers_in_context: share of [n] markers addressing a block that was in context.
     gate_refusal_rate: out-of-corpus cases the pre-model gate refused; a model declining in
         its own words is the judge's to score.
     false_refusals: in-corpus cases the gate refused; refused_a_found_reference: those where
         search had already found an authored reference — the gate too tight.
-    mean_node_ms: a node's mean time over the cases that ran it.
     """
 
     cases: int
@@ -125,11 +114,21 @@ class EvalMetrics(FrozenModel):
     raw_recall: float | None
     expanded_hit_rate: float | None
     expanded_recall: float | None
-    cited_references: float | None
-    markers_in_context: float | None
     gate_refusal_rate: float | None
     false_refusals: int
     refused_a_found_reference: int
+
+
+class EvalMetrics(RetrievalMetrics):
+    """The retrieval measures plus what the model calls added.
+
+    cited_references: share of authored references the answers cited.
+    markers_in_context: share of [n] markers addressing a block that was in context.
+    mean_node_ms: a node's mean time over the cases that ran it.
+    """
+
+    cited_references: float | None
+    markers_in_context: float | None
     mean_node_ms: dict[str, int]
     mean_total_ms: int
     input_tokens: int
@@ -139,22 +138,22 @@ class EvalMetrics(FrozenModel):
 class EvalRun(FrozenModel):
     """One eval run: which dataset and settings it scored, what it measured, and every case.
 
-    dataset_sha hashes the whole dataset; case_pattern names the subset actually scored.
+    dataset_sha hashes the whole dataset; case_filter names the subset actually scored.
     cached says the run had the call cache on, so an embed or rerank timing may measure a
     disk read rather than the provider — a cached run is not a latency baseline.
     """
 
     dataset_sha: str
-    case_pattern: str | None = None
+    case_filter: str | None = None
     cached: bool = False
-    settings: RunSettings
+    settings: dict[str, Any]
     metrics: EvalMetrics
     results: tuple[EvalResult, ...]
 
     def summary(self) -> str:
         """The provenance and scores as JSON, then any case the graph raised on."""
         body = self.model_dump_json(
-            indent=2, include={"dataset_sha", "case_pattern", "cached", "settings", "metrics"}
+            indent=2, include={"dataset_sha", "case_filter", "cached", "settings", "metrics"}
         )
         errored = [f"  {r.case.id}  {r.state.error}" for r in self.results if r.state.error]
         return "\n".join([body, "", "errored:", *errored]) if errored else body

@@ -1,11 +1,12 @@
 """Settings classes: inherited config and per-vendor defaults."""
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings
 
 from app.core.config import (
     BACKEND_ROOT,
+    EVAL_CONFIG_SECTIONS,
     BaseConfig,
     ChatConfig,
     Config,
@@ -15,6 +16,8 @@ from app.core.config import (
     RetrievalConfig,
     StorageBackend,
     StorageConfig,
+    config,
+    get_config_snapshot,
     get_env_file,
     load_environment,
 )
@@ -175,3 +178,38 @@ def test_chat_defaults():
 
 def test_config_includes_chat_settings():
     assert "CHAT_MODEL" in Config.model_fields
+
+
+# What a run records about the settings it read
+
+
+def test_a_snapshot_records_the_requested_sections_whole(monkeypatch):
+    """Taken from the config sections whole, so a knob added later is recorded without
+    anyone editing a list."""
+    monkeypatch.setattr(config, "CHAT_CONTEXT_CHUNKS", 7)
+
+    settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
+
+    expected = {name for section in EVAL_CONFIG_SECTIONS for name in section.model_fields}
+    assert set(settings) == expected - {"VOYAGE_API_KEY", "ANTHROPIC_API_KEY"}
+    assert settings["CHAT_CONTEXT_CHUNKS"] == 7
+    assert settings["RERANK_POOL"] == config.RERANK_POOL
+
+
+def test_a_snapshot_leaves_out_the_secrets(monkeypatch):
+    """Provenance is printed and pasted around; a key is not a knob a run reproduces."""
+    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", SecretStr("sk-never-recorded"))
+
+    snapshot = get_config_snapshot()
+
+    assert "sk-never-recorded" not in str(snapshot.values())
+    assert not any("API_KEY" in name for name in snapshot)
+
+
+def test_assignment_is_validated_and_coerced_by_the_field():
+    combined = Config()
+    setattr(combined, "CHAT_SOURCES", "3")  # noqa: B010 — a deliberately mistyped write
+
+    assert combined.CHAT_SOURCES == 3
+    with pytest.raises(ValidationError):
+        combined.CHAT_SOURCES = 0

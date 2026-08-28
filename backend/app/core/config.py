@@ -47,6 +47,7 @@ class BaseConfig(BaseSettings):
         env_file=get_env_file(),
         env_ignore_empty=True,
         extra="ignore",
+        validate_assignment=True,
     )
 
 
@@ -242,3 +243,34 @@ class Config(
 
 
 config = Config()
+
+
+_CONFIG_SECTIONS = (
+    AppConfig,
+    PostgresConfig,
+    EmbeddingConfig,
+    ChatConfig,
+    IngestConfig,
+    RetrievalConfig,
+    StorageConfig,
+    EvalConfig,
+)
+EVAL_CONFIG_SECTIONS = (
+    EmbeddingConfig,
+    ChatConfig,
+    RetrievalConfig,
+)
+
+
+def get_config_snapshot(
+    sections: tuple[type[BaseConfig], ...] | None = None,
+) -> dict[str, Any]:
+    """Return non-secret settings from the requested config sections."""
+    sections = sections or _CONFIG_SECTIONS
+
+    return {
+        name: getattr(config, name)
+        for section in sections
+        for name, field in sorted(section.model_fields.items())
+        if field.annotation is not SecretStr
+    }

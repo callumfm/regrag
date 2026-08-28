@@ -2,10 +2,11 @@
 
 import pytest
 
+from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
 from app.evals import cli
 from app.evals.cli import format_case_lines, main
 from app.evals.metrics import compute_metrics
-from app.evals.models import EvalRun, RunSettings, UnresolvedReference
+from app.evals.models import EvalRun, UnresolvedReference
 from app.retrieval.models import ReferenceTarget
 from tests.evals.conftest import eval_case, eval_result, refused_result
 
@@ -52,18 +53,17 @@ def fake_run(monkeypatch):
     """Replace the graph run with a stub returning a chosen list of results."""
     results: list = []
 
-    async def _fake(dataset, pattern, cached):
+    async def _fake(dataset):
         chosen = tuple(results)
         return EvalRun(
             dataset_sha=dataset.sha256,
-            case_pattern=pattern,
-            cached=cached,
-            settings=RunSettings.from_config(),
+            case_filter=dataset.case_filter,
+            settings=get_config_snapshot(EVAL_CONFIG_SECTIONS),
             metrics=compute_metrics(chosen),
             results=chosen,
         )
 
-    monkeypatch.setattr(cli, "run_dataset", _fake)
+    monkeypatch.setattr(cli, "evaluate_all_cases", _fake)
     return results
 
 
@@ -84,7 +84,7 @@ def test_run_exits_nonzero_when_a_case_raised(fake_run, capsys):
     assert "boom  TimeoutError" in capsys.readouterr().out
 
 
-def test_run_exits_nonzero_when_no_case_matches_the_pattern(fake_run, capsys):
+def test_run_exits_nonzero_when_no_case_matches_the_filter(fake_run, capsys):
     assert main(["run", "--case", "nothing-here"]) == 1
     assert "nothing-here" in capsys.readouterr().out
 

@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Callable
 
+import litellm
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,7 +9,7 @@ from app.chat.enums import ChatNode, ChatOutcome
 from app.core.config import config
 from app.core.llm import LLMError
 from app.evals.models import UnresolvedReference
-from app.evals.service import find_unresolved_references, run_case, run_dataset, select_cases
+from app.evals.service import evaluate_all_cases, evaluate_case, find_unresolved_references
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import ReferenceTarget
@@ -79,7 +80,7 @@ def answering_graph(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_a_case_runs_through_the_graph_and_keeps_the_state_it_ended_in(
     answering_graph: None,
 ) -> None:
-    result = await run_case(eval_case())
+    result = await evaluate_case(eval_case())
 
     assert result.case == eval_case()
     assert result.state.question == "q?"
@@ -102,7 +103,7 @@ async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
     monkeypatch.setattr("app.chat.graph.search", failing_search)
 
     with caplog.at_level(logging.WARNING):
-        result = await run_case(eval_case())
+        result = await evaluate_case(eval_case())
 
     assert result.state.error == "embedding call failed"
     assert result.state.outcome is ChatOutcome.ERROR
@@ -110,32 +111,30 @@ async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
     assert "eval case case failed: embedding call failed" in caplog.text
 
 
-async def test_run_dataset_scores_only_the_cases_matching_the_pattern(
+async def test_a_run_scores_every_case_and_records_the_datasets_provenance(
     answering_graph: None,
 ) -> None:
-    dataset = eval_dataset(eval_case(id="fueleu-one"), eval_case(id="mrv-one"))
+    dataset = eval_dataset(eval_case(id="fueleu-one"), case_filter="fueleu")
 
-    run = await run_dataset(dataset, "fueleu")
+    run = await evaluate_all_cases(dataset)
 
     assert [r.case.id for r in run.results] == ["fueleu-one"]
-    assert run.case_pattern == "fueleu"
+    assert run.case_filter == "fueleu"
     assert run.dataset_sha == dataset.sha256
     assert run.metrics.cases == 1
-    assert run.settings.root["EXPAND_SECTIONS"] is False
+    assert run.settings["EXPAND_SECTIONS"] is False
     assert run.cached is False
 
 
-async def test_a_run_records_that_it_had_the_call_cache_on(answering_graph: None) -> None:
+async def test_a_run_records_that_it_had_the_call_cache_on(
+    answering_graph: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A cached run's node timings may measure a disk read, so the run has to say so or its
-    numbers read as a latency baseline they are not."""
-    run = await run_dataset(eval_dataset(eval_case(id="fueleu-one")), cached=True)
+    numbers read as a latency baseline they are not. The flag is read off the live litellm
+    cache, so it cannot disagree with what served the calls."""
+    monkeypatch.setattr(litellm, "cache", object())
+
+    run = await evaluate_all_cases(eval_dataset(eval_case(id="fueleu-one")))
 
     assert run.cached is True
     assert '"cached": true' in run.summary()
-
-
-def test_no_pattern_selects_every_case() -> None:
-    dataset = eval_dataset(eval_case(id="a"), out_of_corpus_case(id="b"))
-
-    assert select_cases(dataset) == dataset.cases
-    assert select_cases(dataset, "b") == (out_of_corpus_case(id="b"),)
