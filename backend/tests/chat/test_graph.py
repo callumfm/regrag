@@ -9,9 +9,11 @@ import openai
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.outputs import ChatResult
+from langchain_core.runnables import RunnableBinding
+from langchain_litellm import ChatLiteLLM
 
 from app.chat.enums import ChatNode, ToolStep
-from app.chat.graph import GRAPH_EDGES, chat_graph, merge_sources
+from app.chat.graph import GRAPH_EDGES, assess_model, chat_graph, merge_sources
 from app.chat.models import ChatState, ToolCall
 from app.chat.prompts import ASSESS_SYSTEM_PROMPT, REFUSAL_ANSWER
 from app.core.config import config
@@ -53,7 +55,7 @@ class FailingModel(RecordingChatModel):
 
 async def test_graph_retrieves_then_answers(one_result, monkeypatch):
     model = fake_chat_model("Yes, Article 4 [1].")
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -68,7 +70,7 @@ async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
 
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.search", fake_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -80,7 +82,7 @@ async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
 
 async def test_a_transient_provider_failure_is_retried(one_result, monkeypatch):
     model = FailingModel(messages=iter(["Second time lucky [1]."]), failures=1)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -90,7 +92,7 @@ async def test_a_transient_provider_failure_is_retried(one_result, monkeypatch):
 
 async def test_a_persistent_provider_failure_becomes_a_transient_llm_error(one_result, monkeypatch):
     model = FailingModel(messages=iter([]), failures=10)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     with pytest.raises(LLMError) as exc_info:
         await chat_graph.ainvoke(ChatState(question=QUESTION))
@@ -148,6 +150,19 @@ async def test_the_chat_client_streams_one_token_per_litellm_delta(one_result, m
     assert [text for text in texts if text] == ["Ships must ", "comply [1]."]
 
 
+def test_assess_is_built_on_its_own_model_rather_than_the_answer_model(monkeypatch):
+    """The two calls do different jobs and are measured against different things, so the
+    model reviewing the context is set apart from the one writing the answer."""
+    monkeypatch.setattr(config, "CHAT_MODEL", "anthropic/answer-model")
+    monkeypatch.setattr(config, "ASSESS_MODEL", "anthropic/assess-model")
+
+    binding = assess_model()
+    assert isinstance(binding, RunnableBinding)
+    model = binding.bound
+    assert isinstance(model, ChatLiteLLM)
+    assert model.model == "anthropic/assess-model"
+
+
 async def test_the_chat_client_asks_litellm_for_usage_and_the_node_records_it(
     one_result, monkeypatch
 ):
@@ -193,7 +208,7 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, m
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
     monkeypatch.setattr("app.chat.graph.expand_sections", fake_expand)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -208,7 +223,7 @@ async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, mo
         raise AssertionError("expansion ran with EXPAND_SECTIONS off")
 
     monkeypatch.setattr("app.chat.graph.expand_sections", refuse)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -227,7 +242,7 @@ async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_
 
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.search", junk_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question="What is the best pizza topping?"))
 
@@ -246,7 +261,7 @@ async def test_a_refused_question_still_keeps_what_search_found(monkeypatch):
         return junk
 
     monkeypatch.setattr("app.chat.graph.search", junk_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question="What is the best pizza topping?"))
 
@@ -260,7 +275,7 @@ async def test_an_empty_search_is_refused_before_any_model_call(monkeypatch):
 
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.search", nothing)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -278,7 +293,7 @@ async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
     monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
     monkeypatch.setattr("app.chat.graph.search", junk_search)
     monkeypatch.setattr("app.chat.graph.expand_sections", refuse_to_expand)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -288,7 +303,7 @@ async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
 @pytest.fixture
 def answer_model(monkeypatch):
     model = fake_chat_model("Answered [1].")
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
     return model
 
 

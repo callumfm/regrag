@@ -160,6 +160,8 @@ class AssessConfig(BaseConfig):
     """The assess ⇄ tools loop, which grows the retrieved context before the answer.
 
     ASSESS_ENABLED: the loop's off switch; off, the graph answers from retrieval alone.
+    ASSESS_MODEL: which model reviews the context and asks for the tool calls, separate from
+        the one that writes the answer: the two jobs are tuned against different measures.
     ASSESS_MAX_ROUNDS: times assess may ask for tool calls before the answer is written.
     ASSESS_MAX_CALLS: the most tool calls one round may run; the rest are dropped.
     ASSESS_SEARCH_LIMIT: hits one search tool call brings back.
@@ -170,6 +172,7 @@ class AssessConfig(BaseConfig):
     """
 
     ASSESS_ENABLED: bool = True
+    ASSESS_MODEL: str = "anthropic/claude-haiku-4-5"
     ASSESS_MAX_ROUNDS: int = Field(default=2, ge=1)
     ASSESS_MAX_CALLS: int = Field(default=4, ge=1)
     ASSESS_SEARCH_LIMIT: int = Field(default=5, ge=1)

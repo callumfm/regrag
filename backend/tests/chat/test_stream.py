@@ -25,7 +25,7 @@ async def test_finished_stream_records_timings_sources_and_usage(
     two_results, monkeypatch, recorded_requests
 ):
     model = fake_chat_model("Two words [1].")
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     async for _ in stream_chat_events("q"):
         pass
@@ -81,7 +81,7 @@ async def test_unexpected_failure_is_recorded_by_its_type_and_sent_as_the_generi
 
 async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded_requests):
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     events = stream_chat_events("q")
     await anext(events)
@@ -96,7 +96,7 @@ async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded
 async def test_failed_write_is_logged_not_raised(two_results, monkeypatch, caplog):
     """The ledger write failing after the answer went out is a log line, not a broken stream."""
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     async def broken_create_chat_request(session, state):
         raise OperationalError("insert", {}, ConnectionRefusedError("database away"))
@@ -115,7 +115,7 @@ async def test_cancelled_stream_still_records(two_results, monkeypatch, recorded
     """A client leaving cancels the streaming task mid-stream; the record still lands.
     The fake write yields once, so an unshielded await there would be cancelled, not run."""
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     async def yielding_create_chat_request(session, state):
         await anyio.sleep(0)
@@ -147,7 +147,7 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
 
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.search", junk_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     events = [event async for event in stream_chat_events("best pizza topping?")]
 
@@ -210,7 +210,7 @@ class TestLoopStreaming:
     async def test_sources_arrive_once_with_the_merged_context(
         self, loop_on, one_result, one_assess_round, monkeypatch
     ):
-        monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model())
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
         events = [event async for event in stream_chat_events("q")]
 
@@ -224,7 +224,9 @@ class TestLoopStreaming:
     async def test_assess_turns_leak_no_text_events(
         self, loop_on, one_result, one_assess_round, monkeypatch
     ):
-        monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model("The answer [1]."))
+        monkeypatch.setattr(
+            "app.chat.graph.chat_model", lambda *_: fake_chat_model("The answer [1].")
+        )
 
         events = [event async for event in stream_chat_events("q")]
 

@@ -26,7 +26,7 @@ def read_events(response: httpx.Response) -> list[tuple[str, Any]]:
 
 def test_stream_orders_sources_then_text_then_done(client, two_results, monkeypatch):
     model = fake_chat_model("Two words [1].")
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     with client.stream("POST", "/chat", json={"question": "What is FuelEU?"}) as response:
         assert response.status_code == 200
@@ -42,7 +42,7 @@ def test_stream_orders_sources_then_text_then_done(client, two_results, monkeypa
 
 
 def test_block_list_content_streams_text_without_reasoning(client, two_results, monkeypatch):
-    monkeypatch.setattr("app.chat.graph.chat_model", reasoning_chat_model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: reasoning_chat_model())
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
@@ -54,7 +54,7 @@ def test_block_list_content_streams_text_without_reasoning(client, two_results, 
 
 def test_stream_tells_proxies_and_browsers_not_to_buffer(client, two_results, monkeypatch):
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         assert response.headers["cache-control"] == "no-cache"
@@ -63,7 +63,7 @@ def test_stream_tells_proxies_and_browsers_not_to_buffer(client, two_results, mo
 
 def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch):
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
@@ -77,7 +77,7 @@ def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch)
 
 def test_sources_event_carries_the_paragraph_text(client, two_results, monkeypatch):
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
@@ -146,7 +146,7 @@ def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
 
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.search", junk_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     with client.stream("POST", "/chat", json={"question": "best pizza topping?"}) as response:
         events = read_events(response)
