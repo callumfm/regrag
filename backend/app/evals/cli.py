@@ -8,7 +8,8 @@ from app.core.logger import setup_logging
 from app.evals.cache import enable_call_cache
 from app.evals.dataset.check import check_against_corpus, stale_case_ids
 from app.evals.dataset.cli import register_dataset_commands, run_check, run_stamp
-from app.evals.dataset.models import EmptyDatasetError, EvalDataset
+from app.evals.dataset.exceptions import DatasetError
+from app.evals.dataset.models import EvalDataset
 from app.evals.report import format_case_lines
 from app.evals.service import evaluate_all_cases
 from app.evals.tune.cli import register_tune_command, run_tune
@@ -72,6 +73,6 @@ def main(argv: list[str] | None = None) -> int:
             return run_stamp(args.case)
 
         return run_check()
-    except EmptyDatasetError as exc:
+    except DatasetError as exc:
         print(exc)
         return 1

@@ -10,6 +10,7 @@ from pydantic import model_validator
 from app.core.config import config
 from app.core.models import FrozenModel
 from app.evals.dataset.enums import DriftKind, EvalKind
+from app.evals.dataset.exceptions import EmptyDatasetError
 from app.retrieval.models import ReferenceTarget
 
 STAMP_FIELDS = {"cases": {"__all__": {"references": {"__all__": {"content_hashes"}}}}}
@@ -57,10 +58,6 @@ class EvalCase(FrozenModel):
         if self.kind is EvalKind.OUT_OF_CORPUS and (self.references or self.answer):
             raise ValueError(f"{self.id}: an out_of_corpus case has neither answer nor references")
         return self
-
-
-class EmptyDatasetError(ValueError):
-    """A dataset load that selected no cases."""
 
 
 class EvalDataset(FrozenModel):

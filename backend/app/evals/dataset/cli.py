@@ -24,7 +24,8 @@ def register_dataset_commands(commands: Any) -> None:
         help="record what the cited text says now, asserting it has been read",
         description="Write the current chunk hashes into the selected cases. Run it on a newly "
         "authored case, or on a stale one whose answer you have just re-reviewed against the "
-        "new text. An unfiltered stamp also rewrites the corpus stamp; --case leaves it alone.",
+        "new text. An unfiltered stamp also rewrites the corpus stamp; --case leaves it alone. "
+        "A selected reference the corpus cannot resolve refuses the whole stamp.",
     )
     stamp.add_argument("--case", help="only cases whose id contains this")
 

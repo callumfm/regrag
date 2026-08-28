@@ -6,13 +6,8 @@ from app.evals import cli as evals_cli
 from app.evals.cli import main
 from app.evals.dataset import cli as dataset_cli
 from app.evals.dataset.enums import DriftKind
-from app.evals.dataset.models import (
-    CaseReference,
-    CorpusStamp,
-    DriftedReference,
-    EmptyDatasetError,
-    EvalDataset,
-)
+from app.evals.dataset.exceptions import EmptyDatasetError
+from app.evals.dataset.models import CaseReference, CorpusStamp, DriftedReference, EvalDataset
 from tests.evals.conftest import eval_case, eval_dataset
 
 STAMPED = CaseReference(celex="32023R1805", article="4", content_hashes=("b" * 12,))

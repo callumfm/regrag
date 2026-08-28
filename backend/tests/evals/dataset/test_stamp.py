@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import config
 from app.evals.dataset.check import find_drift
 from app.evals.dataset.enums import EvalKind
+from app.evals.dataset.exceptions import UnresolvedReferenceError
 from app.evals.dataset.models import CaseReference, CorpusStamp, EvalCase, EvalDataset
 from app.evals.dataset.stamp import save_dataset, stamp_dataset
 from app.ingestion.chunk.schemas import DocumentChunk
@@ -86,6 +87,17 @@ async def test_a_filtered_stamp_leaves_the_corpus_stamp_alone(
     stamped = await stamp_dataset(db_session, dataset)
 
     assert stamped.corpus == was
+
+
+async def test_a_reference_the_corpus_cannot_resolve_refuses_the_whole_stamp(
+    db_session: AsyncSession, article_4: DocumentChunk
+) -> None:
+    """Stamping it empty would erase the recorded hashes, leaving the drift undetectable."""
+    absent = CaseReference(celex="32023R9999", article="1", content_hashes=("0" * 12,))
+    dataset = eval_dataset(eval_case(id="fine"), eval_case(id="broken", references=(absent,)))
+
+    with pytest.raises(UnresolvedReferenceError, match="broken  32023R9999 Article 1"):
+        await stamp_dataset(db_session, dataset)
 
 
 # Writing the file back out

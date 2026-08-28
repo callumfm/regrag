@@ -7,13 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.evals.dataset.enums import EvalKind
-from app.evals.dataset.models import (
-    CaseReference,
-    CorpusStamp,
-    EmptyDatasetError,
-    EvalCase,
-    EvalDataset,
-)
+from app.evals.dataset.exceptions import EmptyDatasetError
+from app.evals.dataset.models import CaseReference, CorpusStamp, EvalCase, EvalDataset
 from app.evals.dataset.stamp import save_dataset
 from tests.evals.conftest import REFERENCE, eval_case, eval_dataset
 
