@@ -204,6 +204,7 @@ def test_a_snapshot_leaves_out_the_secrets(monkeypatch):
 
     assert "sk-never-recorded" not in str(snapshot.values())
     assert not any("API_KEY" in name for name in snapshot)
+    assert "DB_PASS" not in snapshot
 
 
 def test_assignment_is_validated_and_coerced_by_the_field():

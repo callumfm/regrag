@@ -6,7 +6,7 @@ from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
 from app.evals import cli
 from app.evals.cli import format_case_lines, main
 from app.evals.metrics import compute_metrics
-from app.evals.models import EvalRun, UnresolvedReference
+from app.evals.models import EmptyError, EvalRun, UnresolvedReference
 from app.retrieval.models import ReferenceTarget
 from tests.evals.conftest import eval_case, eval_result, refused_result
 
@@ -175,3 +175,13 @@ def test_run_lists_every_case_only_when_asked(fake_run, capsys):
     out = capsys.readouterr().out
     assert "raw 1.00" in out
     assert '"raw_recall": 1.0' in out
+
+
+def test_check_reports_an_empty_dataset_without_a_traceback(monkeypatch, capsys):
+    async def _fake():
+        raise EmptyError("The dataset has no cases")
+
+    monkeypatch.setattr(cli, "_check_dataset_references", _fake)
+
+    assert main(["check"]) == 1
+    assert "no cases" in capsys.readouterr().out

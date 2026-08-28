@@ -43,7 +43,7 @@ class EmptyError(ValueError):
 
 
 class EvalDataset(FrozenModel):
-    """The golden dataset: every authored case."""
+    """The golden dataset: every authored case, and the filter naming the subset a run scores."""
 
     cases: tuple[EvalCase, ...]
     case_filter: str | None = None
@@ -57,17 +57,23 @@ class EvalDataset(FrozenModel):
         if not cases:
             raise EmptyError("The dataset has no cases")
 
-        if case_filter is not None:
-            cases = tuple(case for case in cases if case_filter in case.id)
-            if not cases:
-                raise EmptyError(f"No cases found matching filter: {case_filter}")
+        dataset = cls(cases=cases, case_filter=case_filter)
+        if not dataset.selected_cases:
+            raise EmptyError(f"No cases found matching filter: {case_filter}")
+        return dataset
 
-        return cls(cases=cases, case_filter=case_filter)
+    @property
+    def selected_cases(self) -> tuple[EvalCase, ...]:
+        """The cases a run scores: those the filter matches, or every case without one."""
+        if self.case_filter is None:
+            return self.cases
+        return tuple(case for case in self.cases if self.case_filter in case.id)
 
     @property
     def sha256(self) -> str:
-        """Hash of the cases as canonical JSON, so a run records exactly which dataset it scored."""
-        return hashlib.sha256(self.model_dump_json().encode()).hexdigest()
+        """Hash of every authored case as canonical JSON — the whole dataset however a run
+        filters it, so a filtered spot-check still names the file a full run scored."""
+        return hashlib.sha256(self.model_dump_json(include={"cases"}).encode()).hexdigest()
 
     @model_validator(mode="after")
     def _ids_are_unique(self) -> "EvalDataset":

@@ -56,7 +56,8 @@ def test_load_filters_cases_by_id_and_records_the_filter(tmp_path: Path) -> None
 
     dataset = EvalDataset.load(file, case_filter="fueleu")
 
-    assert [case.id for case in dataset.cases] == ["fueleu-one"]
+    assert [case.id for case in dataset.cases] == ["fueleu-one", "mrv-one"]
+    assert [case.id for case in dataset.selected_cases] == ["fueleu-one"]
     assert dataset.case_filter == "fueleu"
 
 
@@ -96,3 +97,12 @@ def test_the_summary_carries_provenance_and_scores_then_names_the_cases_that_rai
     assert body["metrics"]["errors"] == 1
     assert "results" not in body
     assert summary.rstrip().endswith("boom  TimeoutError")
+
+
+def test_the_hash_names_the_file_not_the_subset_scored(tmp_path: Path) -> None:
+    """Provenance compares a filtered spot-check against a full run of the same file."""
+    file = _write_dataset(
+        tmp_path / "golden.json", eval_case(id="fueleu-one"), eval_case(id="mrv-one")
+    )
+
+    assert EvalDataset.load(file, case_filter="fueleu").sha256 == EvalDataset.load(file).sha256

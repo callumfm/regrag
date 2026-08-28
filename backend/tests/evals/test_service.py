@@ -138,3 +138,11 @@ async def test_a_run_records_that_it_had_the_call_cache_on(
 
     assert run.cached is True
     assert '"cached": true' in run.summary()
+
+
+async def test_a_filtered_run_scores_only_the_selected_cases(answering_graph: None) -> None:
+    dataset = eval_dataset(eval_case(id="fueleu-one"), eval_case(id="mrv-one"), case_filter="mrv")
+
+    run = await evaluate_all_cases(dataset)
+
+    assert [r.case.id for r in run.results] == ["mrv-one"]

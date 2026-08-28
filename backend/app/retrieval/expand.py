@@ -78,7 +78,7 @@ async def expand_sections(
         .subquery()
     )
     round_number = func.row_number().over(
-        partition_by=labeled.c.rank,
+        partition_by=(labeled.c.rank, labeled.c.distance == 0),
         order_by=(labeled.c.distance, labeled.c.position, labeled.c.part),
     )
     rounds = select(labeled, round_number.label("round")).subquery()

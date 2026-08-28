@@ -4,7 +4,7 @@ and the run's measures, each a plain function over its results."""
 import re
 from collections.abc import Sequence
 
-from app.chat.enums import ChatNode
+from app.chat.enums import ChatNode, ChatOutcome
 from app.chat.graph import synthesize_or_refuse
 from app.evals.enums import EvalKind
 from app.evals.models import EvalMetrics, EvalResult, RetrievalMetrics
@@ -101,9 +101,11 @@ def _expanded_recall(result: EvalResult) -> float:
 
 
 def _gate_refused(result: EvalResult) -> bool:
-    """The gate's own branch read off the ending state, so the metric cannot drift from
-    what the graph does, and reads the same for a retrieval-only run."""
-    return synthesize_or_refuse(result.state) is ChatNode.REFUSE
+    """The branch the graph took, observed off the path so a routing bug shows up here.
+    A retrieval-only run never routes, so its gate is read the way the graph would route."""
+    if result.state.outcome is ChatOutcome.ABORTED:
+        return synthesize_or_refuse(result.state) is ChatNode.REFUSE
+    return result.state.outcome is ChatOutcome.REFUSED
 
 
 def count_errors(results: Sequence[EvalResult]) -> int:

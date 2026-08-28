@@ -245,3 +245,17 @@ def test_compute_metrics_assembles_every_measure_of_the_run() -> None:
     assert metrics.raw_recall == 1.0
     assert metrics.gate_refusal_rate == 1.0
     assert metrics.mean_total_ms == 542
+
+
+def test_a_run_that_synthesized_over_empty_sources_is_not_counted_refused() -> None:
+    """The metric observes the branch the graph took; recomputing the route would score a
+    routing bug as the refusal it should have been."""
+    routed_wrong = eval_result(sources=())
+
+    assert count_false_refusals((routed_wrong,)) == 0
+
+
+def test_a_run_that_refused_over_sources_is_counted_refused() -> None:
+    refused_anyway = refused_result(sources=(retrieved_chunk(),))
+
+    assert compute_gate_refusal_rate((refused_anyway,)) == 1.0

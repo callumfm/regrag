@@ -93,7 +93,7 @@ class PostgresConfig(BaseConfig):
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
     DB_USER: str = "postgres"
-    DB_PASS: str = "postgres"
+    DB_PASS: SecretStr = SecretStr("postgres")
     DB_NAME: str = "regrag"
 
     DB_POOL_SIZE: int = 3
@@ -108,7 +108,7 @@ class PostgresConfig(BaseConfig):
     def SQLALCHEMY_DATABASE_URI(self) -> str:
         """Build SQLAlchemy database URI."""
         return (
-            f"postgresql+psycopg://{self.DB_USER}:{self.DB_PASS}"
+            f"postgresql+psycopg://{self.DB_USER}:{self.DB_PASS.get_secret_value()}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
 

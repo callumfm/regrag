@@ -69,7 +69,7 @@ async def evaluate_all_cases(dataset: EvalDataset) -> EvalRun:
     """Every case in the dataset, one at a time, so a per-case timing measures the case alone.
     Whether the run was cached is read off the live litellm cache, not a caller's word,
     so the provenance cannot disagree with what served the calls."""
-    results = [await evaluate_case(case) for case in dataset.cases]
+    results = [await evaluate_case(case) for case in dataset.selected_cases]
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
     return EvalRun(
         dataset_sha=dataset.sha256,

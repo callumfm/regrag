@@ -98,8 +98,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "tune":
             return run_tune(args.case, cached=not args.no_cache)
+
+        return check_references()
     except EmptyError as exc:
         print(exc)
         return 1
-
-    return check_references()

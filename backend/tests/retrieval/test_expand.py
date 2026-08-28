@@ -164,3 +164,22 @@ async def test_expand_sections_on_nothing_asks_the_database_nothing(
 ) -> None:
     """No hits means no article keys, so the widening query never runs."""
     assert await expand_sections(empty_session, [], limit=NO_LIMIT) == ()
+
+
+async def test_expand_sections_widens_every_section_in_the_same_round(
+    db_session: AsyncSession,
+    corpus: list[DocumentChunk],
+) -> None:
+    """A section's widening rounds are its own; three hits in Article 4 must not push its
+    first widening chunk behind a lone-hit section's second and third."""
+    hits = [
+        await chunk_at(db_session, "32023R1805", "Article 4(1)"),
+        await chunk_at(db_session, "32023R1805", "Article 4(2)"),
+        await chunk_at(db_session, "32023R1805", "Article 4(3)"),
+        await chunk_at(db_session, "32023R1805", "Article 5(1)"),
+    ]
+
+    expanded = await expand_sections(db_session, hits, limit=6)
+    citations = {chunk.citation for chunk in expanded}
+
+    assert {"Article 4(4)", "Article 5(2)"} <= citations
