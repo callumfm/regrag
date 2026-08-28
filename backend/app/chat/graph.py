@@ -46,8 +46,7 @@ class NodeFn(Protocol):
 
 def traced(run: NodeFn) -> NodeFn:
     """The node as the graph runs it, appending one step — how long it took, and the usage
-    it reported — to the path. Outermost on a node, so a retried call is traced as a whole.
-    The tools node times each call instead, so it records its own steps."""
+    it reported — to the path. Outermost on a node, so a retried call is traced as a whole."""
     node = ChatNode(run.__name__)
 
     @functools.wraps(run)
@@ -143,11 +142,8 @@ async def call_assess_model(state: ChatState) -> dict[str, Any]:
 
 @traced
 async def assess(state: ChatState) -> dict[str, Any]:
-    """One review of the context: the calls that would fill what is missing, or none
-    when it suffices. Stateless per round — the grown context is the loop's memory.
-
-    An assess call that keeps failing does not fail the request: the loop is best-effort,
-    so a request with answerable context already gathered still reaches synthesize."""
+    """One review of the context: the calls that would fill what is missing, or none when
+    it suffices. A failing call settles for the context so far rather than failing the run."""
     try:
         return await call_assess_model(state)
     except LLMError as exc:
@@ -173,11 +169,8 @@ def merge_sources(
 
 
 async def tools(state: ChatState) -> dict[str, Any]:
-    """The round's calls run and folded into the context: dedup by chunk id, earlier
-    context kept, growth capped — then the request for them cleared.
-
-    Each call is timed and recorded as its own step, so the path says which tool was
-    called and what it cost — including a call to a tool the surface does not have."""
+    """The round's calls run and folded into the context: dedup by chunk id, earlier context
+    kept, growth capped. Each call is timed as its own step, so the path says what it cost."""
     fetched: list[RetrievedChunk] = []
     steps: list[ChatStepResult] = []
     async with get_session(auto_commit=False) as session:
