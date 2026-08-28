@@ -1,6 +1,13 @@
 # Ingestion
 This module contains the code for the discovery, fetching, parsing, chunking and embedding of EU legislative documents. The ingest pipeline works out which acts belong in the corpus, downloads them, and ingests them into the database in a vectorised form that can later be queried by the retrieval stage of the RAG application.
 
+```bash
+uv run ingest             # every seed topic
+uv run ingest fueleu      # one topic
+```
+
+Re-running is cheap and safe: unchanged documents are neither downloaded nor re-embedded. `uv run ingest --help` prints every flag and the topics it knows.
+
 The following sections describe each stage of the ingest pipeline and the design decisions that were taken. Ingest is not a one-off — acts are amended and the pipeline itself is improved — so each stage has to re-run without redoing work that has not changed, embedding especially, since an external model charges per call.
 
 Discovery runs once against the whole corpus. Fetch, parse and chunk then run one document at a time, each committed before the next begins, so peak memory stays flat however far the corpus grows and a run that dies keeps the work it already did. Only a run that got through its whole topic stands for that topic: a run that died holds a prefix, and a run that failed a download holds a corpus with a hole in it. Either way its rows are reused by the next run but never taken for the topic's corpus. Pruning and embedding run once at the end, because both need to see the corpus whole.
@@ -77,6 +84,9 @@ A new consolidation is therefore a new object rather than a replacement for the 
 Fetch compares the version discovery carries forward against the one it carried forward for the run that stored the document, so an unchanged document is not downloaded or written again. The comparison is on the version id, not the text — a new consolidation is a new id. It is on the version asked for rather than the one served, because an act whose consolidated text EUR-Lex will not serve resolves to the original act every time, and comparing that against the consolidated id it asked for would deny the match on every run.
 
 Reusing a version means reading its stored bytes, which also proves they are still there. The row and the object are backed up separately, so a restore can leave them disagreeing; bytes that are missing, or that no longer hash to what the row recorded, are treated as bytes we do not have and the version is downloaded again. A store that cannot be read at all is a different thing, and fails the document rather than sending the whole corpus back to EUR-Lex.
+
+### 2.3 Where the bytes go
+`STORAGE_BACKEND` decides where a downloaded document is written. It defaults to `local`, putting files under `RAW_DATA_DIR` (`<repo>/data/raw`), so dev and tests need no network and no bucket. Set it to `r2` and fill in the `R2_*` settings to write to the Cloudflare bucket instead. Either way the row records the object key, and re-fetching reads the bytes back through the same interface (2.2).
 
 ## 3 Parse
 Parse turns each downloaded page into a structure: the articles, paragraphs and annexes the document is made of.

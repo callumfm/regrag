@@ -31,34 +31,15 @@ articles it relied on rather than a paraphrase to take on trust.
   graph the API runs: what retrieval found, what the answers cited, and what
   the refusal gate caught.
 
-Design notes for each ingestion stage are in
-[`backend/app/ingestion/README.md`](backend/app/ingestion/README.md).
+Each stage lives in its own package, documented where it is implemented:
 
-## Layout
+| Directory                                                | Contents                                                        |
+| -------------------------------------------------------- | --------------------------------------------------------------- |
+| [`backend/app/ingestion/`](backend/app/ingestion/README.md) | Discovery through embedding: how the corpus is built            |
+| [`backend/app/retrieval/`](backend/app/retrieval/README.md) | Hybrid search and exact article lookup: how it is searched      |
+| [`backend/app/chat/`](backend/app/chat/README.md)           | The answering graph and its SSE endpoint                        |
+| [`backend/app/evals/`](backend/app/evals/README.md)         | The golden dataset and the runner that scores the graph on it   |
+| [`frontend/`](frontend/)                                    | User interface (React, TanStack, Tailwind)                      |
 
-| Directory                | Contents                                                     |
-| ------------------------ | ------------------------------------------------------------ |
-| [`backend/`](backend/)   | Ingestion, retrieval and the chat API (FastAPI, SQLAlchemy)  |
-| [`frontend/`](frontend/) | User interface (React, TanStack, Tailwind)                   |
-
-## Quickstart
-
-```bash
-cd backend
-cp .env.example .env.dev      # then set VOYAGE_API_KEY and ANTHROPIC_API_KEY
-docker compose up -d db
-uv sync && uv run alembic upgrade head
-uv run ingest                 # discover, download, parse and embed the corpus
-uv run retrieve "who must surrender FuelEU compliance balance"
-uv run evals run              # score the golden dataset against that corpus
-```
-
-Then serve the answer the corpus supports, streamed with its sources:
-
-```bash
-uv run fastapi dev
-curl -N localhost:8000/chat -H 'content-type: application/json' \
-  -d '{"question": "how much of a Rotterdam to Singapore voyage counts under FuelEU"}'
-```
-
-Setup in full, including the API and frontend, is in each package's README.
+Setup, commands and configuration are in [`backend/README.md`](backend/README.md).
+The interface has its own README in [`frontend/`](frontend/).
