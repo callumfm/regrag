@@ -45,8 +45,9 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
     sources_sent = False
     graph_stream: AsyncIterator[Any] = chat_graph.astream(state, stream_mode=["values", "messages"])
     async for mode, payload in graph_stream:
+        # Node completed
         if mode == "values":
-            state.apply_snapshot(payload)
+            state.sync_from_snapshot(payload)
 
             if not sources_sent and state.context_settled:
                 sources_sent = True
@@ -54,10 +55,12 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
 
             if state.last_step is ChatNode.REFUSE:
                 yield TextEvent(data=state.answer)
+        # Node running
         else:
             chunk, metadata = payload
             if metadata.get("langgraph_node") != ChatNode.SYNTHESIZE:
                 continue
+            # Stream answer text
             if text := chunk.text:
                 yield TextEvent(data=text)
 

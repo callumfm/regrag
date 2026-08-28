@@ -7,13 +7,13 @@ from app.core.exceptions import DomainError
 from tests.conftest import search_result
 
 
-def test_apply_snapshot_folds_the_snapshot_on_and_leaves_the_consumer_fields_alone():
+def test_sync_from_snapshot_folds_the_snapshot_on_and_leaves_the_consumer_fields_alone():
     """A values snapshot carries only the graph's channels; total_ms and error, set by the
     stream's consumer, must survive it."""
     state = ChatState(question="q", total_ms=5, error="boom")
     retrieved = ChatStepResult(step=ChatNode.RETRIEVE, ms=12)
 
-    state.apply_snapshot({"question": "q", "steps": (retrieved,), "sources": (), "answer": ""})
+    state.sync_from_snapshot({"question": "q", "steps": (retrieved,), "sources": (), "answer": ""})
 
     assert state.steps == (retrieved,)
     assert (state.total_ms, state.error) == (5, "boom")
