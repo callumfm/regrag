@@ -1,12 +1,11 @@
-"""Dataset values: the authored cases, the corpus they were authored against, and its drift."""
+"""Dataset values: the authored cases, and the corpus they were authored against."""
 
 import hashlib
-import json
 from collections import Counter
 from datetime import date
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import model_validator
 
 from app.core.config import config
 from app.core.models import FrozenModel
@@ -15,7 +14,7 @@ from app.retrieval.models import ReferenceTarget
 
 STAMP_LENGTH = 12
 """How much of a chunk's content hash a stamp carries. Short enough to read in a diff, long
-enough that two chunks of a 20-case corpus cannot collide."""
+enough that two chunks of one corpus cannot collide."""
 
 SCORED_ONLY = {"cases": {"__all__": {"references": {"__all__": {"content_hashes"}}}}}
 """The stamps, excluded from the dataset hash: provenance, not anything a run scores."""
@@ -24,19 +23,17 @@ SCORED_ONLY = {"cases": {"__all__": {"references": {"__all__": {"content_hashes"
 class CaseReference(ReferenceTarget):
     """A cited division, stamped with the chunks that covered it when the case was authored.
 
-    Empty hashes mean unstamped, which is the different fact from stamped and unchanged.
+    No hashes means unstamped, which is the different fact from stamped and unchanged.
     """
 
     content_hashes: tuple[str, ...] = ()
 
 
 class CorpusStamp(FrozenModel):
-    """The corpus the cases were authored against: its version, when it was read, and what
-    each cited act hashed to, so a run can say whether the ground has moved since."""
+    """The corpus the cases were authored against, so a run says which text it scored."""
 
     corpus_version: str | None = None
     stamped_at: date
-    documents: dict[str, str] = Field(default_factory=dict)
 
 
 class EvalCase(FrozenModel):
@@ -87,11 +84,6 @@ class EvalDataset(FrozenModel):
             raise EmptyError(f"No cases found matching filter: {case_filter}")
         return dataset
 
-    def save(self, path: Path = config.EVAL_DATASET_PATH) -> None:
-        """Write the corpus stamp and every case back out, one field per line and each
-        reference on its own, so a re-stamp diffs as the lines that actually moved."""
-        path.write_text(_format_dataset(self))
-
     @property
     def selected_cases(self) -> tuple[EvalCase, ...]:
         """The cases a run scores: those the filter matches, or every case without one."""
@@ -110,15 +102,6 @@ class EvalDataset(FrozenModel):
         scored = self.model_dump_json(include={"cases"}, exclude=SCORED_ONLY)
         return hashlib.sha256(scored.encode()).hexdigest()
 
-    @property
-    def unstamped_cases(self) -> tuple[str, ...]:
-        """Cases citing a division no stamp was ever recorded for, so drift cannot be seen."""
-        return tuple(
-            case.id
-            for case in self.cases
-            if any(not reference.content_hashes for reference in case.references)
-        )
-
     @model_validator(mode="after")
     def _ids_are_unique(self) -> "EvalDataset":
         """A case id is how a result names its case, so two cases cannot share one."""
@@ -127,74 +110,3 @@ class EvalDataset(FrozenModel):
         if duplicates:
             raise ValueError(f"duplicate case ids: {', '.join(duplicates)}")
         return self
-
-
-class UnresolvedReference(FrozenModel):
-    """A case reference no stored chunk answers to."""
-
-    case_id: str
-    target: ReferenceTarget
-
-
-class StaleReference(FrozenModel):
-    """A case reference whose cited text changed since the case was stamped against it."""
-
-    case_id: str
-    target: ReferenceTarget
-    stamped: tuple[str, ...]
-    current: tuple[str, ...]
-
-
-class ChangedDocument(FrozenModel):
-    """A cited act whose bytes differ from what the dataset was stamped against."""
-
-    celex: str
-    stamped: str
-    current: str | None
-    """None where the act has left the standing corpus entirely."""
-
-
-class DatasetDrift(FrozenModel):
-    """How far the dataset has drifted from the corpus: what no longer resolves, what still
-    resolves but has changed, which acts moved, and which cases were never stamped."""
-
-    unresolved: tuple[UnresolvedReference, ...] = ()
-    stale: tuple[StaleReference, ...] = ()
-    changed_documents: tuple[ChangedDocument, ...] = ()
-    unstamped: tuple[str, ...] = ()
-
-    @property
-    def stale_case_ids(self) -> tuple[str, ...]:
-        """The stale cases named once each, however many of their references moved."""
-        return tuple(dict.fromkeys(item.case_id for item in self.stale))
-
-
-def _inline(payload: dict[str, object]) -> str:
-    """A JSON object on one line, spaced as the hand-authored file spaces it."""
-    return json.dumps(payload, separators=(", ", ": "), ensure_ascii=False)
-
-
-def _format_case(case: EvalCase) -> str:
-    """One case: its scalars a line each, then every reference on a line of its own."""
-    fields = case.model_dump(mode="json", exclude={"references"}, exclude_defaults=True)
-    lines = [f"      {json.dumps(name)}: {_inline(value)}" for name, value in fields.items()]
-    if case.references:
-        references = ",\n".join(
-            f"        {_inline(reference.model_dump(mode='json', exclude_defaults=True))}"
-            for reference in case.references
-        )
-        lines.append(f'      "references": [\n{references}\n      ]')
-    body = ",\n".join(lines)
-    return f"    {{\n{body}\n    }}"
-
-
-def _format_dataset(dataset: EvalDataset) -> str:
-    """The whole file: the corpus stamp, then the cases in authored order."""
-    corpus = json.dumps(
-        dataset.corpus.model_dump(mode="json") if dataset.corpus else None, indent=2
-    )
-    corpus = "\n".join(
-        line if index == 0 else f"  {line}" for index, line in enumerate(corpus.splitlines())
-    )
-    cases = ",\n".join(_format_case(case) for case in dataset.cases)
-    return f'{{\n  "corpus": {corpus},\n  "cases": [\n{cases}\n  ]\n}}\n'

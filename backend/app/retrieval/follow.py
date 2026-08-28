@@ -32,12 +32,6 @@ def _targeted(stmt: Select, target: ReferenceTarget) -> Select:
     return stmt
 
 
-async def reference_exists(session: AsyncSession, target: ReferenceTarget) -> bool:
-    """Whether any stored chunk sits in the division the target names."""
-    stmt = _targeted(select(DocumentChunk.id), target).limit(1)
-    return await session.scalar(stmt) is not None
-
-
 async def follow_reference(
     session: AsyncSession, target: ReferenceTarget
 ) -> tuple[RetrievedChunk, ...]:

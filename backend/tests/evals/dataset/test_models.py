@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from app.evals.dataset.enums import EvalKind
 from app.evals.dataset.models import CaseReference, CorpusStamp, EmptyError, EvalCase, EvalDataset
+from app.evals.dataset.stamp import save_dataset
 from tests.evals.conftest import REFERENCE, eval_case, eval_dataset
 
 STAMPED = CaseReference(celex="32023R1805", article="4", content_hashes=("a" * 12, "b" * 12))
@@ -57,7 +58,7 @@ def test_the_hash_ignores_the_stamps() -> None:
 
 def test_the_hash_ignores_the_corpus_stamp() -> None:
     stamped = eval_dataset(eval_case()).model_copy(
-        update={"corpus": CorpusStamp(stamped_at="2026-08-28", documents={"32023R1805": "9f2c"})}
+        update={"corpus": CorpusStamp(corpus_version="2026-08-15-2cc038d", stamped_at="2026-08-28")}
     )
 
     assert stamped.sha256 == eval_dataset(eval_case()).sha256
@@ -75,8 +76,8 @@ def test_the_hash_still_follows_which_division_a_case_cites() -> None:
 # Loading, filtering and saving the dataset file
 
 
-def _write_dataset(path: Path, *cases: EvalCase, corpus: CorpusStamp | None = None) -> Path:
-    EvalDataset(cases=cases, corpus=corpus).save(path)
+def _write_dataset(path: Path, *cases: EvalCase) -> Path:
+    save_dataset(EvalDataset(cases=cases), path)
     return path
 
 
@@ -113,47 +114,3 @@ def test_the_hash_names_the_file_not_the_subset_scored(tmp_path: Path) -> None:
     )
 
     assert EvalDataset.load(file, case_filter="fueleu").sha256 == EvalDataset.load(file).sha256
-
-
-def test_a_saved_dataset_loads_back_as_the_same_cases_and_stamp(tmp_path: Path) -> None:
-    corpus = CorpusStamp(
-        corpus_version="2026-08-01-a3f1c2", stamped_at="2026-08-28", documents={"32023R1805": "9f"}
-    )
-    file = _write_dataset(
-        tmp_path / "golden.json",
-        eval_case(id="stamped", references=(STAMPED,)),
-        EvalCase(id="ooc", kind=EvalKind.OUT_OF_CORPUS, question="q?"),
-        corpus=corpus,
-    )
-
-    loaded = EvalDataset.load(file)
-
-    assert loaded.corpus == corpus
-    assert loaded.cases[0].references == (STAMPED,)
-    assert loaded.cases[1].references == ()
-
-
-def test_saving_keeps_a_reference_on_one_line_and_omits_what_it_does_not_carry(
-    tmp_path: Path,
-) -> None:
-    """The file is hand-authored and PR-reviewed, so a re-stamp has to diff as the one line
-    that moved rather than reformatting every case around it."""
-    file = _write_dataset(tmp_path / "golden.json", eval_case(references=(STAMPED,)))
-
-    text = file.read_text()
-
-    assert f'{{"celex": "32023R1805", "article": "4", "content_hashes": ["{"a" * 12}", ' in text
-    assert '"annex"' not in text
-    assert '"case_filter"' not in text
-
-
-def test_the_dataset_names_the_cases_no_stamp_was_ever_recorded_for() -> None:
-    """An unstamped case is not stale — nothing was recorded to compare against — but it is
-    a case drift cannot be seen on, so it is named rather than passed over in silence."""
-    dataset = eval_dataset(
-        eval_case(id="stamped", references=(STAMPED,)),
-        eval_case(id="never-stamped", references=(REFERENCE,)),
-        EvalCase(id="ooc", kind=EvalKind.OUT_OF_CORPUS, question="q?"),
-    )
-
-    assert dataset.unstamped_cases == ("never-stamped",)

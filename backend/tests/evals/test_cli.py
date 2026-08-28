@@ -5,7 +5,6 @@ import pytest
 from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
 from app.evals import cli
 from app.evals.cli import format_case_lines, main
-from app.evals.dataset.models import CaseReference, DatasetDrift, StaleReference
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalRun
 from tests.evals.conftest import eval_case, eval_result, refused_result
@@ -22,7 +21,7 @@ def fake_run(monkeypatch):
     results: list = []
 
     async def _fake_provenance(dataset):
-        return "2026-08-01-a3f1c2", DatasetDrift()
+        return "2026-08-01-a3f1c2", ()
 
     async def _fake(dataset, corpus_version=None, stale_cases=()):
         chosen = tuple(results)
@@ -152,16 +151,7 @@ def test_run_reports_the_corpus_and_the_stale_cases_it_read_before_scoring(
     and which of its reference answers are owed a re-review."""
 
     async def _fake_provenance(dataset):
-        return "2026-08-01-a3f1c2", DatasetDrift(
-            stale=(
-                StaleReference(
-                    case_id="amended",
-                    target=CaseReference(celex="32023R1805", article="4"),
-                    stamped=("0" * 12,),
-                    current=("a" * 12,),
-                ),
-            )
-        )
+        return "2026-08-01-a3f1c2", ("amended",)
 
     fake_run.append(eval_result())
     monkeypatch.setattr(cli, "_read_provenance", _fake_provenance)

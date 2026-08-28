@@ -1,15 +1,7 @@
 {
   "corpus": {
     "corpus_version": "2026-08-15-2cc038d",
-    "stamped_at": "2026-08-28",
-    "documents": {
-      "32015R0757": "5fdee6c646891a1614d159dbd9b7a9323205d8b79c0413c1e7db4c90be07c3f2",
-      "32016R1928": "e6a289d40e0b912d0d010236a21b62d29375b2d0e818743a717904673109efe7",
-      "32023R1805": "95e1cdf81803b3f454667f9efd63eabde0a3daff7e32d0ae6408ca381ffef022",
-      "32023R2449": "c90167147c4d177addc7e7632790e140ac5b047a3b6175f2ea29cec80ca83787",
-      "32023R2917": "1aad0c6b8f786e4fd4a5e86a9a55fbb13e8e026f9181f221b1bbb1da60516874",
-      "32024R2027": "6106cab05aa974dc6f56f1574fdbe14f97f2ff9f72120ba48ba60e4de477f21c"
-    }
+    "stamped_at": "2026-08-28"
   },
   "cases": [
     {

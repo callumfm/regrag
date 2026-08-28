@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ingestion.chunk.models import Reference
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
-from app.retrieval.follow import division_content_hashes, follow_reference, reference_exists
+from app.retrieval.follow import division_content_hashes, follow_reference
 from app.retrieval.models import ReferenceTarget
 
 pytestmark = pytest.mark.anyio
@@ -249,18 +249,6 @@ async def test_a_chunk_citing_nothing_carries_no_references(
     found = await follow_reference(db_session, ReferenceTarget(celex=INVENTED_CELEX, article="2"))
 
     assert [chunk.references for chunk in found] == [()]
-
-
-async def test_reference_exists_answers_without_loading_the_text(
-    db_session: AsyncSession, corpus: list[DocumentChunk]
-) -> None:
-    stored = ReferenceTarget(celex="32015R0757", article="11A")
-    unknown = ReferenceTarget(celex="32015R0757", article="999")
-    outside = ReferenceTarget(celex=INVENTED_CELEX, article="1")
-
-    assert await reference_exists(db_session, stored)
-    assert not await reference_exists(db_session, unknown)
-    assert not await reference_exists(db_session, outside)
 
 
 # The chunk hashes covering a division, for stamping a golden case against it

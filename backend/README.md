@@ -110,7 +110,7 @@ how much context it is given, are the `CHAT_*` settings in `app/core/config.py`.
 answer must say, and the articles it must come from — plus out-of-corpus
 questions the system is expected to refuse. Each cited article is stamped with
 the chunks it held when the case was authored, and the file records the corpus
-version behind that stamp.
+version behind those stamps.
 
 ```bash
 uv run evals check              # what no longer resolves, what moved, what is unstamped
