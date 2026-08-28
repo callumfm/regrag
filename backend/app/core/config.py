@@ -225,7 +225,7 @@ class EvalConfig(BaseConfig):
         cache hit answers exactly as a miss would, so it is not a setting a run compares on.
     """
 
-    EVAL_DATASET_PATH: Path = BACKEND_ROOT / "app" / "evals" / "golden.json"
+    EVAL_DATASET_PATH: Path = BACKEND_ROOT / "app" / "evals" / "dataset" / "golden.json"
     EVAL_CACHE_DIR: Path = PROJECT_ROOT / "data" / "cache" / "evals"
 
 

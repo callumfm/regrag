@@ -8,7 +8,8 @@ import litellm
 from app.chat.graph import retrieve
 from app.chat.models import ChatState
 from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
-from app.evals.models import EvalCase, EvalDataset, EvalResult
+from app.evals.dataset.models import EvalCase, EvalDataset
+from app.evals.models import EvalResult
 from app.evals.service import evaluate_case
 from app.evals.tune.metrics import compute_tune_metrics
 from app.evals.tune.models import TunableParam, TuneMetrics, TuneResult, TuneRun

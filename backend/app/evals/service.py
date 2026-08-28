@@ -1,4 +1,4 @@
-"""Eval checks and runs against the corpus."""
+"""Driving the golden cases through the chat graph and recording what the run measured."""
 
 import logging
 import time
@@ -6,37 +6,17 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import litellm
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.graph import chat_graph
 from app.chat.models import ChatState
 from app.core.clock import elapsed_ms
 from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
 from app.core.exceptions import DomainError
+from app.evals.dataset.models import EvalCase, EvalDataset
 from app.evals.metrics import compute_metrics
-from app.evals.models import (
-    EvalCase,
-    EvalDataset,
-    EvalResult,
-    EvalRun,
-    UnresolvedReference,
-)
-from app.retrieval.follow import reference_exists
+from app.evals.models import EvalResult, EvalRun
 
 logger = logging.getLogger(__name__)
-
-
-async def find_unresolved_references(
-    session: AsyncSession, dataset: EvalDataset
-) -> tuple[UnresolvedReference, ...]:
-    """Every case reference with no stored chunk for its celex + article/annex, with its case id.
-    Stale after a renumbered re-ingest or a typo; a run would score it as a retrieval miss."""
-    unresolved = []
-    for case in dataset.cases:
-        for target in case.references:
-            if not await reference_exists(session, target):
-                unresolved.append(UnresolvedReference(case_id=case.id, target=target))
-    return tuple(unresolved)
 
 
 EvalGraph = Callable[[ChatState], Awaitable[dict[str, Any]]]
@@ -65,15 +45,25 @@ async def evaluate_case(case: EvalCase, graph: EvalGraph = _full_chat_graph) -> 
     return EvalResult(case=case, state=state)
 
 
-async def evaluate_all_cases(dataset: EvalDataset) -> EvalRun:
+async def evaluate_all_cases(
+    dataset: EvalDataset,
+    corpus_version: str | None = None,
+    stale_cases: tuple[str, ...] = (),
+) -> EvalRun:
     """Every case in the dataset, one at a time, so a per-case timing measures the case alone.
-    Whether the run was cached is read off the live litellm cache, not a caller's word,
-    so the provenance cannot disagree with what served the calls."""
+
+    The corpus version and the stale cases are read before the run and carried through it, so
+    a score always says which text it was measured against and which cases owe a re-review.
+    Whether the run was cached is read off the live litellm cache, not a caller's word, so the
+    provenance cannot disagree with what served the calls.
+    """
     results = [await evaluate_case(case) for case in dataset.selected_cases]
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
     return EvalRun(
         dataset_sha=dataset.sha256,
         case_filter=dataset.case_filter,
+        corpus_version=corpus_version,
+        stale_cases=stale_cases,
         cached=litellm.cache is not None,
         settings=settings,
         metrics=compute_metrics(results),

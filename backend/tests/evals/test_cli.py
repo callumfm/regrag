@@ -1,46 +1,14 @@
-"""Evals CLI: exit codes and what `check` and `run` print."""
+"""Evals CLI: exit codes and what `run` prints."""
 
 import pytest
 
 from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
 from app.evals import cli
 from app.evals.cli import format_case_lines, main
+from app.evals.dataset.models import CaseReference, DatasetDrift, StaleReference
 from app.evals.metrics import compute_metrics
-from app.evals.models import EmptyError, EvalRun, UnresolvedReference
-from app.retrieval.models import ReferenceTarget
+from app.evals.models import EvalRun
 from tests.evals.conftest import eval_case, eval_result, refused_result
-
-
-@pytest.fixture
-def fake_check(monkeypatch):
-    """Replace the DB coroutine with a stub returning a chosen set of unresolved references."""
-    unresolved = []
-
-    async def _fake():
-        return tuple(unresolved)
-
-    monkeypatch.setattr(cli, "_check_dataset_references", _fake)
-    return unresolved
-
-
-def test_check_exits_zero_when_every_reference_resolves(fake_check, capsys):
-    assert main(["check"]) == 0
-    assert "resolve" in capsys.readouterr().out
-
-
-def test_check_names_each_stale_reference_and_exits_nonzero(fake_check, capsys):
-    fake_check.append(
-        UnresolvedReference(
-            case_id="stale-case", target=ReferenceTarget(celex="32023R1805", article="999")
-        )
-    )
-
-    assert main(["check"]) == 1
-
-    out = capsys.readouterr().out
-    assert "stale-case" in out
-    assert "32023R1805" in out
-    assert "999" in out
 
 
 def test_a_subcommand_is_required(capsys):
@@ -53,16 +21,22 @@ def fake_run(monkeypatch):
     """Replace the graph run with a stub returning a chosen list of results."""
     results: list = []
 
-    async def _fake(dataset):
+    async def _fake_provenance(dataset):
+        return "2026-08-01-a3f1c2", DatasetDrift()
+
+    async def _fake(dataset, corpus_version=None, stale_cases=()):
         chosen = tuple(results)
         return EvalRun(
             dataset_sha=dataset.sha256,
             case_filter=dataset.case_filter,
+            corpus_version=corpus_version,
+            stale_cases=stale_cases,
             settings=get_config_snapshot(EVAL_CONFIG_SECTIONS),
             metrics=compute_metrics(chosen),
             results=chosen,
         )
 
+    monkeypatch.setattr(cli, "_read_provenance", _fake_provenance)
     monkeypatch.setattr(cli, "evaluate_all_cases", _fake)
     return results
 
@@ -113,12 +87,6 @@ def test_no_cache_makes_a_run_pay_for_its_calls_again(fake_run, enabled):
     fake_run.append(eval_result())
 
     assert main(["run", "--no-cache"]) == 0
-    assert not enabled
-
-
-def test_check_never_touches_the_cache(fake_check, enabled):
-    """check only asks the corpus what it holds, so it makes no provider call to replay."""
-    assert main(["check"]) == 0
     assert not enabled
 
 
@@ -177,11 +145,30 @@ def test_run_lists_every_case_only_when_asked(fake_run, capsys):
     assert '"raw_recall": 1.0' in out
 
 
-def test_check_reports_an_empty_dataset_without_a_traceback(monkeypatch, capsys):
-    async def _fake():
-        raise EmptyError("The dataset has no cases")
+def test_run_reports_the_corpus_and_the_stale_cases_it_read_before_scoring(
+    fake_run, monkeypatch, capsys
+):
+    """Tuning compares two runs, so a score has to say which corpus it was measured against
+    and which of its reference answers are owed a re-review."""
 
-    monkeypatch.setattr(cli, "_check_dataset_references", _fake)
+    async def _fake_provenance(dataset):
+        return "2026-08-01-a3f1c2", DatasetDrift(
+            stale=(
+                StaleReference(
+                    case_id="amended",
+                    target=CaseReference(celex="32023R1805", article="4"),
+                    stamped=("0" * 12,),
+                    current=("a" * 12,),
+                ),
+            )
+        )
 
-    assert main(["check"]) == 1
-    assert "no cases" in capsys.readouterr().out
+    fake_run.append(eval_result())
+    monkeypatch.setattr(cli, "_read_provenance", _fake_provenance)
+
+    assert main(["run"]) == 0
+
+    out = capsys.readouterr().out
+    assert '"corpus_version": "2026-08-01-a3f1c2"' in out
+    assert "1 case cites text that changed since authoring:" in out
+    assert "  amended" in out

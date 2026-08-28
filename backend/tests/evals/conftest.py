@@ -5,12 +5,12 @@ from typing import Any
 from app.chat.enums import ChatNode
 from app.chat.models import ChatNodeResult, ChatState
 from app.chat.prompts import REFUSAL_ANSWER
-from app.evals.enums import EvalKind
-from app.evals.models import EvalCase, EvalDataset, EvalResult
-from app.retrieval.models import ReferenceTarget
+from app.evals.dataset.enums import EvalKind
+from app.evals.dataset.models import CaseReference, EvalCase, EvalDataset
+from app.evals.models import EvalResult
 from tests.conftest import retrieved_chunk, search_result
 
-REFERENCE = ReferenceTarget(celex="32023R1805", article="4")
+REFERENCE = CaseReference(celex="32023R1805", article="4")
 
 IN_CORPUS_CASE: dict[str, Any] = {
     "id": "case",

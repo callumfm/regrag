@@ -1,4 +1,4 @@
-"""Evals CLI: `uv run evals check`, `uv run evals run [--case PATTERN] [--verbose]`."""
+"""Evals CLI: `uv run evals check | stamp | run [--case PATTERN] [--verbose] | tune`."""
 
 import argparse
 import asyncio
@@ -7,16 +7,20 @@ from collections.abc import Sequence
 from app.core.db.session import get_session
 from app.core.logger import setup_logging
 from app.evals.cache import enable_call_cache
+from app.evals.dataset.cli import check_dataset, register_dataset_commands, stamp_cases
+from app.evals.dataset.models import DatasetDrift, EmptyError, EvalDataset
+from app.evals.dataset.service import inspect_dataset
 from app.evals.metrics import format_rate, score_reference_citation_rate, score_reference_recall
-from app.evals.models import EmptyError, EvalDataset, EvalResult, UnresolvedReference
-from app.evals.service import evaluate_all_cases, find_unresolved_references
+from app.evals.models import EvalResult
+from app.evals.service import evaluate_all_cases
 from app.evals.tune.cli import register_tune_command, run_tune
+from app.ingestion.service import get_latest_corpus_version
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="evals", description="RegRag evals")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("check", help="confirm every case reference still resolves in the corpus")
+    register_dataset_commands(commands)
     run = commands.add_parser("run", help="score the dataset against the current chat graph")
     run.add_argument("--case", help="only cases whose id contains this")
     run.add_argument("--verbose", action="store_true", help="list every case with its own scores")
@@ -57,30 +61,22 @@ def format_case_lines(results: Sequence[EvalResult]) -> list[str]:
     return [_format_case_line(result, width) for result in results]
 
 
-async def _check_dataset_references() -> tuple[UnresolvedReference, ...]:
+async def _read_provenance(dataset: EvalDataset) -> tuple[str | None, DatasetDrift]:
+    """What the corpus stands at and how far the dataset has drifted from it, read once
+    before the run so a score carries the state of the text it was measured against."""
     async with get_session(auto_commit=False) as session:
-        return await find_unresolved_references(session, EvalDataset.load())
-
-
-def check_references() -> int:
-    """Name every case reference the corpus no longer answers to."""
-    unresolved = asyncio.run(_check_dataset_references())
-    for item in unresolved:
-        print(f"{item.case_id}: no stored chunk for {item.target.celex} {item.target.citation}")
-    if unresolved:
-        return 1
-    print("every case reference resolves")
-    return 0
+        return await get_latest_corpus_version(session), await inspect_dataset(session, dataset)
 
 
 def run_evals(case_filter: str | None, verbose: bool = False, cached: bool = True) -> int:
     """Score the dataset and print what it measured, the cases first when asked for."""
     dataset = EvalDataset.load(case_filter=case_filter)
+    corpus_version, drift = asyncio.run(_read_provenance(dataset))
 
     if cached:
         enable_call_cache()
 
-    run = asyncio.run(evaluate_all_cases(dataset))
+    run = asyncio.run(evaluate_all_cases(dataset, corpus_version, drift.stale_case_ids))
     if verbose:
         print("\n".join(format_case_lines(run.results)), end="\n\n")
 
@@ -99,7 +95,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "tune":
             return run_tune(args.case, cached=not args.no_cache)
 
-        return check_references()
+        if args.command == "stamp":
+            return stamp_cases(args.case)
+
+        return check_dataset()
     except EmptyError as exc:
         print(exc)
         return 1

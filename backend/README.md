@@ -106,12 +106,16 @@ how much context it is given, are the `CHAT_*` settings in `app/core/config.py`.
 
 ## Evals
 
-`app/evals/golden.json` holds authored cases: a question, what a right answer
-must say, and the articles it must come from — plus out-of-corpus questions the
-system is expected to refuse.
+`app/evals/dataset/golden.json` holds authored cases: a question, what a right
+answer must say, and the articles it must come from — plus out-of-corpus
+questions the system is expected to refuse. Each cited article is stamped with
+the chunks it held when the case was authored, and the file records the corpus
+version behind that stamp.
 
 ```bash
-uv run evals check              # every case reference still resolves in the corpus
+uv run evals check              # what no longer resolves, what moved, what is unstamped
+uv run evals stamp              # record what the cited text says now
+uv run evals stamp --case mrv   # ...for these cases only, leaving the rest stale
 uv run evals run                # score the dataset against the current graph
 uv run evals run --verbose      # ...listing every case with its own scores
 uv run evals run --case fueleu  # only cases whose id contains this
@@ -123,5 +127,12 @@ measures one case, and prints the settings it ran under beside the scores:
 what search found before and after section expansion, what the answers cited,
 what the refusal gate caught, and what the run cost. It exits non-zero if any
 case raised.
+
+Stamps catch the drift a resolving reference hides: an amendment rewrites
+Article 4, the chunk still retrieves, and the case scores green against a
+reference answer that is now wrong. `check` and `run` both name such a case,
+neither fails on it — repairing one means a human re-reading the new text and
+rewriting the answer, then `evals stamp` to record that it was read. Stamps are
+left out of `dataset_sha`, so a re-stamp keeps past runs comparable.
 
 Replayed embed and rerank calls are cached under `data/cache/evals`.

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ingestion.chunk.models import Reference
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
-from app.retrieval.follow import follow_reference, reference_exists
+from app.retrieval.follow import division_content_hashes, follow_reference, reference_exists
 from app.retrieval.models import ReferenceTarget
 
 pytestmark = pytest.mark.anyio
@@ -261,3 +261,39 @@ async def test_reference_exists_answers_without_loading_the_text(
     assert await reference_exists(db_session, stored)
     assert not await reference_exists(db_session, unknown)
     assert not await reference_exists(db_session, outside)
+
+
+# The chunk hashes covering a division, for stamping a golden case against it
+
+
+async def test_division_content_hashes_reads_in_the_same_order_as_a_follow(
+    db_session: AsyncSession,
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    """The stamp orders as the reader does, so a diff on it reads as the division does."""
+    for index, paragraph in enumerate(["2", None, "1"]):
+        db_session.add(
+            make_chunk_row(
+                ingest_run,
+                celex=INVENTED_CELEX,
+                article="9",
+                paragraph=paragraph,
+                citation=f"Article 9({paragraph})" if paragraph else "Article 9",
+                content_hash=f"{index:064d}",
+            )
+        )
+    await db_session.flush()
+
+    target = ReferenceTarget(celex=INVENTED_CELEX, article="9")
+    hashes = await division_content_hashes(db_session, target)
+
+    assert hashes == (f"{1:064d}", f"{2:064d}", f"{0:064d}")
+
+
+async def test_a_division_with_no_stored_chunks_hashes_to_nothing(
+    db_session: AsyncSession,
+) -> None:
+    target = ReferenceTarget(celex=INVENTED_CELEX, article="404")
+
+    assert await division_content_hashes(db_session, target) == ()
