@@ -27,6 +27,12 @@ from app.core.models import ErrorResponse
 
 logger = logging.getLogger(__name__)
 
+VALUES_MODE = "values"
+"""The graph's state after each node."""
+
+MESSAGES_MODE = "messages"
+"""The tokens of each model call the graph makes, paired with the node that made it."""
+
 
 def _error_event(exc: Exception) -> ErrorEvent:
     """The error event for a failed stream, logged like the JSON handlers log theirs."""
@@ -43,13 +49,15 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
     """The graph run as chat events: the context once it settles, then the answer as it is
     written — or the refusal in its place — and done when the graph ends."""
     sources_sent = False
-    # Two streams interleaved: `values`, a snapshot of the state after each node, and
+    # Two streams interleaved: `values`, a snapshot of the whole state after each node, and
     # `messages`, the tokens a node's model call produces as it produces them.
-    stream: AsyncIterator[Any] = chat_graph.astream(state, stream_mode=["values", "messages"])
-    async for mode, item in stream:
-        if mode == "values":
-            # The snapshot folded onto the one state this run is recorded from.
-            state.refresh(item)
+    graph_stream: AsyncIterator[Any] = chat_graph.astream(
+        state, stream_mode=[VALUES_MODE, MESSAGES_MODE]
+    )
+    async for mode, payload in graph_stream:
+        if mode == VALUES_MODE:
+            # The snapshot copied onto the one state this run is recorded from.
+            state.apply_snapshot(payload)
             # The context is final once the loop stops growing it, so the markers the
             # answer is about to cite can be sent — once, however many rounds ran.
             if not sources_sent and state.context_settled:
@@ -60,7 +68,7 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
                 yield TextEvent(data=state.answer)
         else:
             # Only synthesize's tokens are the answer; assess calls a model too.
-            chunk, metadata = item
+            chunk, metadata = payload
             if metadata.get("langgraph_node") != ChatNode.SYNTHESIZE:
                 continue
             if text := chunk.text:

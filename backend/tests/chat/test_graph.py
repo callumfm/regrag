@@ -295,7 +295,7 @@ def answer_model(monkeypatch):
 async def run_graph() -> ChatState:
     """The graph run, folded back onto the state it started from."""
     state = ChatState(question=QUESTION)
-    state.refresh(await chat_graph.ainvoke(state))
+    state.apply_snapshot(await chat_graph.ainvoke(state))
     return state
 
 

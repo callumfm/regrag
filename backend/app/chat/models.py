@@ -83,10 +83,10 @@ class ChatState(AppModel):
         outputs = [r.output_tokens for r in self.steps if r.output_tokens is not None]
         return (sum(inputs) if inputs else None, sum(outputs) if outputs else None)
 
-    def refresh(self, snapshot: dict[str, Any]) -> None:
-        """The graph's state as it now stands, folded onto this object: the values stream
-        hands back a fresh dict each step, and the record wants one object per run. Only
-        the fields the snapshot carries are touched; what the consumer sets stays."""
+    def apply_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """The graph's whole state as it now stands, copied onto this object: the values
+        stream hands back a fresh dict each step, and the record wants one object per run.
+        total_ms and error survive it because no node writes them, only the consumer does."""
         fresh = self.model_validate(snapshot)
         for field in snapshot:
             setattr(self, field, getattr(fresh, field))
