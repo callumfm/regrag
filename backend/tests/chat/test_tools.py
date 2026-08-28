@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import ToolCall
-from app.chat.tools import run_tool_call, tool_definitions
+from app.chat.tools import TOOL_DEFINITIONS, run_tool_call
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import ReferenceTarget, SearchFilters, SearchRequest
@@ -20,11 +20,9 @@ NO_SESSION = cast(AsyncSession, None)
 
 
 def test_definitions_name_both_tools_with_parameter_schemas():
-    definitions = tool_definitions()
-
-    names = [d["function"]["name"] for d in definitions]
+    names = [d["function"]["name"] for d in TOOL_DEFINITIONS]
     assert names == ["search", "follow_reference"]
-    for definition in definitions:
+    for definition in TOOL_DEFINITIONS:
         assert definition["type"] == "function"
         assert "properties" in definition["function"]["parameters"]
         assert definition["function"]["description"]

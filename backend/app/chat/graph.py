@@ -22,7 +22,7 @@ from app.chat.prompts import (
     build_assess_message,
     build_user_message,
 )
-from app.chat.tools import run_tool_call, tool_definitions
+from app.chat.tools import TOOL_DEFINITIONS, run_tool_call
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -60,20 +60,21 @@ def traced(run: NodeFn) -> NodeFn:
     return traced_run
 
 
-def chat_model() -> ChatLiteLLM:
+def chat_model(*, streaming: bool = True) -> ChatLiteLLM:
     """A chat client built per call, so config is read at call time like embed's.
 
-    Streaming is set, or litellm answers in one blocking call — even under the graph's
-    messages stream — and the SSE stream carries the whole answer in a single token event.
+    Streaming is set for the answer, or litellm answers in one blocking call — even under
+    the graph's messages stream — and the SSE stream carries the whole answer in a single
+    token event; assess wants that one blocking call, so it turns streaming off.
     Usage is asked for, or litellm strips it from every streamed chunk and the run's
-    tokens are never reported for a non-OpenAI model.
+    tokens are never reported for a non-OpenAI model; it is read on the streamed path only.
     """
     return ChatLiteLLM(
         model=config.CHAT_MODEL,
         api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
         max_tokens=config.CHAT_MAX_TOKENS,
         request_timeout=config.CHAT_TIMEOUT,
-        streaming=True,
+        streaming=streaming,
         stream_options={"include_usage": True},
     )
 
@@ -119,13 +120,7 @@ async def refuse(state: ChatState) -> dict[str, Any]:
 
 def assess_model() -> Runnable:
     """The chat model as assess calls it: one blocking turn, the tool surface bound."""
-    model = ChatLiteLLM(
-        model=config.CHAT_MODEL,
-        api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
-        max_tokens=config.CHAT_MAX_TOKENS,
-        request_timeout=config.CHAT_TIMEOUT,
-    )
-    return model.bind_tools(tool_definitions())
+    return chat_model(streaming=False).bind_tools(TOOL_DEFINITIONS)
 
 
 @llm_retry
@@ -176,10 +171,8 @@ async def tools(state: ChatState) -> dict[str, Any]:
     return {"sources": merge_sources(state.sources, fetched, cap=cap), "pending_calls": ()}
 
 
-def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
-    """After retrieve: refuse for want of context, else assess — unless the loop is off."""
-    if not state.sources:
-        return ChatNode.REFUSE
+def assess_or_synthesize(state: ChatState) -> ChatNode:
+    """After tools: review again while budget remains, else answer with what there is."""
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
 
 
@@ -188,9 +181,9 @@ def tools_or_synthesize(state: ChatState) -> ChatNode:
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.TOOLS
 
 
-def assess_or_synthesize(state: ChatState) -> ChatNode:
-    """After tools: review again while budget remains, else answer with what there is."""
-    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
+def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
+    """After retrieve: refuse for want of context, else pick up the loop as tools does."""
+    return ChatNode.REFUSE if not state.sources else assess_or_synthesize(state)
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:

@@ -14,7 +14,6 @@ from app.chat.enums import ChatNode, ChatOutcome
 from app.chat.models import DoneEvent, ErrorEvent, SourcesEvent, TextEvent
 from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.stream import stream_chat_events
-from app.core.config import config
 from app.core.llm import LLMError
 from tests.chat.conftest import USAGE, RecordingChatModel, fake_chat_model, tool_call_message
 from tests.conftest import search_result
@@ -165,14 +164,6 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
     assert state.token_totals() == (None, None)
 
 
-@pytest.fixture
-def one_result(monkeypatch):
-    async def fake_search(session, request):
-        return (search_result(),)
-
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
-
-
 class ToolCallStreamingModel(RecordingChatModel):
     """Streams tool calls as litellm's real chunks do; the base fake's `_stream` only
     carries content, so an assess call driven through the messages stream would lose them."""
@@ -203,10 +194,6 @@ class ToolCallStreamingModel(RecordingChatModel):
 
 
 class TestLoopStreaming:
-    @pytest.fixture
-    def loop_on(self, monkeypatch):
-        monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
-
     @pytest.fixture
     def one_gather_round(self, monkeypatch):
         assess = ToolCallStreamingModel(

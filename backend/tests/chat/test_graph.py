@@ -51,18 +51,6 @@ class FailingModel(RecordingChatModel):
         return super()._generate(messages, *args, **kwargs)
 
 
-@pytest.fixture
-def one_result(monkeypatch):
-    calls: list[SearchRequest] = []
-
-    async def fake_search(session, request):
-        calls.append(request)
-        return (search_result(),)
-
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
-    return calls
-
-
 async def test_graph_retrieves_then_answers(one_result, monkeypatch):
     model = fake_chat_model("Yes, Article 4 [1].")
     monkeypatch.setattr("app.chat.graph.chat_model", lambda: model)
@@ -297,15 +285,6 @@ async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
     assert state["answer"] == REFUSAL_ANSWER
 
 
-def assess_fake(*turns: AIMessage) -> RecordingChatModel:
-    return RecordingChatModel(messages=iter(list(turns)), usage=USAGE)
-
-
-@pytest.fixture
-def loop_on(monkeypatch):
-    monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
-
-
 @pytest.fixture
 def answer_model(monkeypatch):
     model = fake_chat_model("Answered [1].")
@@ -313,15 +292,20 @@ def answer_model(monkeypatch):
     return model
 
 
+async def run_graph() -> ChatState:
+    """The graph run, folded back onto the state it started from."""
+    state = ChatState(question=QUESTION)
+    state.refresh(await chat_graph.ainvoke(state))
+    return state
+
+
 class TestGatherLoop:
     async def test_no_tool_calls_goes_straight_to_synthesize(
-        self, loop_on, one_result, answer_model, monkeypatch
+        self, loop_on, one_result, answer_model, assess_turns
     ):
-        assess = assess_fake(AIMessage(content=""))
-        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
+        assess_turns(AIMessage(content=""))
 
-        state = ChatState(question=QUESTION)
-        state.refresh(await chat_graph.ainvoke(state))
+        state = await run_graph()
 
         assert state.answer == "Answered [1]."
         assert [r.node for r in state.nodes] == [
@@ -331,24 +315,15 @@ class TestGatherLoop:
         ]
 
     async def test_a_tool_round_merges_its_chunks_then_answers(
-        self, loop_on, one_result, answer_model, monkeypatch
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
     ):
-        assess = assess_fake(
+        assess_turns(
             tool_call_message("follow_reference", {"celex": "32023R1805", "article": "6"}),
             AIMessage(content=""),
         )
-        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
+        run_calls = tool_results(search_result(id=42, citation="Article 6"))
 
-        async def fake_run_tool_call(session, call):
-            assert call == ToolCall(
-                name="follow_reference", args={"celex": "32023R1805", "article": "6"}
-            )
-            return (search_result(id=42, citation="Article 6"),)
-
-        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
-
-        state = ChatState(question=QUESTION)
-        state.refresh(await chat_graph.ainvoke(state))
+        state = await run_graph()
 
         assert [r.node for r in state.nodes] == [
             ChatNode.RETRIEVE,
@@ -357,26 +332,23 @@ class TestGatherLoop:
             ChatNode.ASSESS,
             ChatNode.SYNTHESIZE,
         ]
+        assert run_calls == [
+            ToolCall(name="follow_reference", args={"celex": "32023R1805", "article": "6"})
+        ]
         assert tuple(chunk.id for chunk in state.sources) == (1, 42)
         assert state.pending_calls == ()
 
     async def test_the_round_cap_forces_synthesis_with_calls_still_pending(
-        self, loop_on, one_result, answer_model, monkeypatch
+        self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
     ):
         monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 1)
-        assess = assess_fake(
+        assess_turns(
             tool_call_message("search", {"query": "first gap"}),
             tool_call_message("search", {"query": "never runs"}),
         )
-        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
+        tool_results(search_result(id=2))
 
-        async def fake_run_tool_call(session, call):
-            return (search_result(id=2),)
-
-        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
-
-        state = ChatState(question=QUESTION)
-        state.refresh(await chat_graph.ainvoke(state))
+        state = await run_graph()
 
         assert [r.node for r in state.nodes] == [
             ChatNode.RETRIEVE,
@@ -386,31 +358,23 @@ class TestGatherLoop:
         ]
 
     async def test_each_assess_visit_records_its_own_usage(
-        self, loop_on, one_result, answer_model, monkeypatch
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
     ):
-        assess = assess_fake(tool_call_message("search", {"query": "gap"}), AIMessage(content=""))
-        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
+        assess_turns(tool_call_message("search", {"query": "gap"}), AIMessage(content=""))
+        tool_results()
 
-        async def fake_run_tool_call(session, call):
-            return ()
-
-        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
-
-        state = ChatState(question=QUESTION)
-        state.refresh(await chat_graph.ainvoke(state))
+        state = await run_graph()
 
         assesses = [r for r in state.nodes if r.node is ChatNode.ASSESS]
         assert len(assesses) == 2
         assert all(r.input_tokens == USAGE["input_tokens"] for r in assesses)
 
     async def test_assess_sees_the_question_and_numbered_context(
-        self, loop_on, one_result, answer_model, monkeypatch
+        self, loop_on, one_result, answer_model, assess_turns
     ):
-        assess = assess_fake(AIMessage(content=""))
-        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
+        assess = assess_turns(AIMessage(content=""))
 
-        state = ChatState(question=QUESTION)
-        state.refresh(await chat_graph.ainvoke(state))
+        await run_graph()
 
         (prompt,) = assess.received
         assert prompt[0].content == ASSESS_SYSTEM_PROMPT
@@ -425,8 +389,7 @@ class TestGatherLoop:
 
         monkeypatch.setattr("app.chat.graph.search", empty_search)
 
-        state = ChatState(question=QUESTION)
-        state.refresh(await chat_graph.ainvoke(state))
+        state = await run_graph()
 
         assert state.answer == REFUSAL_ANSWER
         assert [r.node for r in state.nodes] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
@@ -439,8 +402,7 @@ class TestGatherLoop:
         assess = FailingModel(messages=iter([]), failures=10, usage=USAGE)
         monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
-        state = ChatState(question=QUESTION)
-        state.refresh(await chat_graph.ainvoke(state))
+        state = await run_graph()
 
         assert state.answer == "Answered [1]."
         assert [r.node for r in state.nodes] == [
@@ -450,10 +412,10 @@ class TestGatherLoop:
         ]
 
     async def test_an_assess_turn_asking_for_more_than_the_cap_runs_only_the_cap(
-        self, loop_on, one_result, answer_model, monkeypatch
+        self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
     ):
         monkeypatch.setattr(config, "GATHER_MAX_CALLS", 1)
-        assess = assess_fake(
+        assess_turns(
             AIMessage(
                 content="",
                 tool_calls=[
@@ -463,18 +425,8 @@ class TestGatherLoop:
             ),
             AIMessage(content=""),
         )
-        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
+        run_calls = tool_results()
 
-        run_calls: list[ToolCall] = []
+        await run_graph()
 
-        async def fake_run_tool_call(session, call):
-            run_calls.append(call)
-            return ()
-
-        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
-
-        state = ChatState(question=QUESTION)
-        state.refresh(await chat_graph.ainvoke(state))
-
-        assert len(run_calls) == 1
-        assert run_calls[0].args == {"query": "a"}
+        assert run_calls == [ToolCall(name="search", args={"query": "a"})]

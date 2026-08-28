@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Awaitable, Callable
+from typing import NamedTuple
 
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -52,38 +53,50 @@ async def run_follow_reference(
     return await follow_reference(session, target)
 
 
-TOOL_SURFACE: dict[
-    str, tuple[type[FrozenModel], Callable[..., Awaitable[tuple[RetrievedChunk, ...]]], str]
-] = {
-    "search": (
-        SearchArgs,
-        run_search,
-        "Search the corpus for text matching a query, optionally within one act (celex). "
-        "Use for concepts the context names without citing, or question parts with no "
-        "context at all.",
-    ),
-    "follow_reference": (
-        FollowReferenceArgs,
-        run_follow_reference,
-        "Fetch the full text of one cited division: an article (optionally one paragraph) "
-        "or an annex of an act (celex). Use the addresses on the context's cites lines.",
-    ),
-}
+class ToolSpec(NamedTuple):
+    """One tool the model may call: how it is named and described to the model, the
+    arguments it takes, and what runs it."""
 
+    name: str
+    args_model: type[FrozenModel]
+    run: Callable[..., Awaitable[tuple[RetrievedChunk, ...]]]
+    description: str
 
-def tool_definitions() -> list[dict]:
-    """The tool surface as bind_tools wants it: openai function-tool dictionaries."""
-    return [
-        {
+    def definition(self) -> dict:
+        """The tool as bind_tools wants it: an openai function-tool dictionary."""
+        return {
             "type": "function",
             "function": {
-                "name": name,
-                "description": description,
-                "parameters": args_model.model_json_schema(),
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.args_model.model_json_schema(),
             },
         }
-        for name, (args_model, _, description) in TOOL_SURFACE.items()
-    ]
+
+
+TOOL_SURFACE = {
+    spec.name: spec
+    for spec in (
+        ToolSpec(
+            "search",
+            SearchArgs,
+            run_search,
+            "Search the corpus for text matching a query, optionally within one act (celex). "
+            "Use for concepts the context names without citing, or question parts with no "
+            "context at all.",
+        ),
+        ToolSpec(
+            "follow_reference",
+            FollowReferenceArgs,
+            run_follow_reference,
+            "Fetch the full text of one cited division: an article (optionally one paragraph) "
+            "or an annex of an act (celex). Use the addresses on the context's cites lines.",
+        ),
+    )
+}
+
+TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
+"""The surface as the model is shown it, built once: it depends on nothing at call time."""
 
 
 async def run_tool_call(session: AsyncSession, call: ToolCall) -> tuple[RetrievedChunk, ...]:
@@ -93,10 +106,9 @@ async def run_tool_call(session: AsyncSession, call: ToolCall) -> tuple[Retrieve
     if spec is None:
         logger.warning("assess called unknown tool %s", call.name)
         return ()
-    args_model, run, _ = spec
     try:
-        args = args_model.model_validate(call.args)
-        return await run(session, args)
+        args = spec.args_model.model_validate(call.args)
+        return await spec.run(session, args)
     except ValidationError:
         logger.warning("assess called %s with invalid arguments", call.name)
         return ()

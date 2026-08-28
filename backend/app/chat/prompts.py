@@ -2,6 +2,8 @@
 
 from collections.abc import Sequence
 
+from pydantic import ValidationError
+
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
 
 SYSTEM_PROMPT = (
@@ -24,12 +26,28 @@ REFUSAL_ANSWER = (
 )
 
 
-def format_context(sources: Sequence[RetrievedChunk]) -> str:
-    """The retrieved chunks as numbered blocks the citation markers refer to."""
-    blocks = [
-        f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
-        for marker, source in enumerate(sources, start=1)
-    ]
+def _reference_addresses(source: RetrievedChunk) -> list[str]:
+    """Each followable reference as 'celex division'; one naming no division is skipped,
+    on the same rule follow_reference's target enforces."""
+    addresses = []
+    for reference in source.references:
+        try:
+            target = ReferenceTarget.from_reference(reference, citing=source.celex)
+        except ValidationError:
+            continue
+        addresses.append(f"{target.celex} {target.citation}")
+    return addresses
+
+
+def format_context(sources: Sequence[RetrievedChunk], *, cites: bool = False) -> str:
+    """The retrieved chunks as numbered blocks the citation markers refer to, each block
+    followed by the addresses it cites when the caller asks for them."""
+    blocks = []
+    for marker, source in enumerate(sources, start=1):
+        block = f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
+        if cites and (addresses := _reference_addresses(source)):
+            block += f"\ncites: {', '.join(addresses)}"
+        blocks.append(block)
     return "\n\n".join(blocks)
 
 
@@ -53,28 +71,7 @@ ASSESS_SYSTEM_PROMPT = (
 )
 
 
-def _reference_addresses(source: RetrievedChunk) -> list[str]:
-    """Each followable reference as 'celex division'; one naming no division is skipped."""
-    addresses = []
-    for reference in source.references:
-        if reference.article is None and reference.annex is None:
-            continue
-        target = ReferenceTarget.from_reference(reference, citing=source.celex)
-        addresses.append(f"{target.celex} {target.citation}")
-    return addresses
-
-
-def format_assess_context(sources: Sequence[RetrievedChunk]) -> str:
-    """The numbered blocks as assess sees them: each with the addresses it cites."""
-    blocks = []
-    for marker, source in enumerate(sources, start=1):
-        block = f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
-        if addresses := _reference_addresses(source):
-            block += f"\ncites: {', '.join(addresses)}"
-        blocks.append(block)
-    return "\n\n".join(blocks)
-
-
 def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> str:
-    """The full assess turn: context blocks with their citations, then the question."""
-    return f"Context:\n\n{format_assess_context(sources)}\n\nQuestion: {question}"
+    """The full assess turn: the same numbered blocks synthesize will cite, each with the
+    addresses it cites, then the question."""
+    return f"Context:\n\n{format_context(sources, cites=True)}\n\nQuestion: {question}"
