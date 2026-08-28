@@ -27,12 +27,6 @@ from app.core.models import ErrorResponse
 
 logger = logging.getLogger(__name__)
 
-VALUES_MODE = "values"
-"""The graph's state after each node."""
-
-MESSAGES_MODE = "messages"
-"""The tokens of each model call the graph makes, paired with the node that made it."""
-
 
 def _error_event(exc: Exception) -> ErrorEvent:
     """The error event for a failed stream, logged like the JSON handlers log theirs."""
@@ -49,11 +43,9 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
     """The graph run as chat events. LangGraph provides two streams: 'values' - a snapshot of
     the state after each node, and 'messages' - the tokens a node's model call produces."""
     sources_sent = False
-    graph_stream: AsyncIterator[Any] = chat_graph.astream(
-        state, stream_mode=[VALUES_MODE, MESSAGES_MODE]
-    )
+    graph_stream: AsyncIterator[Any] = chat_graph.astream(state, stream_mode=["values", "messages"])
     async for mode, payload in graph_stream:
-        if mode == VALUES_MODE:
+        if mode == "values":
             state.apply_snapshot(payload)
 
             if not sources_sent and state.context_settled:
