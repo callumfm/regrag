@@ -30,8 +30,8 @@ def out_of_corpus_case(id: str = "ooc") -> EvalCase:
     return EvalCase(id=id, kind=EvalKind.OUT_OF_CORPUS, question="q?")
 
 
-def eval_dataset(*cases: EvalCase) -> EvalDataset:
-    return EvalDataset(cases=cases)
+def eval_dataset(*cases: EvalCase, case_filter: str | None = None) -> EvalDataset:
+    return EvalDataset(cases=cases, case_filter=case_filter)
 
 
 def eval_result(case: EvalCase | None = None, **state: Any) -> EvalResult:

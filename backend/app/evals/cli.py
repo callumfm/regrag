@@ -7,9 +7,10 @@ from collections.abc import Sequence
 from app.core.db.session import get_session
 from app.core.logger import setup_logging
 from app.evals.cache import enable_call_cache
-from app.evals.metrics import score_reference_citation_rate, score_reference_recall
-from app.evals.models import EvalDataset, EvalResult, UnresolvedReference
-from app.evals.service import find_unresolved_references, run_dataset
+from app.evals.metrics import format_rate, score_reference_citation_rate, score_reference_recall
+from app.evals.models import EmptyError, EvalDataset, EvalResult, UnresolvedReference
+from app.evals.service import evaluate_all_cases, find_unresolved_references
+from app.evals.tune.cli import register_tune_command, run_tune
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,12 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="pay for every embed and rerank again instead of replaying the cached ones",
     )
+    register_tune_command(commands)
     return parser
-
-
-def _rate(value: float | None) -> str:
-    """A rate as a fixed-width figure, or a dash holding its place when it is unmeasured."""
-    return f"{value:>4.2f}" if value is not None else f"{'-':>4}"
 
 
 def _format_case_line(result: EvalResult, width: int) -> str:
@@ -44,8 +41,8 @@ def _format_case_line(result: EvalResult, width: int) -> str:
         score_reference_citation_rate(state.answer, state.sources, references) if scored else None
     )
     return (
-        f"{result.case.id:<{width}}  raw {_rate(raw)}  exp {_rate(expanded)}  "
-        f"cite {_rate(cited)}  {state.outcome.value:<8}{state.total_ms or 0:>6}ms"
+        f"{result.case.id:<{width}}  raw {format_rate(raw):>4}  exp {format_rate(expanded):>4}  "
+        f"cite {format_rate(cited):>4}  {state.outcome.value:<8}{state.total_ms or 0:>6}ms"
         f"{'  ' + state.error if state.error else ''}"
     )
 
@@ -76,14 +73,17 @@ def check_references() -> int:
     return 0
 
 
-def run_evals(pattern: str | None, verbose: bool = False, cached: bool = False) -> int:
+def run_evals(case_filter: str | None, verbose: bool = False, cached: bool = True) -> int:
     """Score the dataset and print what it measured, the cases first when asked for."""
-    run = asyncio.run(run_dataset(EvalDataset.load(), pattern, cached))
-    if not run.results:
-        print(f"no case id contains {pattern!r}" if pattern else "the dataset has no cases")
-        return 1
+    dataset = EvalDataset.load(case_filter=case_filter)
+
+    if cached:
+        enable_call_cache()
+
+    run = asyncio.run(evaluate_all_cases(dataset))
     if verbose:
         print("\n".join(format_case_lines(run.results)), end="\n\n")
+
     print(run.summary())
     return 1 if run.metrics.errors else 0
 
@@ -91,9 +91,15 @@ def run_evals(pattern: str | None, verbose: bool = False, cached: bool = False) 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging()
-    if args.command == "run":
-        cached = not args.no_cache
-        if cached:
-            enable_call_cache()
-        return run_evals(args.case, args.verbose, cached)
-    return check_references()
+
+    try:
+        if args.command == "run":
+            return run_evals(args.case, args.verbose, cached=not args.no_cache)
+
+        if args.command == "tune":
+            return run_tune(args.case, cached=not args.no_cache)
+
+        return check_references()
+    except EmptyError as exc:
+        print(exc)
+        return 1
