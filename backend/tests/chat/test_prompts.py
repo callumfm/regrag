@@ -1,6 +1,6 @@
 """Context formatting: numbered blocks the citation markers bind to."""
 
-from app.chat.prompts import SYSTEM_PROMPT, build_gather_message, build_user_message, format_context
+from app.chat.prompts import SYSTEM_PROMPT, build_assess_message, build_user_message, format_context
 from app.ingestion.chunk.models import Reference
 from tests.conftest import retrieved_chunk, search_result
 
@@ -29,11 +29,11 @@ def test_system_prompt_demands_inline_markers():
     assert "[1]" in SYSTEM_PROMPT
 
 
-class TestBuildGatherMessage:
+class TestBuildAssessMessage:
     def test_carries_numbered_blocks_and_the_question(self):
         sources = (search_result(text="A very specific clause."),)
 
-        message = build_gather_message("What is the limit?", sources)
+        message = build_assess_message("What is the limit?", sources)
 
         assert "[1] (32023R1805, Article 4(1))" in message
         assert "A very specific clause." in message
@@ -43,7 +43,7 @@ class TestBuildGatherMessage:
         reference = Reference(raw="Article 6(2)", article="6", paragraph="2")
         sources = (search_result(references=(reference,)),)
 
-        message = build_gather_message("q", sources)
+        message = build_assess_message("q", sources)
 
         assert "cites: 32023R1805 Article 6(2)" in message
 
@@ -51,7 +51,7 @@ class TestBuildGatherMessage:
         reference = Reference(raw="Article 3 of Regulation X", instrument="32015R0757", article="3")
         sources = (search_result(references=(reference,)),)
 
-        message = build_gather_message("q", sources)
+        message = build_assess_message("q", sources)
 
         assert "cites: 32015R0757 Article 3" in message
 
@@ -59,6 +59,6 @@ class TestBuildGatherMessage:
         reference = Reference(raw="Regulation (EU) 2015/757", instrument="32015R0757")
         sources = (search_result(references=(reference,)),)
 
-        message = build_gather_message("q", sources)
+        message = build_assess_message("q", sources)
 
         assert "cites:" not in message

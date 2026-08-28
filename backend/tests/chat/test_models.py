@@ -90,7 +90,7 @@ class TestToolRounds:
     def test_counts_only_tools_visits(self):
         state = ChatState(
             question="q",
-            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER, ChatNode.TOOLS, ChatNode.GATHER),
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.ASSESS, ChatNode.TOOLS, ChatNode.ASSESS),
         )
         assert state.tool_rounds() == 1
 
@@ -118,19 +118,19 @@ class TestContextSettled:
         state = ChatState(question="q", nodes=visited(ChatNode.RETRIEVE), sources=())
         assert state.context_settled is True
 
-    def test_gather_asking_for_tools_is_not_settled(self):
+    def test_assess_asking_for_tools_is_not_settled(self):
         state = ChatState(
             question="q",
-            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER),
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.ASSESS),
             sources=(search_result(),),
             pending_calls=(ToolCall(name="search", args={"query": "penalties"}),),
         )
         assert state.context_settled is False
 
-    def test_gather_asking_for_nothing_is_settled(self):
+    def test_assess_asking_for_nothing_is_settled(self):
         state = ChatState(
             question="q",
-            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER),
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.ASSESS),
             sources=(search_result(),),
         )
         assert state.context_settled is True
@@ -139,7 +139,7 @@ class TestContextSettled:
         monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 2)
         state = ChatState(
             question="q",
-            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER, ChatNode.TOOLS),
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.ASSESS, ChatNode.TOOLS),
             sources=(search_result(),),
         )
         assert state.context_settled is False
@@ -148,7 +148,7 @@ class TestContextSettled:
         monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 1)
         state = ChatState(
             question="q",
-            nodes=visited(ChatNode.RETRIEVE, ChatNode.GATHER, ChatNode.TOOLS),
+            nodes=visited(ChatNode.RETRIEVE, ChatNode.ASSESS, ChatNode.TOOLS),
             sources=(search_result(),),
         )
         assert state.context_settled is True

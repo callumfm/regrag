@@ -13,7 +13,7 @@ from langchain_core.outputs import ChatResult
 from app.chat.enums import ChatNode
 from app.chat.graph import chat_graph
 from app.chat.models import ChatState, ToolCall
-from app.chat.prompts import GATHER_SYSTEM_PROMPT, REFUSAL_ANSWER
+from app.chat.prompts import ASSESS_SYSTEM_PROMPT, REFUSAL_ANSWER
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
@@ -297,7 +297,7 @@ async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
     assert state["answer"] == REFUSAL_ANSWER
 
 
-def gather_fake(*turns: AIMessage) -> RecordingChatModel:
+def assess_fake(*turns: AIMessage) -> RecordingChatModel:
     return RecordingChatModel(messages=iter(list(turns)), usage=USAGE)
 
 
@@ -317,8 +317,8 @@ class TestGatherLoop:
     async def test_no_tool_calls_goes_straight_to_synthesize(
         self, loop_on, one_result, answer_model, monkeypatch
     ):
-        gather = gather_fake(AIMessage(content=""))
-        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+        assess = assess_fake(AIMessage(content=""))
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
         state = ChatState(question=QUESTION)
         state.refresh(await chat_graph.ainvoke(state))
@@ -326,18 +326,18 @@ class TestGatherLoop:
         assert state.answer == "Answered [1]."
         assert [r.node for r in state.nodes] == [
             ChatNode.RETRIEVE,
-            ChatNode.GATHER,
+            ChatNode.ASSESS,
             ChatNode.SYNTHESIZE,
         ]
 
     async def test_a_tool_round_merges_its_chunks_then_answers(
         self, loop_on, one_result, answer_model, monkeypatch
     ):
-        gather = gather_fake(
+        assess = assess_fake(
             tool_call_message("follow_reference", {"celex": "32023R1805", "article": "6"}),
             AIMessage(content=""),
         )
-        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
         async def fake_run_tool_call(session, call):
             assert call == ToolCall(
@@ -352,9 +352,9 @@ class TestGatherLoop:
 
         assert [r.node for r in state.nodes] == [
             ChatNode.RETRIEVE,
-            ChatNode.GATHER,
+            ChatNode.ASSESS,
             ChatNode.TOOLS,
-            ChatNode.GATHER,
+            ChatNode.ASSESS,
             ChatNode.SYNTHESIZE,
         ]
         assert tuple(chunk.id for chunk in state.sources) == (1, 42)
@@ -364,11 +364,11 @@ class TestGatherLoop:
         self, loop_on, one_result, answer_model, monkeypatch
     ):
         monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 1)
-        gather = gather_fake(
+        assess = assess_fake(
             tool_call_message("search", {"query": "first gap"}),
             tool_call_message("search", {"query": "never runs"}),
         )
-        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
         async def fake_run_tool_call(session, call):
             return (search_result(id=2),)
@@ -380,16 +380,16 @@ class TestGatherLoop:
 
         assert [r.node for r in state.nodes] == [
             ChatNode.RETRIEVE,
-            ChatNode.GATHER,
+            ChatNode.ASSESS,
             ChatNode.TOOLS,
             ChatNode.SYNTHESIZE,
         ]
 
-    async def test_each_gather_visit_records_its_own_usage(
+    async def test_each_assess_visit_records_its_own_usage(
         self, loop_on, one_result, answer_model, monkeypatch
     ):
-        gather = gather_fake(tool_call_message("search", {"query": "gap"}), AIMessage(content=""))
-        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+        assess = assess_fake(tool_call_message("search", {"query": "gap"}), AIMessage(content=""))
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
         async def fake_run_tool_call(session, call):
             return ()
@@ -399,21 +399,21 @@ class TestGatherLoop:
         state = ChatState(question=QUESTION)
         state.refresh(await chat_graph.ainvoke(state))
 
-        gathers = [r for r in state.nodes if r.node is ChatNode.GATHER]
-        assert len(gathers) == 2
-        assert all(r.input_tokens == USAGE["input_tokens"] for r in gathers)
+        assesses = [r for r in state.nodes if r.node is ChatNode.ASSESS]
+        assert len(assesses) == 2
+        assert all(r.input_tokens == USAGE["input_tokens"] for r in assesses)
 
-    async def test_gather_sees_the_question_and_numbered_context(
+    async def test_assess_sees_the_question_and_numbered_context(
         self, loop_on, one_result, answer_model, monkeypatch
     ):
-        gather = gather_fake(AIMessage(content=""))
-        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+        assess = assess_fake(AIMessage(content=""))
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
         state = ChatState(question=QUESTION)
         state.refresh(await chat_graph.ainvoke(state))
 
-        (prompt,) = gather.received
-        assert prompt[0].content == GATHER_SYSTEM_PROMPT
+        (prompt,) = assess.received
+        assert prompt[0].content == ASSESS_SYSTEM_PROMPT
         assert "[1] (32023R1805" in prompt[1].content
         assert str(prompt[1].content).endswith(f"Question: {QUESTION}")
 
@@ -431,13 +431,13 @@ class TestGatherLoop:
         assert state.answer == REFUSAL_ANSWER
         assert [r.node for r in state.nodes] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
 
-    async def test_a_persistently_failing_gather_call_still_synthesizes_from_the_context(
+    async def test_a_persistently_failing_assess_call_still_synthesizes_from_the_context(
         self, loop_on, one_result, answer_model, monkeypatch
     ):
         """A gather round is best-effort: it must never destroy a request that already
         has answerable context, even when the model keeps failing."""
-        gather = FailingModel(messages=iter([]), failures=10, usage=USAGE)
-        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+        assess = FailingModel(messages=iter([]), failures=10, usage=USAGE)
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
         state = ChatState(question=QUESTION)
         state.refresh(await chat_graph.ainvoke(state))
@@ -445,15 +445,15 @@ class TestGatherLoop:
         assert state.answer == "Answered [1]."
         assert [r.node for r in state.nodes] == [
             ChatNode.RETRIEVE,
-            ChatNode.GATHER,
+            ChatNode.ASSESS,
             ChatNode.SYNTHESIZE,
         ]
 
-    async def test_a_gather_turn_asking_for_more_than_the_cap_runs_only_the_cap(
+    async def test_an_assess_turn_asking_for_more_than_the_cap_runs_only_the_cap(
         self, loop_on, one_result, answer_model, monkeypatch
     ):
         monkeypatch.setattr(config, "GATHER_MAX_CALLS", 1)
-        gather = gather_fake(
+        assess = assess_fake(
             AIMessage(
                 content="",
                 tool_calls=[
@@ -463,7 +463,7 @@ class TestGatherLoop:
             ),
             AIMessage(content=""),
         )
-        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
         run_calls: list[ToolCall] = []
 

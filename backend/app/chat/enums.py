@@ -7,7 +7,7 @@ class ChatNode(StrEnum):
     """The graph's nodes, as astream keys their updates."""
 
     RETRIEVE = "retrieve"
-    GATHER = "gather"
+    ASSESS = "assess"
     TOOLS = "tools"
     SYNTHESIZE = "synthesize"
     REFUSE = "refuse"

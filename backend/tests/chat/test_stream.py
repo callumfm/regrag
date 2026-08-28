@@ -175,7 +175,7 @@ def one_result(monkeypatch):
 
 class ToolCallStreamingModel(RecordingChatModel):
     """Streams tool calls as litellm's real chunks do; the base fake's `_stream` only
-    carries content, so a gather call driven through the messages stream would lose them."""
+    carries content, so an assess call driven through the messages stream would lose them."""
 
     def _stream(self, messages, *args, **kwargs):
         message = self._generate(messages, *args, **kwargs).generations[0].message
@@ -209,11 +209,11 @@ class TestLoopStreaming:
 
     @pytest.fixture
     def one_gather_round(self, monkeypatch):
-        gather = ToolCallStreamingModel(
+        assess = ToolCallStreamingModel(
             messages=iter([tool_call_message("search", {"query": "gap"}), AIMessage(content="")]),
             usage=USAGE,
         )
-        monkeypatch.setattr("app.chat.graph.gather_model", lambda: gather)
+        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
 
         async def fake_run_tool_call(session, call):
             return (search_result(id=2, citation="Article 5(1)"),)
@@ -234,7 +234,7 @@ class TestLoopStreaming:
             next(e for e in events if isinstance(e, TextEvent))
         )
 
-    async def test_gather_turns_leak_no_text_events(
+    async def test_assess_turns_leak_no_text_events(
         self, loop_on, one_result, one_gather_round, monkeypatch
     ):
         monkeypatch.setattr("app.chat.graph.chat_model", lambda: fake_chat_model("The answer [1]."))

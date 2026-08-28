@@ -49,7 +49,7 @@ def fake_chat_model(answer: str = "Ships must comply [1].") -> RecordingChatMode
 
 
 def tool_call_message(name: str, args: dict) -> AIMessage:
-    """A gather turn asking for one tool, shaped as litellm parses provider tool calls."""
+    """An assess turn asking for one tool, shaped as litellm parses provider tool calls."""
     return AIMessage(
         content="", tool_calls=[{"name": name, "args": args, "id": "call_1", "type": "tool_call"}]
     )
@@ -95,7 +95,7 @@ def no_section_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def no_gather_loop(monkeypatch: pytest.MonkeyPatch) -> None:
     """The loop is off by default so every pre-loop test keeps meaning exactly what it
-    said; a loop test switches it on and fakes gather_model itself."""
+    said; a loop test switches it on and fakes assess_model itself."""
     monkeypatch.setattr(config, "GATHER_MAX_ROUNDS", 0)
 
 

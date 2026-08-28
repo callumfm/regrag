@@ -1,4 +1,4 @@
-"""Chat graph: retrieve corpus context, run the gather ⇄ tools loop, then synthesize a
+"""Chat graph: retrieve corpus context, run the assess ⇄ tools loop, then synthesize a
 cited answer — or refuse, before any model call, a question the corpus does not cover."""
 
 import functools
@@ -16,10 +16,10 @@ from langgraph.graph.state import CompiledStateGraph
 from app.chat.enums import ChatNode
 from app.chat.models import ChatNodeResult, ChatState, ToolCall, merge_sources
 from app.chat.prompts import (
-    GATHER_SYSTEM_PROMPT,
+    ASSESS_SYSTEM_PROMPT,
     REFUSAL_ANSWER,
     SYSTEM_PROMPT,
-    build_gather_message,
+    build_assess_message,
     build_user_message,
 )
 from app.chat.tools import run_tool_call, tool_definitions
@@ -117,8 +117,8 @@ async def refuse(state: ChatState) -> dict[str, Any]:
     return {"answer": REFUSAL_ANSWER}
 
 
-def gather_model() -> Runnable:
-    """The chat model as gather calls it: one blocking turn, the tool surface bound."""
+def assess_model() -> Runnable:
+    """The chat model as assess calls it: one blocking turn, the tool surface bound."""
     model = ChatLiteLLM(
         model=config.CHAT_MODEL,
         api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
@@ -129,15 +129,15 @@ def gather_model() -> Runnable:
 
 
 @llm_retry
-@wrap_provider_errors("gather call")
-async def call_gather_model(state: ChatState) -> dict[str, Any]:
+@wrap_provider_errors("assess call")
+async def call_assess_model(state: ChatState) -> dict[str, Any]:
     """One model turn asking what would fill the gaps in the context, capped to the
     calls a round may run — the rest dropped before state or the ledger sees them."""
     messages = [
-        SystemMessage(GATHER_SYSTEM_PROMPT),
-        HumanMessage(build_gather_message(state.question, state.sources)),
+        SystemMessage(ASSESS_SYSTEM_PROMPT),
+        HumanMessage(build_assess_message(state.question, state.sources)),
     ]
-    response = await gather_model().ainvoke(messages)
+    response = await assess_model().ainvoke(messages)
     calls = tuple(
         ToolCall(name=c["name"], args=c["args"])
         for c in response.tool_calls[: config.GATHER_MAX_CALLS]
@@ -146,16 +146,16 @@ async def call_gather_model(state: ChatState) -> dict[str, Any]:
 
 
 @traced
-async def gather(state: ChatState) -> dict[str, Any]:
+async def assess(state: ChatState) -> dict[str, Any]:
     """One review of the context: the calls that would fill what is missing, or none
     when it suffices. Stateless per round — the grown context is the loop's memory.
 
-    A gather call that keeps failing does not fail the request: the loop is best-effort,
+    An assess call that keeps failing does not fail the request: the loop is best-effort,
     so a request with answerable context already gathered still reaches synthesize."""
     try:
-        return await call_gather_model(state)
+        return await call_assess_model(state)
     except LLMError as exc:
-        logger.warning("gather call failed, settling for the context gathered so far: %s", exc)
+        logger.warning("assess call failed, settling for the context gathered so far: %s", exc)
         return {"pending_calls": ()}
 
 
@@ -176,42 +176,42 @@ async def tools(state: ChatState) -> dict[str, Any]:
     return {"sources": merge_sources(state.sources, fetched, cap=cap), "pending_calls": ()}
 
 
-def gather_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
-    """After retrieve: refuse for want of context, else gather — unless the loop is off."""
+def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
+    """After retrieve: refuse for want of context, else assess — unless the loop is off."""
     if not state.sources:
         return ChatNode.REFUSE
-    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.GATHER
+    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
 
 
 def tools_or_synthesize(state: ChatState) -> ChatNode:
-    """After gather: run what it asked for, or answer when it asked for nothing."""
+    """After assess: run what it asked for, or answer when it asked for nothing."""
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.TOOLS
 
 
-def gather_or_synthesize(state: ChatState) -> ChatNode:
+def assess_or_synthesize(state: ChatState) -> ChatNode:
     """After tools: review again while budget remains, else answer with what there is."""
-    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.GATHER
+    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:
-    """The compiled retrieve → (gather ⇄ tools) → (synthesize | refuse) graph."""
+    """The compiled retrieve → (assess ⇄ tools) → (synthesize | refuse) graph."""
     graph = StateGraph(ChatState)
     graph.add_node(ChatNode.RETRIEVE, retrieve)
-    graph.add_node(ChatNode.GATHER, gather)
+    graph.add_node(ChatNode.ASSESS, assess)
     graph.add_node(ChatNode.TOOLS, tools)
     graph.add_node(ChatNode.SYNTHESIZE, synthesize)
     graph.add_node(ChatNode.REFUSE, refuse)
     graph.add_edge(START, ChatNode.RETRIEVE)
     graph.add_conditional_edges(
         ChatNode.RETRIEVE,
-        gather_or_synthesize_or_refuse,
-        [ChatNode.GATHER, ChatNode.SYNTHESIZE, ChatNode.REFUSE],
+        assess_or_synthesize_or_refuse,
+        [ChatNode.ASSESS, ChatNode.SYNTHESIZE, ChatNode.REFUSE],
     )
     graph.add_conditional_edges(
-        ChatNode.GATHER, tools_or_synthesize, [ChatNode.TOOLS, ChatNode.SYNTHESIZE]
+        ChatNode.ASSESS, tools_or_synthesize, [ChatNode.TOOLS, ChatNode.SYNTHESIZE]
     )
     graph.add_conditional_edges(
-        ChatNode.TOOLS, gather_or_synthesize, [ChatNode.GATHER, ChatNode.SYNTHESIZE]
+        ChatNode.TOOLS, assess_or_synthesize, [ChatNode.ASSESS, ChatNode.SYNTHESIZE]
     )
     graph.add_edge(ChatNode.SYNTHESIZE, END)
     graph.add_edge(ChatNode.REFUSE, END)

@@ -38,7 +38,7 @@ def build_user_message(question: str, sources: Sequence[RetrievedChunk]) -> str:
     return f"Context:\n\n{format_context(sources)}\n\nQuestion: {question}"
 
 
-GATHER_SYSTEM_PROMPT = (
+ASSESS_SYSTEM_PROMPT = (
     "You decide what RegRag, an assistant answering questions about EU maritime "
     "regulation, still needs to read before answering. You are shown a question and "
     "the numbered context blocks retrieved so far; each block may list what it cites. "
@@ -64,8 +64,8 @@ def _reference_addresses(source: RetrievedChunk) -> list[str]:
     return addresses
 
 
-def format_gather_context(sources: Sequence[RetrievedChunk]) -> str:
-    """The numbered blocks as gather sees them: each with the addresses it cites."""
+def format_assess_context(sources: Sequence[RetrievedChunk]) -> str:
+    """The numbered blocks as assess sees them: each with the addresses it cites."""
     blocks = []
     for marker, source in enumerate(sources, start=1):
         block = f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
@@ -75,6 +75,6 @@ def format_gather_context(sources: Sequence[RetrievedChunk]) -> str:
     return "\n\n".join(blocks)
 
 
-def build_gather_message(question: str, sources: Sequence[RetrievedChunk]) -> str:
-    """The full gather turn: context blocks with their citations, then the question."""
-    return f"Context:\n\n{format_gather_context(sources)}\n\nQuestion: {question}"
+def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> str:
+    """The full assess turn: context blocks with their citations, then the question."""
+    return f"Context:\n\n{format_assess_context(sources)}\n\nQuestion: {question}"

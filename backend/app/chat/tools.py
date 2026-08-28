@@ -91,15 +91,15 @@ async def run_tool_call(session: AsyncSession, call: ToolCall) -> tuple[Retrieve
     nothing, never an error — the loop is best-effort and a bad call adds nothing."""
     spec = TOOL_SURFACE.get(call.name)
     if spec is None:
-        logger.warning("gather called unknown tool %s", call.name)
+        logger.warning("assess called unknown tool %s", call.name)
         return ()
     args_model, run, _ = spec
     try:
         args = args_model.model_validate(call.args)
         return await run(session, args)
     except ValidationError:
-        logger.warning("gather called %s with invalid arguments", call.name)
+        logger.warning("assess called %s with invalid arguments", call.name)
         return ()
     except (LLMError, SQLAlchemyError) as exc:
-        logger.warning("gather call to %s failed: %s", call.name, exc)
+        logger.warning("assess call to %s failed: %s", call.name, exc)
         return ()

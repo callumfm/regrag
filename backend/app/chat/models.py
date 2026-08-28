@@ -43,7 +43,7 @@ class ChatNodeResult(FrozenModel):
 
 
 class ToolCall(FrozenModel):
-    """One tool call gather asked for, as litellm reports it: the tool, and its arguments."""
+    """One tool call assess asked for, as litellm reports it: the tool, and its arguments."""
 
     name: str
     args: dict[str, Any] = {}
@@ -74,7 +74,7 @@ class ChatState(AppModel):
     tool loop will visit a node more than once.
     hits: what search returned, before the gate and before expansion, kept through a refusal.
     sources: the context blocks that reached the prompt, which the [n] markers number.
-    pending_calls: the tool calls gather asked for, not yet executed.
+    pending_calls: the tool calls assess asked for, not yet executed.
     """
 
     question: str
@@ -124,11 +124,11 @@ class ChatState(AppModel):
     @property
     def context_settled(self) -> bool:
         """Whether the context is final: retrieval ended with the loop off or the gate
-        shut, gather asked for nothing, or the last round consumed the budget."""
+        shut, assess asked for nothing, or the last round consumed the budget."""
         match self.last_node:
             case ChatNode.RETRIEVE:
                 return not self.sources or config.GATHER_MAX_ROUNDS == 0
-            case ChatNode.GATHER:
+            case ChatNode.ASSESS:
                 return not self.pending_calls
             case ChatNode.TOOLS:
                 return self.tool_rounds() >= config.GATHER_MAX_ROUNDS
