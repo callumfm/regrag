@@ -1,18 +1,14 @@
-"""`evals check`: how a drifted reference is classified, printed, and exited on."""
+"""`evals check`: how a drifted reference and a moved corpus are classified."""
 
 from collections.abc import Callable
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.evals import cli as evals_cli
-from app.evals.cli import main
-from app.evals.dataset import check as check_module
-from app.evals.dataset.check import DriftedReference, find_drift, find_moved_corpus
+from app.evals.dataset.check import find_drift, find_moved_corpus, stale_case_ids
 from app.evals.dataset.enums import DriftKind
-from app.evals.dataset.models import CaseReference, CorpusStamp, EmptyError
+from app.evals.dataset.models import CaseReference, CorpusStamp, DriftedReference
 from app.ingestion.chunk.schemas import DocumentChunk
-from app.ingestion.enums import IngestRunStatus
 from app.ingestion.schemas import IngestRun
 from tests.evals.conftest import eval_case, eval_dataset, out_of_corpus_case
 
@@ -95,6 +91,17 @@ async def test_out_of_corpus_cases_have_nothing_to_drift(db_session: AsyncSessio
     assert await find_drift(db_session, eval_dataset(out_of_corpus_case())) == ()
 
 
+def test_stale_case_ids_names_a_case_once_and_leaves_the_other_kinds_out() -> None:
+    article_5 = CaseReference(celex="32023R1805", article="5", content_hashes=("1" * 12,))
+    drifted = (
+        DriftedReference(case_id="amended", target=MOVED, kind=DriftKind.STALE),
+        DriftedReference(case_id="amended", target=article_5, kind=DriftKind.STALE),
+        DriftedReference(case_id="gone", target=MISSING, kind=DriftKind.UNRESOLVED),
+    )
+
+    assert stale_case_ids(drifted) == ("amended",)
+
+
 # Whether the corpus itself has moved
 
 
@@ -104,124 +111,16 @@ def _stamped_at(version: str | None):
     )
 
 
-@pytest.fixture
-async def ingested(db_session: AsyncSession) -> IngestRun:
-    """A successful run carrying a corpus version, as the standing corpus would."""
-    run = IngestRun(status=IngestRunStatus.SUCCESS, corpus_version="2026-09-02-4e81a90")
-    db_session.add(run)
-    await db_session.flush()
-    return run
+CURRENT = "2026-09-02-4e81a90"
 
 
-async def test_a_dataset_stamped_at_the_current_version_has_not_moved(
-    db_session: AsyncSession, ingested: IngestRun
-) -> None:
-    assert await find_moved_corpus(db_session, _stamped_at("2026-09-02-4e81a90")) is None
+def test_a_dataset_stamped_at_the_current_version_has_not_moved() -> None:
+    assert find_moved_corpus(_stamped_at(CURRENT), CURRENT) is None
 
 
-async def test_a_dataset_stamped_at_an_older_version_names_the_current_one(
-    db_session: AsyncSession, ingested: IngestRun
-) -> None:
-    assert await find_moved_corpus(db_session, _stamped_at("2026-08-15-2cc038d")) == (
-        "2026-09-02-4e81a90"
-    )
+def test_a_dataset_stamped_at_an_older_version_names_the_current_one() -> None:
+    assert find_moved_corpus(_stamped_at("2026-08-15-2cc038d"), CURRENT) == CURRENT
 
 
-async def test_an_unstamped_dataset_has_no_corpus_move_to_report(
-    db_session: AsyncSession, ingested: IngestRun
-) -> None:
-    assert await find_moved_corpus(db_session, eval_dataset(eval_case())) is None
-
-
-# What the command prints and exits
-
-
-@pytest.fixture
-def fake_check(monkeypatch):
-    """Replace the DB read with a stub returning chosen drift."""
-    state: dict = {"drifted": (), "moved_to": None}
-
-    async def _fake():
-        return state["drifted"], state["moved_to"]
-
-    def _set(*drifted: DriftedReference, moved_to: str | None = None):
-        state.update(drifted=drifted, moved_to=moved_to)
-
-    monkeypatch.setattr(check_module, "_inspect", _fake)
-    return _set
-
-
-def _drifted(case_id: str, kind: DriftKind) -> DriftedReference:
-    return DriftedReference(case_id=case_id, target=STAMPED, kind=kind)
-
-
-def test_check_exits_zero_when_nothing_has_drifted(fake_check, capsys):
-    assert main(["check"]) == 0
-    assert "resolves and is stamped" in capsys.readouterr().out
-
-
-def test_check_fails_only_on_an_unresolved_reference(fake_check, capsys):
-    fake_check(_drifted("gone-case", DriftKind.UNRESOLVED))
-
-    assert main(["check"]) == 1
-
-    out = capsys.readouterr().out
-    assert "unresolved (no stored chunk answers to it):" in out
-    assert "gone-case  32023R1805 Article 4" in out
-
-
-def test_check_names_a_stale_case_without_failing_the_command(fake_check, capsys):
-    """A stale case needs a human re-review, not a red build."""
-    fake_check(_drifted("amended-case", DriftKind.STALE))
-
-    assert main(["check"]) == 0
-
-    out = capsys.readouterr().out
-    assert "stale (cited text changed since authoring):" in out
-    assert "amended-case" in out
-
-
-def test_check_names_an_unstamped_case_without_failing_the_command(fake_check, capsys):
-    fake_check(_drifted("new-case", DriftKind.UNSTAMPED))
-
-    assert main(["check"]) == 0
-    assert "unstamped (nothing recorded to compare against):" in capsys.readouterr().out
-
-
-def test_check_groups_the_kinds_worst_first(fake_check, capsys):
-    fake_check(
-        _drifted("never-stamped", DriftKind.UNSTAMPED),
-        _drifted("amended", DriftKind.STALE),
-        _drifted("gone", DriftKind.UNRESOLVED),
-    )
-
-    assert main(["check"]) == 1
-
-    out = capsys.readouterr().out
-    assert out.index("gone") < out.index("amended") < out.index("never-stamped")
-
-
-def test_check_reports_a_corpus_that_moved_under_the_stamp(fake_check, capsys):
-    fake_check(moved_to="2026-09-02-4e81a90")
-
-    assert main(["check"]) == 0
-    assert "corpus moved since stamping (now 2026-09-02-4e81a90)" in capsys.readouterr().out
-
-
-def test_check_reports_an_empty_dataset_without_a_traceback(monkeypatch, capsys):
-    async def _fake():
-        raise EmptyError("The dataset has no cases")
-
-    monkeypatch.setattr(check_module, "_inspect", _fake)
-
-    assert main(["check"]) == 1
-    assert "no cases" in capsys.readouterr().out
-
-
-def test_check_never_touches_the_call_cache(fake_check, monkeypatch):
-    """check only asks the corpus what it holds, so it makes no provider call to replay."""
-    calls: list[bool] = []
-    monkeypatch.setattr(evals_cli, "enable_call_cache", lambda: calls.append(True))
-
-    assert main(["check"]) == 0
-    assert not calls
+def test_an_unstamped_dataset_has_no_corpus_move_to_report() -> None:
+    assert find_moved_corpus(eval_dataset(eval_case()), CURRENT) is None

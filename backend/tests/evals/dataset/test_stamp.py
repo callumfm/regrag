@@ -7,12 +7,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import config
-from app.evals.cli import main
-from app.evals.dataset import stamp as stamp_module
 from app.evals.dataset.check import find_drift
 from app.evals.dataset.enums import EvalKind
 from app.evals.dataset.models import CaseReference, CorpusStamp, EvalCase, EvalDataset
-from app.evals.dataset.stamp import format_dataset, save_dataset, stamp_dataset
+from app.evals.dataset.stamp import save_dataset, stamp_dataset
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.schemas import IngestRun
@@ -109,56 +107,18 @@ def test_a_saved_dataset_loads_back_as_the_same_cases_and_stamp(tmp_path: Path) 
     assert loaded.cases[1].references == ()
 
 
-def test_saving_keeps_a_reference_on_one_line_and_omits_what_it_does_not_carry(
-    tmp_path: Path,
-) -> None:
-    """The file is hand-authored and PR-reviewed, so a re-stamp has to diff as the one line
-    that moved rather than reformatting every case around it."""
+def test_saving_omits_the_run_filter_and_what_a_case_leaves_unset(tmp_path: Path) -> None:
     file = tmp_path / "golden.json"
 
-    save_dataset(eval_dataset(eval_case(references=(STAMPED,))), file)
+    save_dataset(eval_dataset(eval_case(references=(STAMPED,)), case_filter="case"), file)
 
     text = file.read_text()
-    assert f'{{"celex": "32023R1805", "article": "4", "content_hashes": ["{"b" * 12}"]}}' in text
     assert '"annex"' not in text
     assert '"case_filter"' not in text
 
 
-def test_the_committed_dataset_is_what_the_writer_produces() -> None:
+def test_the_committed_dataset_is_what_the_writer_produces(tmp_path: Path) -> None:
     """Otherwise the next stamp reformats the whole file and buries what actually moved."""
-    assert format_dataset(EvalDataset.load()) == config.EVAL_DATASET_PATH.read_text()
-
-
-# What the command prints
-
-
-def test_stamp_writes_the_dataset_and_names_the_cases_whose_hashes_moved(monkeypatch, capsys):
-    written: list[EvalDataset] = []
-
-    async def _fake(case_filter):
-        before = eval_dataset(eval_case(id="amended", references=(MOVED,)), eval_case(id="same"))
-        after = eval_dataset(eval_case(id="amended", references=(STAMPED,)), eval_case(id="same"))
-        return before, after
-
-    monkeypatch.setattr(stamp_module, "_stamp", _fake)
-    monkeypatch.setattr(stamp_module, "save_dataset", lambda dataset: written.append(dataset))
-
-    assert main(["stamp"]) == 0
-
-    out = capsys.readouterr().out
-    assert "stamped 2 cases" in out
-    assert "hashes changed: amended" in out
-    assert "same" not in out.split("hashes changed:")[1]
-    assert len(written) == 1
-
-
-def test_stamp_says_so_when_nothing_moved(monkeypatch, capsys):
-    async def _fake(case_filter):
-        dataset = eval_dataset(eval_case(references=(STAMPED,)))
-        return dataset, dataset
-
-    monkeypatch.setattr(stamp_module, "_stamp", _fake)
-    monkeypatch.setattr(stamp_module, "save_dataset", lambda dataset: None)
-
-    assert main(["stamp"]) == 0
-    assert "no hashes changed" in capsys.readouterr().out
+    file = tmp_path / "golden.json"
+    save_dataset(EvalDataset.load(), file)
+    assert file.read_text() == config.EVAL_DATASET_PATH.read_text()

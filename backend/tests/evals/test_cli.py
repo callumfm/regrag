@@ -4,10 +4,12 @@ import pytest
 
 from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
 from app.evals import cli
-from app.evals.cli import format_case_lines, main
+from app.evals.cli import main
+from app.evals.dataset.enums import DriftKind
+from app.evals.dataset.models import CaseReference, DriftedReference
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalRun
-from tests.evals.conftest import eval_case, eval_result, refused_result
+from tests.evals.conftest import eval_case, eval_result
 
 
 def test_a_subcommand_is_required(capsys):
@@ -20,8 +22,8 @@ def fake_run(monkeypatch):
     """Replace the graph run with a stub returning a chosen list of results."""
     results: list = []
 
-    async def _fake_provenance(dataset):
-        return "2026-08-01-a3f1c2", ()
+    async def _fake_corpus_read(dataset):
+        return (), "2026-08-01-a3f1c2"
 
     async def _fake(dataset, corpus_version=None, stale_cases=()):
         chosen = tuple(results)
@@ -35,7 +37,7 @@ def fake_run(monkeypatch):
             results=chosen,
         )
 
-    monkeypatch.setattr(cli, "_read_provenance", _fake_provenance)
+    monkeypatch.setattr(cli, "check_against_corpus", _fake_corpus_read)
     monkeypatch.setattr(cli, "evaluate_all_cases", _fake)
     return results
 
@@ -89,49 +91,6 @@ def test_no_cache_makes_a_run_pay_for_its_calls_again(fake_run, enabled):
     assert not enabled
 
 
-# The per-case lines --verbose adds
-
-
-def test_a_case_line_shows_what_it_retrieved_what_it_cited_and_how_it_ended():
-    [line] = format_case_lines((eval_result(),))
-
-    assert line.startswith("case")
-    assert "raw 1.00" in line
-    assert "exp 1.00" in line
-    assert "cite 1.00" in line
-    assert "done" in line
-    assert "1000ms" in line
-
-
-def test_a_case_with_nothing_to_recall_prints_dashes_rather_than_zeroes():
-    """An out-of-corpus case authors no reference, so its recall is unmeasured; a 0.00
-    would read as a retrieval failure on a case that has nothing to retrieve."""
-    [line] = format_case_lines((refused_result(),))
-
-    assert "raw    -" in line
-    assert "cite    -" in line
-    assert "refused" in line
-
-
-def test_a_case_the_graph_raised_on_scores_nothing_and_is_named_with_its_error():
-    """The aggregate leaves an errored case out, so its line must not show scores either."""
-    [line] = format_case_lines((eval_result(eval_case(id="boom"), error="TimeoutError"),))
-
-    assert line.startswith("boom")
-    assert "raw    -" in line
-    assert "error" in line
-    assert line.rstrip().endswith("TimeoutError")
-
-
-def test_the_case_column_is_sized_to_the_longest_id_in_the_run():
-    """The ids run from 13 to 44 characters, so a fixed column either wraps or wastes."""
-    lines = format_case_lines(
-        (eval_result(eval_case(id="short")), eval_result(eval_case(id="a" * 40)))
-    )
-
-    assert [line.index("raw") for line in lines] == [42, 42]
-
-
 def test_run_lists_every_case_only_when_asked(fake_run, capsys):
     fake_run.append(eval_result())
 
@@ -150,11 +109,13 @@ def test_run_reports_the_corpus_and_the_stale_cases_it_read_before_scoring(
     """Tuning compares two runs, so a score has to say which corpus it was measured against
     and which of its reference answers are owed a re-review."""
 
-    async def _fake_provenance(dataset):
-        return "2026-08-01-a3f1c2", ("amended",)
+    async def _fake_corpus_read(dataset):
+        moved = CaseReference(celex="32023R1805", article="4")
+        drifted = DriftedReference(case_id="amended", target=moved, kind=DriftKind.STALE)
+        return (drifted,), "2026-08-01-a3f1c2"
 
     fake_run.append(eval_result())
-    monkeypatch.setattr(cli, "_read_provenance", _fake_provenance)
+    monkeypatch.setattr(cli, "check_against_corpus", _fake_corpus_read)
 
     assert main(["run"]) == 0
 

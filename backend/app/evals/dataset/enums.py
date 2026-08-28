@@ -13,9 +13,9 @@ class EvalKind(StrEnum):
 class DriftKind(StrEnum):
     """How far a case reference has come adrift of the corpus it was authored against.
 
-    UNRESOLVED is hard drift, which a run scores as a retrieval miss; STALE is soft drift,
-    which a run scores green against an answer that may no longer be right; UNSTAMPED is
-    neither, but it is a reference drift cannot be seen on at all.
+    UNRESOLVED: hard drift — no stored chunk answers to it, so a run scores a retrieval miss.
+    STALE: soft drift — the cited text changed, so a run scores green against an unreviewed answer.
+    UNSTAMPED: nothing recorded to compare against, so drift cannot be seen on it at all.
     """
 
     UNRESOLVED = "unresolved"

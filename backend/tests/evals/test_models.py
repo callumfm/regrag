@@ -8,7 +8,7 @@ from app.evals.models import EvalRun
 from tests.evals.conftest import eval_case, eval_result
 
 
-def test_the_summary_carries_provenance_and_scores_then_names_the_cases_that_raised() -> None:
+def test_the_summary_carries_the_runs_setup_and_scores_then_names_the_cases_that_raised() -> None:
     results = (eval_result(), eval_result(eval_case(id="boom"), error="TimeoutError"))
     run = EvalRun(
         dataset_sha="abc",

@@ -9,24 +9,26 @@ from pydantic import model_validator
 
 from app.core.config import config
 from app.core.models import FrozenModel
-from app.evals.dataset.enums import EvalKind
+from app.evals.dataset.enums import DriftKind, EvalKind
 from app.retrieval.models import ReferenceTarget
 
-STAMP_LENGTH = 12
-"""How much of a chunk's content hash a stamp carries. Short enough to read in a diff, long
-enough that two chunks of one corpus cannot collide."""
-
-SCORED_ONLY = {"cases": {"__all__": {"references": {"__all__": {"content_hashes"}}}}}
-"""The stamps, excluded from the dataset hash: provenance, not anything a run scores."""
+STAMP_FIELDS = {"cases": {"__all__": {"references": {"__all__": {"content_hashes"}}}}}
+"""The stamps, excluded from the dataset hash: they record the corpus, not anything a run scores."""
 
 
 class CaseReference(ReferenceTarget):
     """A cited division, stamped with the chunks that covered it when the case was authored.
-
-    No hashes means unstamped, which is the different fact from stamped and unchanged.
-    """
+    No hashes means unstamped, which is a different fact from stamped and unchanged."""
 
     content_hashes: tuple[str, ...] = ()
+
+
+class DriftedReference(FrozenModel):
+    """A case reference the corpus no longer answers to as it did when the case was authored."""
+
+    case_id: str
+    target: CaseReference
+    kind: DriftKind
 
 
 class CorpusStamp(FrozenModel):
@@ -57,7 +59,7 @@ class EvalCase(FrozenModel):
         return self
 
 
-class EmptyError(ValueError):
+class EmptyDatasetError(ValueError):
     """A dataset load that selected no cases."""
 
 
@@ -65,8 +67,8 @@ class EvalDataset(FrozenModel):
     """The golden dataset: every authored case, the corpus stamp they share, and the filter
     naming the subset a run scores."""
 
-    cases: tuple[EvalCase, ...]
     corpus: CorpusStamp | None = None
+    cases: tuple[EvalCase, ...]
     case_filter: str | None = None
     """Chosen per run rather than read from the file, so it is not written back out."""
 
@@ -77,11 +79,11 @@ class EvalDataset(FrozenModel):
         """Read and validate the JSON file at path."""
         dataset = cls.model_validate_json(path.read_bytes())
         if not dataset.cases:
-            raise EmptyError("The dataset has no cases")
+            raise EmptyDatasetError("The dataset has no cases")
 
         dataset = dataset.model_copy(update={"case_filter": case_filter})
         if not dataset.selected_cases:
-            raise EmptyError(f"No cases found matching filter: {case_filter}")
+            raise EmptyDatasetError(f"No cases found matching filter: {case_filter}")
         return dataset
 
     @property
@@ -93,13 +95,9 @@ class EvalDataset(FrozenModel):
 
     @property
     def sha256(self) -> str:
-        """Hash of what the cases assert, as canonical JSON — the whole dataset however a run
-        filters it, so a filtered spot-check still names the file a full run scored.
-
-        Stamps are left out: re-stamping records which text an answer was read against and
-        changes nothing a run scores, so it must not break comparability with past runs.
-        """
-        scored = self.model_dump_json(include={"cases"}, exclude=SCORED_ONLY)
+        """Hash of what the cases assert — the whole dataset however a run filters it, with
+        the stamps left out so a re-stamp cannot break comparability with past runs."""
+        scored = self.model_dump_json(include={"cases"}, exclude=STAMP_FIELDS)
         return hashlib.sha256(scored.encode()).hexdigest()
 
     @model_validator(mode="after")

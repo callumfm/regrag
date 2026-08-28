@@ -221,7 +221,7 @@ class EvalConfig(BaseConfig):
 
     EVAL_DATASET_PATH: the golden dataset, authored cases versioned as JSON in the repo.
     EVAL_CACHE_DIR: where repeated runs replay their embed and rerank calls from. Here
-        rather than in RetrievalConfig, which a run records whole as its provenance: a
+        rather than in RetrievalConfig, which a run records whole in its settings: a
         cache hit answers exactly as a miss would, so it is not a setting a run compares on.
     """
 

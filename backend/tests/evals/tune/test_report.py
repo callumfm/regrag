@@ -60,16 +60,16 @@ def test_deltas_are_read_against_the_baseline() -> None:
     assert "+2.9" in table
 
 
-def test_the_footer_names_every_tunable_baseline_value_and_the_provenance() -> None:
+def test_the_footer_names_every_tunable_baseline_value_and_the_run_line() -> None:
     table = format_tune_table(tune_run())
-    baseline, provenance = table.splitlines()[-2:]
+    baseline, run_line = table.splitlines()[-2:]
 
     assert baseline.startswith("baseline:")
     assert "CHAT_SOURCES=" in baseline
     assert "MIN_COSINE_SIMILARITY=" in baseline
-    assert provenance.startswith("run:")
-    assert "dataset_sha=aaaaaaaaaaaa" in provenance
-    assert "cached=False" in provenance
+    assert run_line.startswith("run:")
+    assert "dataset_sha=aaaaaaaaaaaa" in run_line
+    assert "cached=False" in run_line
 
 
 def test_a_gated_row_names_the_companions_it_ran_with() -> None:

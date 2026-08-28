@@ -7,7 +7,13 @@ import pytest
 from pydantic import ValidationError
 
 from app.evals.dataset.enums import EvalKind
-from app.evals.dataset.models import CaseReference, CorpusStamp, EmptyError, EvalCase, EvalDataset
+from app.evals.dataset.models import (
+    CaseReference,
+    CorpusStamp,
+    EmptyDatasetError,
+    EvalCase,
+    EvalDataset,
+)
 from app.evals.dataset.stamp import save_dataset
 from tests.evals.conftest import REFERENCE, eval_case, eval_dataset
 
@@ -65,7 +71,7 @@ def test_the_hash_ignores_the_corpus_stamp() -> None:
 
 
 def test_the_hash_still_follows_which_division_a_case_cites() -> None:
-    """Only the stamp is provenance; the target itself is part of what the case asserts."""
+    """Only the stamp records the corpus; the target itself is part of what the case asserts."""
     elsewhere = CaseReference(celex="32023R1805", article="9")
 
     assert (
@@ -96,19 +102,19 @@ def test_load_filters_cases_by_id_and_records_the_filter(tmp_path: Path) -> None
 def test_load_names_a_filter_that_matches_nothing(tmp_path: Path) -> None:
     file = _write_dataset(tmp_path / "golden.json", eval_case(id="fueleu-one"))
 
-    with pytest.raises(EmptyError, match="nothing-here"):
+    with pytest.raises(EmptyDatasetError, match="nothing-here"):
         EvalDataset.load(file, case_filter="nothing-here")
 
 
 def test_load_refuses_a_dataset_with_no_cases(tmp_path: Path) -> None:
     file = _write_dataset(tmp_path / "golden.json")
 
-    with pytest.raises(EmptyError, match="no cases"):
+    with pytest.raises(EmptyDatasetError, match="no cases"):
         EvalDataset.load(file)
 
 
 def test_the_hash_names_the_file_not_the_subset_scored(tmp_path: Path) -> None:
-    """Provenance compares a filtered spot-check against a full run of the same file."""
+    """The hash compares a filtered spot-check against a full run of the same file."""
     file = _write_dataset(
         tmp_path / "golden.json", eval_case(id="fueleu-one"), eval_case(id="mrv-one")
     )

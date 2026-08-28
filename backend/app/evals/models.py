@@ -77,7 +77,7 @@ class EvalRun(FrozenModel):
     results: tuple[EvalResult, ...]
 
     def summary(self) -> str:
-        """The provenance and scores as JSON, then any case owed a re-review, then any case
+        """The run's setup and scores as JSON, then any case owed a re-review, then any case
         the graph raised on. A stale case is reported, never failed: only a human can repair
         one, so the run stays green and says what needs reading."""
         blocks = [

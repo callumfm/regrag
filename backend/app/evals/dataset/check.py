@@ -1,38 +1,16 @@
-"""`evals check`: how far the dataset has come adrift of the corpus it was authored against."""
-
-import asyncio
+"""Dataset drift: how far it has come adrift of the corpus it was authored against."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.session import get_session
-from app.core.models import FrozenModel
 from app.evals.dataset.enums import DriftKind
-from app.evals.dataset.models import STAMP_LENGTH, CaseReference, EvalDataset
+from app.evals.dataset.models import CaseReference, DriftedReference, EvalDataset
+from app.evals.dataset.stamp import current_stamp
 from app.ingestion.service import get_latest_corpus_version
-from app.retrieval.follow import division_content_hashes
-
-
-class DriftedReference(FrozenModel):
-    """A case reference the corpus no longer answers to as it did when the case was authored."""
-
-    case_id: str
-    target: CaseReference
-    kind: DriftKind
-
-
-async def current_stamp(session: AsyncSession, target: CaseReference) -> tuple[str, ...]:
-    """What the cited division hashes to now, cut to the length a stamp records."""
-    hashes = await division_content_hashes(session, target)
-    return tuple(digest[:STAMP_LENGTH] for digest in hashes)
 
 
 async def find_drift(session: AsyncSession, dataset: EvalDataset) -> tuple[DriftedReference, ...]:
-    """Every case reference the corpus has moved out from under, by how it moved.
-
-    One read per reference answers all three: a division nothing covers is unresolved, one
-    the case never recorded is unstamped, and one hashing to something other than what was
-    recorded is stale — the amendment that still retrieves cleanly and so scores green.
-    """
+    """Every case reference the corpus has moved out from under, by how it moved."""
     drifted = []
     for case in dataset.cases:
         for target in case.references:
@@ -51,17 +29,26 @@ def _classify(target: CaseReference, current: tuple[str, ...]) -> DriftKind | No
     return DriftKind.STALE if current != target.content_hashes else None
 
 
-async def find_moved_corpus(session: AsyncSession, dataset: EvalDataset) -> str | None:
-    """The corpus version now, when the dataset was stamped against a different one.
+async def check_against_corpus(
+    dataset: EvalDataset,
+) -> tuple[tuple[DriftedReference, ...], str | None]:
+    """Both reads in one session: every drifted reference, and the corpus version the
+    store currently stands at."""
+    async with get_session(auto_commit=False) as session:
+        return await find_drift(session, dataset), await get_latest_corpus_version(session)
 
-    Coarser than a drifted reference and reported as its own line: it says the ground moved,
-    not that any case is wrong. It also separates the two ways a stamp can go out of date —
-    a version that moved with it means the law changed, one that did not means we rechunked.
-    """
+
+def find_moved_corpus(dataset: EvalDataset, current: str | None) -> str | None:
+    """The current corpus version, when the dataset was stamped against a different one."""
     if dataset.corpus is None:
         return None
-    current = await get_latest_corpus_version(session)
     return current if current != dataset.corpus.corpus_version else None
+
+
+def stale_case_ids(drifted: tuple[DriftedReference, ...]) -> tuple[str, ...]:
+    """The stale cases named once each, however many of their references moved."""
+    stale = (item.case_id for item in drifted if item.kind is DriftKind.STALE)
+    return tuple(dict.fromkeys(stale))
 
 
 HEADINGS = {
@@ -87,18 +74,3 @@ def format_drift(drifted: tuple[DriftedReference, ...], moved_to: str | None = N
     if moved_to:
         lines.append(f"corpus moved since stamping (now {moved_to})")
     return lines
-
-
-async def _inspect() -> tuple[tuple[DriftedReference, ...], str | None]:
-    async with get_session(auto_commit=False) as session:
-        dataset = EvalDataset.load()
-        return await find_drift(session, dataset), await find_moved_corpus(session, dataset)
-
-
-def check_dataset() -> int:
-    """Report every way the dataset has drifted. Only an unresolved reference fails: a stale
-    case needs a human re-reading the new text, which no build can do on its behalf."""
-    drifted, moved_to = asyncio.run(_inspect())
-    lines = format_drift(drifted, moved_to)
-    print("\n".join(lines) if lines else "every case reference resolves and is stamped")
-    return 1 if any(item.kind is DriftKind.UNRESOLVED for item in drifted) else 0

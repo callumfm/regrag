@@ -66,7 +66,7 @@ async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
     assert "eval case case failed: embedding call failed" in caplog.text
 
 
-async def test_a_run_scores_every_case_and_records_the_datasets_provenance(
+async def test_a_run_scores_every_case_and_records_what_it_ran_against(
     answering_graph: None,
 ) -> None:
     dataset = eval_dataset(eval_case(id="fueleu-one"), case_filter="fueleu")

@@ -55,7 +55,7 @@ async def evaluate_all_cases(
     The corpus version and the stale cases are read before the run and carried through it, so
     a score always says which text it was measured against and which cases owe a re-review.
     Whether the run was cached is read off the live litellm cache, not a caller's word, so the
-    provenance cannot disagree with what served the calls.
+    recorded flag cannot disagree with what served the calls.
     """
     results = [await evaluate_case(case) for case in dataset.selected_cases]
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)

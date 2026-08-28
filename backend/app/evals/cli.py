@@ -2,28 +2,27 @@
 
 import argparse
 import asyncio
-from collections.abc import Sequence
+from typing import Any
 
-from app.core.db.session import get_session
 from app.core.logger import setup_logging
 from app.evals.cache import enable_call_cache
-from app.evals.dataset.check import DriftedReference, check_dataset, find_drift
-from app.evals.dataset.cli import register_dataset_commands
-from app.evals.dataset.enums import DriftKind
-from app.evals.dataset.models import EmptyError, EvalDataset
-from app.evals.dataset.stamp import stamp_cases
-from app.evals.metrics import format_rate, score_reference_citation_rate, score_reference_recall
-from app.evals.models import EvalResult
+from app.evals.dataset.check import check_against_corpus, stale_case_ids
+from app.evals.dataset.cli import register_dataset_commands, run_check, run_stamp
+from app.evals.dataset.models import EmptyDatasetError, EvalDataset
+from app.evals.report import format_case_lines
 from app.evals.service import evaluate_all_cases
 from app.evals.tune.cli import register_tune_command, run_tune
-from app.ingestion.service import get_latest_corpus_version
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="evals", description="RegRag evals")
-    commands = parser.add_subparsers(dest="command", required=True)
-    register_dataset_commands(commands)
-    run = commands.add_parser("run", help="score the dataset against the current chat graph")
+def register_run_command(commands: Any) -> None:
+    """The run subparser: drive the selected cases through the graph and print one summary."""
+    run = commands.add_parser(
+        "run",
+        help="score the dataset against the current chat graph",
+        description="Drive every selected case through the chat graph and print the run "
+        "summary: which corpus and settings it scored against, what it measured, then any "
+        "case owed a re-review or that raised. A stale case is reported, never failed.",
+    )
     run.add_argument("--case", help="only cases whose id contains this")
     run.add_argument("--verbose", action="store_true", help="list every case with its own scores")
     run.add_argument(
@@ -31,62 +30,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="pay for every embed and rerank again instead of replaying the cached ones",
     )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="evals", description="RegRag evals")
+    commands = parser.add_subparsers(dest="command", required=True)
+    register_dataset_commands(commands)
+    register_run_command(commands)
     register_tune_command(commands)
     return parser
-
-
-def _format_case_line(result: EvalResult, width: int) -> str:
-    """One case on one line: what search found, what reached the prompt, what the answer
-    cited of the references the case authors, then how the run ended."""
-    state, references = result.state, result.case.references
-    scored = state.error is None
-    recalled = scored and bool(references)
-    raw = score_reference_recall(references, state.hits) if recalled else None
-    expanded = score_reference_recall(references, state.sources) if recalled else None
-    cited = (
-        score_reference_citation_rate(state.answer, state.sources, references) if scored else None
-    )
-    return (
-        f"{result.case.id:<{width}}  raw {format_rate(raw):>4}  exp {format_rate(expanded):>4}  "
-        f"cite {format_rate(cited):>4}  {state.outcome.value:<8}{state.total_ms or 0:>6}ms"
-        f"{'  ' + state.error if state.error else ''}"
-    )
-
-
-def format_case_lines(results: Sequence[EvalResult]) -> list[str]:
-    """Every case as its own line, the id column sized to the longest id in the run. A case
-    that raised scores nothing, as the aggregate leaves it out; one authoring no reference
-    has no recall to measure, and prints a dash rather than a zero."""
-    if not results:
-        return []
-    width = max(len(result.case.id) for result in results)
-    return [_format_case_line(result, width) for result in results]
-
-
-async def _read_provenance(dataset: EvalDataset) -> tuple[str | None, tuple[str, ...]]:
-    """The corpus the run is about to score against, and the cases whose cited text has moved
-    since they were authored — read once before the run, so a score says which text it
-    measured and which of its reference answers are owed a re-review."""
-    async with get_session(auto_commit=False) as session:
-        drifted = await find_drift(session, dataset)
-        return await get_latest_corpus_version(session), _stale_case_ids(drifted)
-
-
-def _stale_case_ids(drifted: tuple[DriftedReference, ...]) -> tuple[str, ...]:
-    """The stale cases named once each, however many of their references moved."""
-    stale = (item.case_id for item in drifted if item.kind is DriftKind.STALE)
-    return tuple(dict.fromkeys(stale))
 
 
 def run_evals(case_filter: str | None, verbose: bool = False, cached: bool = True) -> int:
     """Score the dataset and print what it measured, the cases first when asked for."""
     dataset = EvalDataset.load(case_filter=case_filter)
-    corpus_version, stale_cases = asyncio.run(_read_provenance(dataset))
+    drifted, corpus_version = asyncio.run(check_against_corpus(dataset))
 
     if cached:
         enable_call_cache()
 
-    run = asyncio.run(evaluate_all_cases(dataset, corpus_version, stale_cases))
+    run = asyncio.run(evaluate_all_cases(dataset, corpus_version, stale_case_ids(drifted)))
     if verbose:
         print("\n".join(format_case_lines(run.results)), end="\n\n")
 
@@ -106,9 +69,9 @@ def main(argv: list[str] | None = None) -> int:
             return run_tune(args.case, cached=not args.no_cache)
 
         if args.command == "stamp":
-            return stamp_cases(args.case)
+            return run_stamp(args.case)
 
-        return check_dataset()
-    except EmptyError as exc:
+        return run_check()
+    except EmptyDatasetError as exc:
         print(exc)
         return 1
