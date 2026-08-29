@@ -60,8 +60,9 @@ def traced(run: NodeFn) -> NodeFn:
     return traced_run
 
 
-def chat_model(*, streaming: bool = True) -> ChatLiteLLM:
-    """A chat client built per call, so config is read at call time like embed's.
+def chat_model(model: str, *, streaming: bool = True) -> ChatLiteLLM:
+    """A chat client built per call, so config is read at call time like embed's. The model
+    is the caller's, so assess and the answer can be pointed at different ones.
 
     Streaming is set for the answer, or litellm answers in one blocking call — even under
     the graph's messages stream — and the SSE stream carries the whole answer in a single
@@ -70,7 +71,7 @@ def chat_model(*, streaming: bool = True) -> ChatLiteLLM:
     tokens are never reported for a non-OpenAI model; it is read on the streamed path only.
     """
     return ChatLiteLLM(
-        model=config.CHAT_MODEL,
+        model=model,
         api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
         max_tokens=config.CHAT_MAX_TOKENS,
         temperature=config.CHAT_TEMPERATURE,
@@ -109,7 +110,7 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
         SystemMessage(SYSTEM_PROMPT),
         HumanMessage(build_user_message(state.question, state.sources)),
     ]
-    response = await chat_model().ainvoke(messages)
+    response = await chat_model(config.CHAT_MODEL).ainvoke(messages)
     return {"answer": response.text, "usage": response.usage_metadata}
 
 
@@ -120,8 +121,8 @@ async def refuse(state: ChatState) -> dict[str, Any]:
 
 
 def assess_model() -> Runnable:
-    """The chat model as assess calls it: one blocking turn, the tool surface bound."""
-    return chat_model(streaming=False).bind_tools(TOOL_DEFINITIONS)
+    """The assess model as assess calls it: one blocking turn, the tool surface bound."""
+    return chat_model(config.ASSESS_MODEL, streaming=False).bind_tools(TOOL_DEFINITIONS)
 
 
 @llm_retry
