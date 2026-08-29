@@ -172,6 +172,7 @@ def test_chat_defaults():
     assert chat.CHAT_MODEL == "anthropic/claude-haiku-4-5"
     assert chat.CHAT_TIMEOUT == 60
     assert chat.CHAT_MAX_TOKENS == 2048
+    assert chat.CHAT_TEMPERATURE == 0.0
     assert chat.CHAT_SOURCES == 5
     assert chat.CHAT_CONTEXT_CHUNKS == 15
     assert chat.ANTHROPIC_API_KEY.get_secret_value() == ""
@@ -185,7 +186,7 @@ def test_assess_defaults():
     assess = AssessConfig()
     assert assess.ASSESS_ENABLED is False
     assert assess.ASSESS_MODEL == "anthropic/claude-haiku-4-5"
-    assert assess.ASSESS_MAX_ROUNDS == 2
+    assert assess.ASSESS_MAX_ROUNDS == 1
     assert assess.ASSESS_MAX_CALLS == 4
     assert assess.ASSESS_SEARCH_LIMIT == 5
     assert assess.ASSESS_EXTRA_CHUNKS == 10

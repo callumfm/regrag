@@ -19,9 +19,31 @@ START → retrieve ─┬→ refuse ──────────────�
 
 `retrieve` searches the corpus and checks the hits against the refusal gate ([`../retrieval/README.md`](../retrieval/README.md)). If nothing clears the gate the context is empty, and the edge takes us to `refuse`, which returns fixed wording and calls no model.
 
-Otherwise the assess loop runs. `assess` makes one blocking model call over the context so far and answers with the tool calls that would fill what is missing — a fresh `search`, or a `follow_reference` fetching a division the context cites. `tools` runs them and merges what they find into the context, keeping the earlier blocks in place so the `[n]` markers a client already holds keep meaning what they meant. What a call may add is bounded twice over: a search's hits face the same score bar `retrieve` holds its own to, so what the gate would refuse to answer from cannot arrive by the back door, and the merge stops once the loop has added `ASSESS_EXTRA_CHUNKS` on top of what retrieval left. Each call runs on its own session, so one that fails on the database costs its own result and no other's. The loop ends when assess asks for nothing or `ASSESS_MAX_ROUNDS` is spent, and `ASSESS_ENABLED=false` skips it entirely, leaving the two-node graph this started as. Whichever way it ends, `synthesize` makes one streamed call answering from the numbered context blocks.
+Otherwise the assess loop runs. `assess` makes one blocking model call and answers with the tool calls that would fill what the context is missing — a fresh `search`, or a `follow_reference` fetching a division the context cites. `tools` runs them and merges what they find in, keeping the earlier blocks in place so the `[n]` markers a client already holds keep meaning what they meant. It ends when assess asks for nothing or `ASSESS_MAX_ROUNDS` is spent; `ASSESS_ENABLED=false` skips it entirely, leaving the two-node graph this started as. Either way, `synthesize` makes one streamed call answering from the numbered blocks.
+
+Three bounds keep the loop honest. A search's hits face the same score bar `retrieve` holds its own to, so what the gate would refuse to answer from cannot arrive by the back door. The merge stops once the loop has added `ASSESS_EXTRA_CHUNKS` on top of what retrieval left. And each call runs on its own session, so one that fails on the database costs its own result and no other's.
+
+Both model calls run at `CHAT_TEMPERATURE`, which is 0 — an answer quoting law back gains nothing from sampling variety, and assess sampling differently changes the context the answer is built from.
 
 The loop is best-effort: a failed assess call or a failed tool call costs the answer that round's context, never the request. The diagram is hand-drawn, and a test holds the compiled graph to the edge list it was drawn from.
+
+### Following references
+
+Some questions are only answerable a step or two away from where search lands. Ask what a *voyage* is under FuelEU and search finds FuelEU Article 3 — which does not say. It says the answer is in Article 3 of another act. The text that answers the question is never in the article the question is about.
+
+The loop handles that because of how the context is written for it. Every block assess reads is printed with the addresses it cites, like a footnote list under the paragraph:
+
+```
+[2] (32023R1805, Article 3)
+    'voyage' means voyage as defined in Article 3, point (c), of Regulation (EU) 2015/757 ...
+    cites: 32015R0757 Article 3
+```
+
+So assess never has to fetch a block in order to discover where it points — the destination is already on the page. It asks for `32015R0757 Article 3` directly, in one go.
+
+That is why the loop is bounded by **how many things it can fetch, not how far away they are**. `ASSESS_MAX_CALLS` sets the width — four addresses in one round — and a chain three acts long costs the same single round as a chain one act long, as long as each address is visible before it is needed. A second round would only earn its cost if reading a fetched block revealed an address that nothing had shown before. `ASSESS_MAX_ROUNDS` therefore defaults to 1: measured against the multi-hop cases in the golden dataset, a second round changed no score and cost roughly a third of the tokens and two seconds a question.
+
+The reach has a real edge, though. A question needing more than `ASSESS_MAX_CALLS` separate fetches cannot be answered in full however good assess is, and neither can one whose next address only appears in text nobody has fetched yet.
 
 ## The stream
 
