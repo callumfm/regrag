@@ -146,12 +146,18 @@ class ChatConfig(BaseConfig):
     CHAT_SOURCES: search hits the answer draws on, each widened to its section.
     CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt; a guardrail
         against a run of long articles, not a target, so it should rarely bite.
+    CHAT_TEMPERATURE: how far the model may stray from its likeliest next token. At 0 it
+        takes the likeliest every time, which is what an answer quoting law back wants;
+        nothing here is served by sampling variety. Anthropic's frontier models reject the
+        parameter outright, so a move off Haiku means dropping this and reaching for
+        `output_config.effort` instead — which Haiku in turn does not accept.
     """
 
     ANTHROPIC_API_KEY: SecretStr = SecretStr("")
     CHAT_MODEL: str = "anthropic/claude-haiku-4-5"
     CHAT_TIMEOUT: int = 60
     CHAT_MAX_TOKENS: int = 2048
+    CHAT_TEMPERATURE: float = Field(default=0.0, ge=0.0, le=1.0)
     CHAT_SOURCES: int = Field(default=5, ge=1)
     CHAT_CONTEXT_CHUNKS: int = Field(default=15, ge=1)
 
@@ -161,6 +167,8 @@ class AssessConfig(BaseConfig):
 
     ASSESS_ENABLED: the loop's off switch; off, the graph answers from retrieval alone.
     ASSESS_MAX_ROUNDS: times assess may ask for tool calls before the answer is written.
+        One round reaches everything the context can address, because a block's `cites`
+        line carries the address of what it points at; a second round only pays again.
     ASSESS_MAX_CALLS: the most tool calls one round may run; the rest are dropped.
     ASSESS_SEARCH_LIMIT: hits one search tool call brings back.
     ASSESS_FOLLOW_LIMIT: chunks one follow_reference call brings back, so a long division
@@ -170,7 +178,7 @@ class AssessConfig(BaseConfig):
     """
 
     ASSESS_ENABLED: bool = True
-    ASSESS_MAX_ROUNDS: int = Field(default=2, ge=1)
+    ASSESS_MAX_ROUNDS: int = Field(default=1, ge=1)
     ASSESS_MAX_CALLS: int = Field(default=4, ge=1)
     ASSESS_SEARCH_LIMIT: int = Field(default=5, ge=1)
     ASSESS_FOLLOW_LIMIT: int = Field(default=5, ge=1)

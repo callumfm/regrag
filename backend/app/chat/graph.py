@@ -73,6 +73,7 @@ def chat_model(*, streaming: bool = True) -> ChatLiteLLM:
         model=config.CHAT_MODEL,
         api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
         max_tokens=config.CHAT_MAX_TOKENS,
+        temperature=config.CHAT_TEMPERATURE,
         request_timeout=config.CHAT_TIMEOUT,
         streaming=streaming,
         stream_options={"include_usage": True},
