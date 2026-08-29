@@ -27,7 +27,7 @@ Both model calls run at `CHAT_TEMPERATURE`, which is 0 — an answer quoting law
 
 The loop is best-effort: a failed assess call or a failed tool call costs the answer that round's context, never the request. The diagram is hand-drawn, and a test holds the compiled graph to the edge list it was drawn from.
 
-### How far the loop can reach
+### Following references
 
 Some questions are only answerable a step or two away from where search lands. Ask what a *voyage* is under FuelEU and search finds FuelEU Article 3 — which does not say. It says the answer is in Article 3 of another act. The text that answers the question is never in the article the question is about.
 

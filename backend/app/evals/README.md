@@ -27,20 +27,6 @@ A case is a question, what a correct answer must say, and the divisions of law t
 
 A case is one of two kinds. An `in_corpus` case is scored on what retrieval found and what the answer cited, so it needs both an answer and references. An `out_of_corpus` case asks something the corpus does not cover and is scored on refusal alone.
 
-### Multi-hop cases
-
-Most cases are answered by the article search lands on. A multi-hop case is not: its answer sits behind a step the first search will not take. Three shapes of that, each named in the case id after the `multi-hop-` prefix that selects the subset with `--case multi-hop`:
-
-| Family | The step the first search misses |
-| ------ | -------------------------------- |
-| `definition` | The article found points at another one, in another act, and that is where the answer is — FuelEU's Article 3 defines 'voyage' only by naming Article 3 of the MRV regulation |
-| `undefined` | The article found is the right one, but it turns on a term it neither defines nor says where to find |
-| `cross-act` | Half the answer is in a base act and half in the implementing act under it |
-
-A multi-hop case **lists every division in the chain, in order** — not only the last one holding the answer. This is because `expanded_recall` is a mean over a case's references, so a case that reaches the citing article but never the cited one scores half rather than zero. That partial credit is the point: it separates *following the chain* from *not starting it*, and it separates both from a lucky search that landed on the destination directly, which a chain of one reference could not.
-
-Two things follow for anyone writing one. Chains must be distinct at **article** level, because a reference's `paragraph` is dropped when a hit is matched to it — a chain hopping between two paragraphs of one article scores as though it never moved. And `raw_hit_rate` and `expanded_hit_rate` read optimistically here, since finding *any* reference counts as a hit and the first one is usually the easy one; read the recall pair on this subset, not the hit-rate pair.
-
 ## Drift
 
 A problem the dataset faces is that laws get amended which may render some of our eval cases as stale. To track this drift, each reference also records a fingerprint of the text that was there when the case was written. `evals check` fingerprints it again and compares:
