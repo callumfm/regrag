@@ -46,6 +46,9 @@
     {
       "id": "fueleu-rfnbo-subtarget-trigger",
       "kind": "in_corpus",
+      "traits": [
+        "multi_part"
+      ],
       "question": "Is there a mandatory e-fuel quota under FuelEU, and when could it kick in?",
       "answer": "Not a fixed one. A 2% RFNBO subtarget applies from 1 January 2034 only if the Commission's monitoring shows the RFNBO share of shipping energy was below 1% in 2031; it does not apply if evidence shows insufficient RFNBO capacity or availability, uneven distribution or too high a price. Until then RFNBO use is rewarded with a multiplier of 2 in the GHG intensity calculation from 2025 to the end of 2033.",
       "references": [
@@ -96,6 +99,9 @@
     {
       "id": "fueleu-borrowing-limits",
       "kind": "in_corpus",
+      "traits": [
+        "multi_part"
+      ],
       "question": "Can a ship that missed its GHG intensity target this year borrow compliance from next year, and what are the limits?",
       "answer": "Yes. A company may borrow an advance compliance surplus from the following reporting period to cover a deficit; the borrowed amount multiplied by 1.1 is then subtracted from the ship's balance in that following period. It cannot borrow more than 2% of the GHG intensity limit multiplied by the ship's energy consumption, and cannot borrow in two consecutive reporting periods.",
       "references": [
@@ -114,6 +120,9 @@
     {
       "id": "fueleu-penalty-consecutive-years",
       "kind": "in_corpus",
+      "traits": [
+        "multi_part"
+      ],
       "question": "How is the FuelEU penalty for a GHG intensity shortfall worked out, and does it get worse if we miss again the following year?",
       "answer": "The penalty is the absolute value of the ship's compliance balance in gCO2eq converted to VLSFO-equivalent tonnes (41,000 MJ per tonne) and multiplied by EUR 2,400 per tonne, payable by 30 June of the verification period. If the ship has a deficit for two or more consecutive reporting periods, the amount is multiplied by 1 + (n − 1)/10, where n is the number of consecutive periods penalised.",
       "references": [
@@ -173,6 +182,9 @@
     {
       "id": "mrv-monitoring-plan-new-ship-deadline",
       "kind": "in_corpus",
+      "traits": [
+        "multi_part"
+      ],
       "question": "A ship has just come under EU MRV for the first time — how long do we have to submit its monitoring plan, and who does it go to?",
       "answer": "For a ship falling within scope for the first time after 1 January 2024, the company must submit a monitoring plan conforming to the Regulation to the administering authority responsible without undue delay and no later than three months after the ship's first call at a port under a Member State's jurisdiction; the administering authority approves it within four months of that first call. Under the original rules a plan for a new ship went to the verifier within two months of the first EU port call.",
       "references": [
@@ -212,6 +224,9 @@
     {
       "id": "mrv-doc-validity-and-carriage",
       "kind": "in_corpus",
+      "traits": [
+        "multi_part"
+      ],
       "question": "How long is an MRV document of compliance valid, and from when does a ship need to have one on board?",
       "answer": "A document of compliance, issued by the verifier once the emissions report satisfies the Regulation, is valid for 18 months after the end of the reporting period. From 30 June of the year following the reporting period, a ship that made voyages in that period must carry a valid document of compliance on board when arriving at, within or departing from a port under a Member State's jurisdiction.",
       "references": [
@@ -255,8 +270,11 @@
       ]
     },
     {
-      "id": "verifier-accreditation-validity-surveillance",
+      "id": "mrv-verifier-accreditation-validity-surveillance",
       "kind": "in_corpus",
+      "traits": [
+        "multi_part"
+      ],
       "question": "Once a verifier is accredited for EU MRV work, how long does the accreditation last and how is it kept in check?",
       "answer": "The accreditation certificate issued by the national accreditation body is valid for at most five years. The accreditation body carries out annual surveillance of each accredited verifier, comprising at least an on-site visit and witnessing the work of a representative sample of the verifier's staff, with the first surveillance within 12 months of the certificate being issued; on the basis of that surveillance it decides whether accreditation continues.",
       "references": [
@@ -286,6 +304,9 @@
     {
       "id": "fueleu-verifier-materiality",
       "kind": "in_corpus",
+      "traits": [
+        "multi_part"
+      ],
       "question": "What materiality threshold does a FuelEU verifier apply, and can a misstatement below it still be treated as material?",
       "answer": "The materiality level for verifying fuel and electricity consumption, distance travelled and time at sea and at berth in a FuelEU report is 5% of the respective total reported for each item in the reporting period. Misstatements or non-conformities below that level can still be treated as material where their scale, nature or the particular circumstances of their occurrence justify it, and the verifier must assess uncorrected ones individually and together for their impact.",
       "references": [
@@ -364,33 +385,36 @@
       ]
     },
     {
-      "id": "ooc-ets-allowance-surrender",
+      "id": "adjacent-regime-ets-allowance-surrender",
       "kind": "out_of_corpus",
       "question": "How many EU ETS allowances does a shipping company have to surrender for its 2025 emissions, and by what date?"
     },
     {
-      "id": "ooc-imo-cii-rating",
+      "id": "adjacent-regime-imo-cii-rating",
       "kind": "out_of_corpus",
       "question": "What CII rating band does a ship fall into if its attained CII is 5% above the required value?"
     },
     {
-      "id": "ooc-rfnbo-price-difference-value",
+      "id": "unpublished-value-rfnbo-price-difference",
       "kind": "out_of_corpus",
       "question": "What price-difference figure between RFNBO and fossil fuel is currently used in the FuelEU RFNBO penalty formula?"
     },
     {
-      "id": "ooc-named-company-fine",
+      "id": "fabricated-fact-maersk-fine",
       "kind": "out_of_corpus",
       "question": "Has Maersk been fined under FuelEU yet, and how much did it pay?"
     },
     {
-      "id": "ooc-off-topic",
+      "id": "unrelated-topic-airline-luggage",
       "kind": "out_of_corpus",
       "question": "What is the maximum weight of hand luggage allowed on Ryanair flights?"
     },
     {
-      "id": "multi-hop-definition-voyage",
+      "id": "fueleu-voyage-definition",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "FuelEU keeps talking about voyages but never seems to say what one is — what actually counts as a voyage?",
       "answer": "FuelEU does not define it itself. Article 3, point (11) takes 'voyage' from Article 3, point (c) of Regulation (EU) 2015/757, where a voyage is any movement of a ship that originates from or terminates in a port of call. So a movement counts as a voyage as long as a port of call sits at one end of it or the other.",
       "references": [
@@ -416,8 +440,11 @@
       ]
     },
     {
-      "id": "multi-hop-definition-gross-tonnage",
+      "id": "fueleu-gross-tonnage-threshold",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "Our ship is right on the 5,000 GT line — which tonnage figure decides whether FuelEU catches us?",
       "answer": "FuelEU applies to ships above 5 000 gross tonnage that transport passengers or cargo for commercial purposes, whatever their flag (Article 2(1)). 'Gross tonnage' is not defined in FuelEU: Article 3, point (14) takes it from Article 3, point (e) of Regulation (EU) 2015/757, which is the tonnage calculated in accordance with the tonnage measurement regulations in Annex I to the IMO International Convention on Tonnage Measurement of Ships of 1969, or any successor convention. So it is the ITC 1969 gross tonnage on the ship's tonnage certificate that matters, not a deadweight or net figure.",
       "references": [
@@ -456,8 +483,11 @@
       ]
     },
     {
-      "id": "multi-hop-definition-ship-at-berth",
+      "id": "fueleu-at-berth-while-anchored",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "We're anchored inside the port limits, hotelling while we wait for a berth to free up — is the ship 'at berth' as far as FuelEU is concerned?",
       "answer": "Yes. Article 3, point (15) of FuelEU takes 'ship at berth' from Article 3, point (n) of Regulation (EU) 2015/757: a ship which is securely moored or anchored in a port falling under the jurisdiction of a Member State while it is loading, unloading or hotelling, including the time spent when not engaged in cargo operations. Anchored counts, and hotelling is named expressly, so the ship is at berth. FuelEU then gives that situation its own name in Article 3, point (16): a 'ship at anchorage' is a ship at berth which is not moored at the quayside.",
       "references": [
@@ -483,8 +513,11 @@
       ]
     },
     {
-      "id": "multi-hop-definition-anchorage-ops",
+      "id": "fueleu-anchorage-ops-obligation",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "If our containership rides at anchorage instead of coming alongside, does the 2030 shore-power obligation still bite?",
       "answer": "No. Article 6(1) applies to a ship moored at the quayside in a port of call covered by Article 9 of Regulation (EU) 2023/1804 under the jurisdiction of a Member State. A ship at anchorage is defined in Article 3, point (16) as a ship at berth which is not moored at the quayside, and 'ship at berth' itself comes from Article 3, point (n) of Regulation (EU) 2015/757. Because the ship is not moored at the quayside, the OPS obligation in Article 6 is not triggered — although the energy used during the stay still falls within scope under Article 2(1), point (a).",
       "references": [
@@ -528,8 +561,11 @@
       ]
     },
     {
-      "id": "multi-hop-definition-transhipment-port-of-call",
+      "id": "fueleu-transhipment-port-of-call",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "Our containership stops at Tanger Med to tranship boxes before running up to Algeciras — does the Tanger Med stop count as a port of call under FuelEU?",
       "answer": "No. Article 3, point (10) excludes from 'port of call' stops of containerships in a neighbouring container transhipment port listed in the implementing act adopted pursuant to Article 2(2). Article 2(2) required the Commission to establish that list, which is set out in the Annex to Implementing Regulation (EU) 2025/1127 and names two ports: East Port Said in Egypt and Tanger Med in Morocco. So for a containership the Tanger Med stop is not a port of call.",
       "references": [
@@ -568,8 +604,12 @@
       ]
     },
     {
-      "id": "multi-hop-definition-compliance-surplus",
+      "id": "fueleu-compliance-surplus",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop",
+        "multi_part"
+      ],
       "question": "Our verifier says the ship finished the year with a compliance surplus — what is that exactly, and where does the number come from?",
       "answer": "Article 3, point (36) defines a compliance surplus as a compliance balance with a positive value; point (37) makes a negative one a compliance deficit. 'Compliance balance' is itself defined in point (35) as the measure of a ship's over- or under-compliance with the limits for the yearly average GHG intensity of the energy used on board or the RFNBO subtarget, calculated in accordance with Part A of Annex IV. So the number is the Part A calculation, and a positive result is the surplus.",
       "references": [
@@ -602,8 +642,11 @@
       ]
     },
     {
-      "id": "multi-hop-undefined-zero-emission-technology-ops",
+      "id": "fueleu-zero-emission-technology-ops",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "We run fuel cells at berth rather than plugging in — does that get us out of the FuelEU shore-power requirement?",
       "answer": "It can. Article 6(5), point (b) disapplies the OPS obligation for ships that use zero-emission technologies for all their electrical power demand at berth while moored at the quayside, provided those technologies comply with the general requirements in Annex III and are listed and specified in the delegated and implementing acts adopted under Article 6(6) and (7). 'Zero-emission technology' is defined in Article 3, point (7) as a technology that, when used to provide energy, does not release CO2, CH4, N2O, SOx, NOx or particulate matter into the atmosphere by ships. Annex III lists power supplied by onboard fuel cells, with a fuel or a system ensuring that no such emissions are released when the energy is provided.",
       "references": [
@@ -647,8 +690,12 @@
       ]
     },
     {
-      "id": "multi-hop-undefined-ops-penalty-power-demand",
+      "id": "fueleu-ops-penalty-power-demand",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop",
+        "multi_part"
+      ],
       "question": "How do we work out the shore-power penalty for our ship — where does the power figure in it actually come from?",
       "answer": "Article 23(5) sets the penalty at EUR 1,5 multiplied by the established total electrical power demand of the ship at berth and by the total number of hours, rounded up to the nearest whole hour, spent at berth in non-compliance with Article 6. That power term is defined in Article 3, point (26) as the highest value, in kilowatts, of the ship's total demand for electricity at berth, including hotel and cargo handling workloads. The figure itself is the one recorded in the monitoring plan under Article 8(3), point (e): the value in the ship's electrical load balance or load study used to demonstrate compliance with Regulations 40 and 41 of SOLAS Chapter II-1, or, if the ship cannot provide that reference, 25 % of the total of the maximum continuous ratings of the main engines.",
       "references": [
@@ -694,8 +741,11 @@
       ]
     },
     {
-      "id": "multi-hop-undefined-pool-eligibility",
+      "id": "fueleu-pool-eligibility",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "Can we put a ship into a FuelEU compliance pool if its document of compliance is not sorted?",
       "answer": "No. Article 21(5) says a ship shall not be included in a pool if it does not comply with the obligation set out in Article 24 — holding a valid FuelEU document of compliance by 30 June of the verification period, which applies to ships calling at, arriving at, staying within or departing from a port under a Member State's jurisdiction, or which carried out voyages during the corresponding reporting period. Separately, Article 21(4) makes a pool valid only if the total pooled compliance is positive, no ship that had a deficit ends up with a bigger one after allocation, and no ship that had a surplus ends up in deficit.",
       "references": [
@@ -724,8 +774,11 @@
       ]
     },
     {
-      "id": "multi-hop-undefined-ice-conditions-adjustment",
+      "id": "fueleu-ice-conditions-adjustment",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "Our IA-class ship spent part of the winter pushing through ice — can we take that extra fuel out of the FuelEU calculation?",
       "answer": "Yes, through Annex V, which calculates the adjusted mass of fuel for ice navigation: the additional energy consumption due to the technical characteristics of a ship of ice class IA or IA Super or equivalent, the additional energy consumption due to sailing in ice conditions for a ship of ice class IC, IB, IA or IA Super or equivalent, and the resulting adjusted mass allocated to each fuel. The terms it turns on sit in Article 3: 'ice class' is the notation assigned by the flag State or a recognised organisation (point (21)), 'ice edge' is the demarcation between open sea and sea ice as set out in paragraph 4.4.8 of the WMO Sea-Ice Nomenclature of March 2014 (point (22)), and 'sailing in ice conditions' is sailing by an ice-class ship in a sea area within the ice edge (point (23)).",
       "references": [
@@ -751,8 +804,12 @@
       ]
     },
     {
-      "id": "multi-hop-undefined-mrv-monitoring-methods",
+      "id": "mrv-monitoring-methods",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop",
+        "multi_part"
+      ],
       "question": "MRV says to monitor emissions per voyage and annually by applying the appropriate method — which methods does it mean, and where are they set out?",
       "answer": "Article 8 requires companies, on the basis of the monitoring plan assessed under Article 13(1), to monitor greenhouse gas emissions for each ship on a per-voyage and an annual basis by applying an appropriate method from among those set out in Part B of Annex I, and by calculating the emissions in accordance with Part A of Annex I. So Article 8 itself carries neither list: Part B of Annex I holds the monitoring methods and Part A holds the calculation rules.",
       "references": [
@@ -789,8 +846,12 @@
       ]
     },
     {
-      "id": "multi-hop-cross-act-fueleu-monitoring-plan-template",
+      "id": "fueleu-monitoring-plan-template",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop",
+        "multi_part"
+      ],
       "question": "Our ship comes under FuelEU for the first time next month — when is the monitoring plan due, and does it have to be on a set form?",
       "answer": "For a ship falling within scope for the first time after 31 August 2024, Article 8(2) of FuelEU requires the company to submit a monitoring plan to the verifier without undue delay and no later than two months after the ship's first call at a port under the jurisdiction of a Member State. The form is not optional: Article 1(1) of Implementing Regulation (EU) 2024/2031 requires companies to use an electronic version of the template set out in its Annex, accessible in the FuelEU database, and Article 1(2) requires verifiers to use the same template when recording the assessed plan in the database under Article 11(3) of FuelEU.",
       "references": [
@@ -816,8 +877,11 @@
       ]
     },
     {
-      "id": "multi-hop-cross-act-aggregated-data-late",
+      "id": "mrv-aggregated-data-late",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "What happens if we miss the deadline for submitting our aggregated emissions data at company level?",
       "answer": "Article 11a(2) of Regulation (EU) 2015/757 requires companies, from 2025, to submit verified aggregated emissions data at company level to the administering authority responsible by 31 March each year, covering the previous year's reporting period; under Article 11a(3) that authority may require it earlier, but not before 28 February. If nothing arrives by the deadline, Article 2(1), point (a) of Delegated Regulation (EU) 2023/2849 requires the administering authority responsible to make a conservative estimate of the aggregated emissions data at company level. It must do the same where the data submitted is found not to comply with Regulation (EU) 2015/757, or has not been verified as satisfactory. The authority then informs the company whether and which corrections are required, and the company must make that information available to the verifier.",
       "references": [
@@ -844,8 +908,12 @@
       ]
     },
     {
-      "id": "multi-hop-cross-act-pooling-database",
+      "id": "fueleu-pooling-database",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop",
+        "multi_part"
+      ],
       "question": "Where do we actually register a FuelEU compliance pool, and what is the database meant to do for us?",
       "answer": "Registration happens in the FuelEU database. Under Article 21(2) of FuelEU the company registers its intention to include a ship's compliance balance in a pool, the allocation of the total pool compliance balance to each ship, and the verifier chosen to verify that allocation; where the ships are controlled by two or more companies, Article 21(3) requires all of them to validate those details in the database, and Article 21(8) requires the selected verifier to record the definitive composition and allocation by 30 April of the verification period. Article 5(5) of Regulation (EU) 2026/394 is what obliges the database to carry that functionality: a pooling function letting companies and verifiers pool the compliance balances of different ships and register and verify the pool's composition and the allocation to each ship.",
       "references": [
@@ -880,8 +948,11 @@
       ]
     },
     {
-      "id": "multi-hop-cross-act-fueleu-verifier-accreditation-procedures",
+      "id": "fueleu-verifier-accreditation-procedures",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "What does a national accreditation body actually examine when it accredits a FuelEU verifier?",
       "answer": "Under Article 3 of Regulation (EU) 2025/192, during the accreditation process and annual surveillance the national accreditation body assesses whether the verifier and its personnel have the competence to assess monitoring plans, verify FuelEU reports and partial FuelEU reports, verify conformity with the GHG intensity requirements by calculating the GHG intensity of the energy used on board, the compliance balance and non-compliant port calls, and issue a FuelEU document of compliance; whether they apply complete and effective verification methods for that work; and whether they meet the requirements for verifiers in Chapter IV of the implementing regulation on FuelEU verification activities, including impartiality and independence. Article 4(2) requires the applicant to make available, before the assessment begins, the procedures and processes and the quality management system referred to in Article 35 of that implementing regulation. Article 35 of Regulation (EU) 2024/2027 in turn requires documented procedures for the verification activities in Articles 4 to 29 and a quality management system covering policies and responsibilities, management review, internal audits, corrective actions, actions to address risks and opportunities and preventive actions, and control of documented information.",
       "references": [
@@ -915,8 +986,12 @@
       ]
     },
     {
-      "id": "multi-hop-cross-act-mrv-verification-report",
+      "id": "mrv-verification-report",
       "kind": "in_corpus",
+      "traits": [
+        "multi_hop",
+        "multi_part"
+      ],
       "question": "What has to go into the verification report our MRV verifier issues, and what makes it come out satisfactory?",
       "answer": "Article 13 of Regulation (EU) 2015/757 sets the outcome: where the verifier concludes with reasonable assurance that the emissions report is free from material misstatements it issues a verification report stating the report has been verified as satisfactory, specifying all issues relevant to the work carried out; where misstatements or non-conformities were communicated and not corrected and, individually or combined, lead to material misstatements, the verifier issues a report stating that the emissions report does not comply. Article 22 of Implementing Regulation (EU) 2023/2917 holds the contents: the report goes to the company, which submits it with the emissions report to the administering authority responsible, and it must include a statement verifying the report as satisfactory or unsatisfactory, along with the company name and IMO unique company and registered owner identification number and identification of the ship, a title making clear it is a verification report, the identity of the verifier and a contact person, the objectives and scope of the verification, a reference to the emissions report and reporting period, a reference to the monitoring plans assessed as satisfactory, the verification standards used, a summary of the verifier's procedures including site visits, and a verification statement.",
       "references": [
@@ -948,17 +1023,20 @@
       ]
     },
     {
-      "id": "ooc-imo-net-zero-framework",
+      "id": "adjacent-regime-imo-net-zero-framework",
       "kind": "out_of_corpus",
       "question": "Under the IMO Net-Zero Framework, what does a ship pay per tonne of CO2 equivalent if it misses the direct compliance target?"
     },
     {
-      "id": "ooc-ets-directive-shipping-company-definition",
+      "id": "definition-outside-corpus-ets-company",
       "kind": "out_of_corpus",
+      "traits": [
+        "multi_hop"
+      ],
       "question": "MRV borrows its definition of 'company' from Article 3, point (w) of Directive 2003/87/EC — what does that provision say?"
     },
     {
-      "id": "ooc-paris-mou-detention-statistics",
+      "id": "external-statistic-paris-mou-detentions",
       "kind": "out_of_corpus",
       "question": "How many ships did the Paris MoU detain for MRV-related deficiencies last year?"
     }

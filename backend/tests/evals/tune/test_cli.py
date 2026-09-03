@@ -23,7 +23,7 @@ def fake_tune(monkeypatch):
         )
         return TuneRun(
             dataset_sha=dataset.sha256,
-            case_filter=dataset.case_filter,
+            selection=dataset.selection,
             settings=get_config_snapshot(EVAL_CONFIG_SECTIONS),
             baseline=metrics(),
             results=results,
@@ -72,3 +72,8 @@ def test_tune_names_an_empty_selection_before_any_sweep(fake_tune, enabled, caps
     assert "nothing-here" in capsys.readouterr().out
     assert "params" not in fake_tune
     assert not enabled
+
+
+def test_tune_sweeps_the_cases_carrying_a_trait_and_records_the_filter(fake_tune, capsys):
+    assert main(["tune", "--trait", "multi_hop"]) == 0
+    assert "selection=trait=multi_hop" in capsys.readouterr().out

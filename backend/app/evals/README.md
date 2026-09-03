@@ -27,6 +27,24 @@ A case is a question, what a correct answer must say, and the divisions of law t
 
 A case is one of two kinds. An `in_corpus` case is scored on what retrieval found and what the answer cited, so it needs both an answer and references. An `out_of_corpus` case asks something the corpus does not cover and is scored on refusal alone.
 
+### Traits
+
+The kind says how a case is scored. What a case *tests* is a separate list, `traits`, which changes no scoring and which a case may hold several of:
+
+| Trait | What the question demands |
+| ----- | ------------------------- |
+| `multi_hop` | The answer sits a chain of citations away from where search lands: the landing article defines a term by pointing at another act, or names a procedure it leaves to an implementing act |
+| `multi_part` | The question asks more than one thing in one sentence, so each part needs its own retrieval |
+
+A run, tune or stamp can select on a trait with `--trait multi_part`, on a kind with `--kind out_of_corpus`, or on an id substring with `--case fueleu`; the three narrow together. Traits are left out of the dataset hash, so marking a case does not break comparability with the runs that scored it before.
+
+### Ids
+
+An id reads like a test name: what would have to break for the case to fail. Kind and traits are fields, so neither appears in the id.
+
+- An in-corpus id is `<area>-<what it asks>`: `fueleu-borrowing-limits`, `mrv-verification-report`.
+- An out-of-corpus id is `<why the corpus cannot answer>-<what it asks>`: `unrelated-topic-airline-luggage`, `adjacent-regime-imo-cii-rating`, `fabricated-fact-maersk-fine`. The topic is incidental; the reason is what the case tests.
+
 ## Drift
 
 A problem the dataset faces is that laws get amended which may render some of our eval cases as stale. To track this drift, each reference also records a fingerprint of the text that was there when the case was written. `evals check` fingerprints it again and compares:

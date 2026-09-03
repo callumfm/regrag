@@ -9,6 +9,7 @@ from app.chat.enums import ChatNode, ChatOutcome
 from app.core.config import config
 from app.core.llm import LLMError
 from app.evals import service
+from app.evals.dataset.enums import EvalTrait
 from app.evals.service import evaluate_all_cases, evaluate_case
 from tests.chat.conftest import USAGE, fake_chat_model
 from tests.conftest import search_result
@@ -70,12 +71,13 @@ async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
 async def test_a_run_scores_every_case_and_records_what_it_ran_against(
     answering_graph: None,
 ) -> None:
-    dataset = eval_dataset(eval_case(id="fueleu-one"), case_filter="fueleu")
+    case = eval_case(id="fueleu-one", traits=(EvalTrait.MULTI_PART,))
+    dataset = eval_dataset(case, id_contains="fueleu", trait=EvalTrait.MULTI_PART)
 
     run = await evaluate_all_cases(dataset)
 
     assert [r.case.id for r in run.results] == ["fueleu-one"]
-    assert run.case_filter == "fueleu"
+    assert run.selection == dataset.selection
     assert run.dataset_sha == dataset.sha256
     assert run.metrics.counts.cases == 1
     assert run.settings["EXPAND_SECTIONS"] is False
@@ -97,7 +99,7 @@ async def test_a_run_records_that_it_had_the_call_cache_on(
 
 
 async def test_a_filtered_run_scores_only_the_selected_cases(answering_graph: None) -> None:
-    dataset = eval_dataset(eval_case(id="fueleu-one"), eval_case(id="mrv-one"), case_filter="mrv")
+    dataset = eval_dataset(eval_case(id="fueleu-one"), eval_case(id="mrv-one"), id_contains="mrv")
 
     run = await evaluate_all_cases(dataset)
 

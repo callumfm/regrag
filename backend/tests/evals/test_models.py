@@ -3,6 +3,8 @@
 import json
 
 from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
+from app.evals.dataset.enums import EvalTrait
+from app.evals.dataset.models import CaseSelection
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalRun
 from tests.evals.conftest import eval_case, eval_result, passed_judgement, refused_result
@@ -12,7 +14,7 @@ def test_the_summary_carries_the_runs_setup_and_scores_then_names_the_cases_that
     results = (eval_result(), eval_result(eval_case(id="boom"), error="TimeoutError"))
     run = EvalRun(
         dataset_sha="abc",
-        case_filter="fueleu",
+        selection=CaseSelection(id_contains="fueleu", trait=EvalTrait.MULTI_PART),
         settings=get_config_snapshot(EVAL_CONFIG_SECTIONS),
         metrics=compute_metrics(results),
         results=results,
@@ -22,7 +24,7 @@ def test_the_summary_carries_the_runs_setup_and_scores_then_names_the_cases_that
     body = json.loads(summary.split("\nerrored:")[0])
 
     assert body["dataset_sha"] == "abc"
-    assert body["case_filter"] == "fueleu"
+    assert body["selection"] == {"id_contains": "fueleu", "trait": "multi_part", "kind": None}
     assert body["settings"]["CHAT_MODEL"] == config.CHAT_MODEL
     assert body["metrics"]["counts"]["errors"] == 1
     assert "results" not in body

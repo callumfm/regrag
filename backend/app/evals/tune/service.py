@@ -50,7 +50,7 @@ async def tune(dataset: EvalDataset, params: Sequence[TunableParam]) -> TuneRun:
 
     return TuneRun(
         dataset_sha=dataset.sha256,
-        case_filter=dataset.case_filter,
+        selection=dataset.selection,
         cached=litellm.cache is not None,
         settings=settings,
         baseline=baseline,

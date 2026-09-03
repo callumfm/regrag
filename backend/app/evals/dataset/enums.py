@@ -10,6 +10,18 @@ class EvalKind(StrEnum):
     OUT_OF_CORPUS = "out_of_corpus"
 
 
+class EvalTrait(StrEnum):
+    """What makes a case a test of something beyond plain retrieval; a case may hold several,
+    and none changes how it is scored.
+
+    MULTI_HOP: the answer sits a chain of citations away from where search lands.
+    MULTI_PART: the question asks more than one thing.
+    """
+
+    MULTI_HOP = "multi_hop"
+    MULTI_PART = "multi_part"
+
+
 class DriftKind(StrEnum):
     """How far a case reference has come adrift of the corpus it was authored against.
 

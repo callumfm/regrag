@@ -5,7 +5,7 @@ from typing import Any
 from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
 from app.core.models import FrozenModel
-from app.evals.dataset.models import EvalCase
+from app.evals.dataset.models import CaseSelection, EvalCase
 from app.evals.judge.models import CaseJudgement
 
 
@@ -105,7 +105,7 @@ class EvalMetrics(FrozenModel):
 class EvalRun(FrozenModel):
     """One eval run: which dataset and settings it scored, what it measured, and every case.
 
-    dataset_sha hashes what the cases assert; case_filter names the subset actually scored.
+    dataset_sha hashes what the cases assert; selection names the subset actually scored.
     corpus_version names the ingest the corpus stands at, so two scores are only compared
     when they were measured against the same text; stale_cases names the cases whose cited
     text has moved since they were authored, whose reference answers are owed a re-review.
@@ -116,7 +116,7 @@ class EvalRun(FrozenModel):
     """
 
     dataset_sha: str
-    case_filter: str | None = None
+    selection: CaseSelection = CaseSelection()
     corpus_version: str | None = None
     stale_cases: tuple[str, ...] = ()
     cached: bool = False
@@ -142,7 +142,7 @@ class EvalRun(FrozenModel):
                 indent=2,
                 include={
                     "dataset_sha",
-                    "case_filter",
+                    "selection",
                     "corpus_version",
                     "cached",
                     "judged",

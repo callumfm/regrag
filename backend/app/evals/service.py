@@ -67,7 +67,7 @@ async def evaluate_all_cases(
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
     return EvalRun(
         dataset_sha=dataset.sha256,
-        case_filter=dataset.case_filter,
+        selection=dataset.selection,
         corpus_version=corpus_version,
         stale_cases=stale_cases,
         cached=litellm.cache is not None,

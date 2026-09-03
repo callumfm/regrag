@@ -96,7 +96,8 @@ def _format_baseline(run: TuneRun) -> str:
 
 def _format_run_metadata(run: TuneRun) -> str:
     return (
-        f"run: dataset_sha={run.dataset_sha[:12]} case_filter={run.case_filter} cached={run.cached}"
+        f"run: dataset_sha={run.dataset_sha[:12]} selection={run.selection.describe()} "
+        f"cached={run.cached}"
     )
 
 
