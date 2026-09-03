@@ -69,6 +69,7 @@ def test_the_footer_names_every_tunable_baseline_value_and_the_run_line() -> Non
     assert "MIN_COSINE_SIMILARITY=" in baseline
     assert run_line.startswith("run:")
     assert "dataset_sha=aaaaaaaaaaaa" in run_line
+    assert "selection=every case" in run_line
     assert "cached=False" in run_line
 
 

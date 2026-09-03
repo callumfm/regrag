@@ -5,7 +5,7 @@ import pytest
 from app.evals import cli as evals_cli
 from app.evals.cli import main
 from app.evals.dataset import cli as dataset_cli
-from app.evals.dataset.enums import DriftKind
+from app.evals.dataset.enums import DriftKind, EvalTrait
 from app.evals.dataset.exceptions import EmptyDatasetError
 from app.evals.dataset.models import CaseReference, CorpusStamp, DriftedReference, EvalDataset
 from tests.evals.conftest import eval_case, eval_dataset
@@ -155,3 +155,24 @@ def test_stamp_says_so_when_nothing_moved(monkeypatch, capsys):
 
     assert main(["stamp"]) == 0
     assert "no hashes changed" in capsys.readouterr().out
+
+
+def test_stamp_selects_the_cases_carrying_a_trait(monkeypatch, capsys):
+    loaded_with: dict = {}
+    dataset = eval_dataset(eval_case(references=(STAMPED,), traits=(EvalTrait.MULTI_HOP,)))
+
+    def _load(cls, *args, **kwargs):
+        loaded_with.update(kwargs)
+        return dataset.model_copy(update=kwargs)
+
+    async def _fake_stamp(loaded):
+        return loaded
+
+    monkeypatch.setattr(EvalDataset, "load", classmethod(_load))
+    monkeypatch.setattr(dataset_cli, "_stamp_against_corpus", _fake_stamp)
+    monkeypatch.setattr(dataset_cli, "save_dataset", lambda loaded: None)
+
+    assert main(["stamp", "--trait", "multi_hop"]) == 0
+
+    assert loaded_with["selection"].trait is EvalTrait.MULTI_HOP
+    assert "stamped 1 cases" in capsys.readouterr().out

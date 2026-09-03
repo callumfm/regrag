@@ -9,7 +9,7 @@ from app.chat.models import ChatState, ChatStepResult
 from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.evals.dataset.enums import EvalKind
-from app.evals.dataset.models import CaseReference, EvalCase, EvalDataset
+from app.evals.dataset.models import CaseReference, CaseSelection, EvalCase, EvalDataset
 from app.evals.judge.enums import CorrectnessFailure, JudgeVerdict
 from app.evals.judge.models import (
     CaseJudgement,
@@ -61,8 +61,9 @@ def out_of_corpus_case(id: str = "ooc") -> EvalCase:
     return EvalCase(id=id, kind=EvalKind.OUT_OF_CORPUS, question="q?")
 
 
-def eval_dataset(*cases: EvalCase, case_filter: str | None = None) -> EvalDataset:
-    return EvalDataset(cases=cases, case_filter=case_filter)
+def eval_dataset(*cases: EvalCase, **selection: Any) -> EvalDataset:
+    """A dataset of the given cases, selecting on the CaseSelection criteria passed."""
+    return EvalDataset(cases=cases, selection=CaseSelection(**selection))
 
 
 def eval_result(

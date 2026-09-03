@@ -9,12 +9,15 @@ from pydantic import model_validator
 
 from app.core.config import config
 from app.core.models import FrozenModel
-from app.evals.dataset.enums import DriftKind, EvalKind
+from app.evals.dataset.enums import DriftKind, EvalKind, EvalTrait
 from app.evals.dataset.exceptions import EmptyDatasetError
 from app.retrieval.models import ReferenceTarget
 
-STAMP_FIELDS = {"cases": {"__all__": {"references": {"__all__": {"content_hashes"}}}}}
-"""The stamps, excluded from the dataset hash: they record the corpus, not anything a run scores."""
+UNSCORED_FIELDS = {
+    "cases": {"__all__": {"traits": True, "references": {"__all__": {"content_hashes"}}}}
+}
+"""What the dataset hash leaves out: the stamps record the corpus and the traits say what a
+case tests, and neither is anything a run scores."""
 
 
 class CaseReference(ReferenceTarget):
@@ -44,6 +47,7 @@ class EvalCase(FrozenModel):
 
     id: str
     kind: EvalKind
+    traits: tuple[EvalTrait, ...] = ()
     question: str
     answer: str | None = None
     references: tuple[CaseReference, ...] = ()
@@ -60,41 +64,68 @@ class EvalCase(FrozenModel):
         return self
 
 
+class CaseSelection(FrozenModel):
+    """Which cases a run scores: every case, or those matching every criterion given."""
+
+    id_contains: str | None = None
+    trait: EvalTrait | None = None
+    kind: EvalKind | None = None
+
+    def selects(self, case: EvalCase) -> bool:
+        """Whether the case meets every criterion set."""
+        return (
+            (self.id_contains is None or self.id_contains in case.id)
+            and (self.trait is None or self.trait in case.traits)
+            and (self.kind is None or self.kind is case.kind)
+        )
+
+    @property
+    def selects_a_subset(self) -> bool:
+        """Whether any criterion is set, so a run scores fewer than every case."""
+        return any(value is not None for value in self.model_dump().values())
+
+    def describe(self) -> str:
+        """The criteria set as `name=value` pairs, or 'every case' when none is."""
+        criteria = {name: value for name, value in self.model_dump().items() if value is not None}
+        if not criteria:
+            return "every case"
+        return " ".join(f"{name}={value}" for name, value in criteria.items())
+
+
 class EvalDataset(FrozenModel):
-    """The golden dataset: every authored case, the corpus stamp they share, and the filter
-    naming the subset a run scores."""
+    """The golden dataset: every authored case, the corpus stamp they share, and the
+    selection naming the subset a run scores."""
 
     corpus: CorpusStamp | None = None
     cases: tuple[EvalCase, ...]
-    case_filter: str | None = None
+    selection: CaseSelection = CaseSelection()
     """Chosen per run rather than read from the file, so it is not written back out."""
 
     @classmethod
     def load(
-        cls, path: Path = config.EVAL_DATASET_PATH, case_filter: str | None = None
+        cls, path: Path = config.EVAL_DATASET_PATH, selection: CaseSelection | None = None
     ) -> "EvalDataset":
-        """Read and validate the JSON file at path."""
+        """Read and validate the JSON file at path, selecting every case unless told which."""
         dataset = cls.model_validate_json(path.read_bytes())
         if not dataset.cases:
             raise EmptyDatasetError("The dataset has no cases")
 
-        dataset = dataset.model_copy(update={"case_filter": case_filter})
+        selection = selection or CaseSelection()
+        dataset = dataset.model_copy(update={"selection": selection})
         if not dataset.selected_cases:
-            raise EmptyDatasetError(f"No cases found matching filter: {case_filter}")
+            raise EmptyDatasetError(f"No cases found matching selection: {selection.describe()}")
         return dataset
 
     @property
     def selected_cases(self) -> tuple[EvalCase, ...]:
-        """The cases a run scores: those the filter matches, or every case without one."""
-        if self.case_filter is None:
-            return self.cases
-        return tuple(case for case in self.cases if self.case_filter in case.id)
+        """The cases a run scores: those the selection selects, which is every case by default."""
+        return tuple(case for case in self.cases if self.selection.selects(case))
 
     @property
     def sha256(self) -> str:
         """Hash of what the cases assert — the whole dataset however a run filters it, with
         the stamps left out so a re-stamp cannot break comparability with past runs."""
-        scored = self.model_dump_json(include={"cases"}, exclude=STAMP_FIELDS)
+        scored = self.model_dump_json(include={"cases"}, exclude=UNSCORED_FIELDS)
         return hashlib.sha256(scored.encode()).hexdigest()
 
     @model_validator(mode="after")

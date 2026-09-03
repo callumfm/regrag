@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import config
 from app.evals.dataset.check import find_drift
-from app.evals.dataset.enums import EvalKind
+from app.evals.dataset.enums import EvalKind, EvalTrait
 from app.evals.dataset.exceptions import UnresolvedReferenceError
 from app.evals.dataset.models import CaseReference, CorpusStamp, EvalCase, EvalDataset
 from app.evals.dataset.stamp import save_dataset, stamp_dataset
@@ -68,7 +68,7 @@ async def test_a_filtered_stamp_leaves_the_cases_it_did_not_select_alone(
     dataset = eval_dataset(
         eval_case(id="fueleu-repaired", references=(MOVED,)),
         eval_case(id="mrv-untouched", references=(MOVED,)),
-        case_filter="fueleu",
+        id_contains="fueleu",
     )
 
     stamped = await stamp_dataset(db_session, dataset)
@@ -77,12 +77,14 @@ async def test_a_filtered_stamp_leaves_the_cases_it_did_not_select_alone(
     assert stamped.cases[1].references[0].content_hashes == ("0" * 12,)
 
 
+@pytest.mark.parametrize("filters", [{"id_contains": "case"}, {"trait": EvalTrait.MULTI_HOP}])
 async def test_a_filtered_stamp_leaves_the_corpus_stamp_alone(
-    db_session: AsyncSession, article_4: DocumentChunk
+    db_session: AsyncSession, article_4: DocumentChunk, filters: dict
 ) -> None:
     """The stamp covers the whole dataset, so only an unfiltered stamp can honestly claim it."""
     was = CorpusStamp(corpus_version="2026-08-15-2cc038d", stamped_at="2026-08-28")
-    dataset = eval_dataset(eval_case(), case_filter="case").model_copy(update={"corpus": was})
+    case = eval_case(traits=(EvalTrait.MULTI_HOP,))
+    dataset = eval_dataset(case, **filters).model_copy(update={"corpus": was})
 
     stamped = await stamp_dataset(db_session, dataset)
 
@@ -122,11 +124,14 @@ def test_a_saved_dataset_loads_back_as_the_same_cases_and_stamp(tmp_path: Path) 
 def test_saving_omits_the_run_filter_and_what_a_case_leaves_unset(tmp_path: Path) -> None:
     file = tmp_path / "golden.json"
 
-    save_dataset(eval_dataset(eval_case(references=(STAMPED,)), case_filter="case"), file)
+    dataset = eval_dataset(eval_case(references=(STAMPED,)), id_contains="case")
+
+    save_dataset(dataset, file)
 
     text = file.read_text()
     assert '"annex"' not in text
-    assert '"case_filter"' not in text
+    assert '"traits"' not in text
+    assert '"selection"' not in text
 
 
 def test_the_committed_dataset_is_what_the_writer_produces(tmp_path: Path) -> None:

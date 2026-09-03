@@ -8,6 +8,7 @@ from pydantic import Field
 
 from app.core.config import EVAL_CONFIG_SECTIONS, Config, config
 from app.core.models import FrozenModel
+from app.evals.dataset.models import CaseSelection
 from app.evals.models import EvalMetrics
 
 
@@ -64,7 +65,7 @@ class TuneRun(FrozenModel):
     """A complete tuning run against a fixed baseline configuration."""
 
     dataset_sha: str
-    case_filter: str | None = None
+    selection: CaseSelection = CaseSelection()
     cached: bool = False
     settings: dict[str, Any]
     baseline: EvalMetrics

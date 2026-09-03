@@ -39,7 +39,7 @@ def fake_run(monkeypatch):
         chosen = tuple(results)
         return EvalRun(
             dataset_sha=dataset.sha256,
-            case_filter=dataset.case_filter,
+            selection=dataset.selection,
             corpus_version=corpus_version,
             stale_cases=stale_cases,
             judged=judge,
@@ -98,6 +98,25 @@ def test_run_exits_nonzero_when_the_judge_answered_on_no_case(fake_run, capsys):
 def test_run_exits_nonzero_when_no_case_matches_the_filter(fake_run, capsys):
     assert main(["run", "--case", "nothing-here"]) == 1
     assert "nothing-here" in capsys.readouterr().out
+
+
+def test_run_scores_the_cases_carrying_a_trait_and_records_the_filter(fake_run, capsys):
+    fake_run.append(judged_result())
+
+    assert main(["run", "--trait", "multi_part"]) == 0
+    assert '"trait": "multi_part"' in capsys.readouterr().out
+
+
+def test_run_scores_the_cases_of_a_kind_and_records_the_selection(fake_run, capsys):
+    fake_run.append(judged_result())
+
+    assert main(["run", "--kind", "out_of_corpus"]) == 0
+    assert '"kind": "out_of_corpus"' in capsys.readouterr().out
+
+
+def test_run_rejects_a_trait_the_dataset_does_not_define(fake_run):
+    with pytest.raises(SystemExit):
+        main(["run", "--trait", "hard"])
 
 
 # Which commands replay their paid calls

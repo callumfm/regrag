@@ -59,7 +59,7 @@ async def stamp_dataset(session: AsyncSession, dataset: EvalDataset) -> EvalData
     stamps = await _selected_stamps(session, dataset)
     selected = {case.id for case in dataset.selected_cases}
     cases = [_stamp_case(case, stamps) if case.id in selected else case for case in dataset.cases]
-    if dataset.case_filter:
+    if dataset.selection.selects_a_subset:
         corpus = dataset.corpus
     else:
         version = await get_latest_corpus_version(session)
@@ -69,6 +69,6 @@ async def stamp_dataset(session: AsyncSession, dataset: EvalDataset) -> EvalData
 
 
 def save_dataset(dataset: EvalDataset, path: Path = config.EVAL_DATASET_PATH) -> None:
-    """Write the dataset back out, without the per-run filter or anything a case left unset."""
-    rendered = dataset.model_dump_json(indent=2, exclude={"case_filter"}, exclude_defaults=True)
+    """Write the dataset back out, without the per-run selection or anything a case left unset."""
+    rendered = dataset.model_dump_json(indent=2, exclude={"selection"}, exclude_defaults=True)
     path.write_text(rendered + "\n")
