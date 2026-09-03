@@ -3,15 +3,16 @@ plus what the context costs — the columns recall is traded against."""
 
 from collections.abc import Sequence
 
-from app.chat.enums import ChatNode
 from app.evals.metrics import (
-    compute_mean_step_ms,
+    compute_case_counts,
+    compute_gate_metrics,
+    compute_latency_metrics,
     compute_retrieval_metrics,
     mean_or_none,
     scored_in_corpus,
 )
 from app.evals.models import EvalResult
-from app.evals.tune.models import TuneMetrics
+from app.evals.tune.models import ContextMetrics, TuneMetrics
 
 
 def compute_mean_context_chunks(results: Sequence[EvalResult]) -> float | None:
@@ -26,16 +27,19 @@ def compute_mean_context_chars(results: Sequence[EvalResult]) -> float | None:
     )
 
 
-def compute_mean_retrieve_ms(results: Sequence[EvalResult]) -> int | None:
-    """The retrieve node's mean time over the cases that ran it; None when none did."""
-    return compute_mean_step_ms(results).get(ChatNode.RETRIEVE.value)
+def compute_context_metrics(results: Sequence[EvalResult]) -> ContextMetrics:
+    return ContextMetrics(
+        mean_context_chunks=compute_mean_context_chunks(results),
+        mean_context_chars=compute_mean_context_chars(results),
+    )
 
 
 def compute_tune_metrics(results: Sequence[EvalResult]) -> TuneMetrics:
-    """The shared retrieval block plus the context-cost columns."""
+    """The shared blocks plus the context-cost block."""
     return TuneMetrics(
-        **compute_retrieval_metrics(results).model_dump(),
-        mean_context_chunks=compute_mean_context_chunks(results),
-        mean_context_chars=compute_mean_context_chars(results),
-        mean_retrieve_ms=compute_mean_retrieve_ms(results),
+        counts=compute_case_counts(results),
+        retrieval=compute_retrieval_metrics(results),
+        gate=compute_gate_metrics(results),
+        latency=compute_latency_metrics(results),
+        context=compute_context_metrics(results),
     )

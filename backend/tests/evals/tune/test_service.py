@@ -84,7 +84,7 @@ async def test_tune_measures_baseline_then_each_value_and_restores_between(
     ]
     assert config.CHAT_SOURCES == baseline_sources
     assert config.RERANK_ENABLED == baseline_rerank
-    assert run.baseline.cases == 2
+    assert run.baseline.counts.cases == 2
     assert [(result.param, result.value) for result in run.results] == [
         ("CHAT_SOURCES", baseline_sources + 1),
         ("RERANK_ENABLED", not baseline_rerank),

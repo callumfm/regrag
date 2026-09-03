@@ -24,7 +24,7 @@ def test_the_summary_carries_the_runs_setup_and_scores_then_names_the_cases_that
     assert body["dataset_sha"] == "abc"
     assert body["case_filter"] == "fueleu"
     assert body["settings"]["CHAT_MODEL"] == config.CHAT_MODEL
-    assert body["metrics"]["errors"] == 1
+    assert body["metrics"]["counts"]["errors"] == 1
     assert "results" not in body
     assert summary.rstrip().endswith("boom  TimeoutError")
 

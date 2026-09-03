@@ -194,9 +194,9 @@ def test_an_errored_case_still_counts_toward_the_kind_it_was_authored_as() -> No
     than by shrinking them, so a run stays comparable to a clean one."""
     boom = eval_result(eval_case(id="boom"), hits=(), sources=(), error="x")
 
-    metrics = compute_metrics((eval_result(), boom))
+    counts = compute_metrics((eval_result(), boom)).counts
 
-    assert (metrics.cases, metrics.in_corpus, metrics.out_of_corpus, metrics.errors) == (2, 2, 0, 1)
+    assert (counts.cases, counts.in_corpus, counts.out_of_corpus, counts.errors) == (2, 2, 0, 1)
 
 
 def test_a_kind_absent_from_the_run_scores_none_rather_than_zero() -> None:
@@ -252,13 +252,17 @@ def test_tokens_are_summed_over_the_run() -> None:
     assert compute_output_tokens(results) == 80
 
 
-def test_compute_metrics_assembles_every_measure_of_the_run() -> None:
+def test_compute_metrics_assembles_every_block_of_the_run() -> None:
     metrics = compute_metrics((eval_result(), refused_result()))
 
-    assert (metrics.cases, metrics.in_corpus, metrics.out_of_corpus) == (2, 1, 1)
-    assert metrics.raw_recall == 1.0
-    assert metrics.gate_refusal_rate == 1.0
-    assert metrics.mean_total_ms == 542
+    assert (metrics.counts.cases, metrics.counts.in_corpus, metrics.counts.out_of_corpus) == (
+        2,
+        1,
+        1,
+    )
+    assert metrics.retrieval.raw_recall == 1.0
+    assert metrics.gate.refusal_rate == 1.0
+    assert metrics.latency.mean_total_ms == 542
 
 
 def test_a_run_that_synthesized_over_empty_sources_is_not_counted_refused() -> None:
@@ -312,12 +316,12 @@ def test_model_refusal_rate_is_scored_over_the_judged_out_of_corpus_answers() ->
 
 
 def test_an_unjudged_run_leaves_the_judged_metrics_unmeasured() -> None:
-    metrics = compute_metrics((eval_result(), refused_result()))
+    judge = compute_metrics((eval_result(), refused_result())).judge
 
-    assert metrics.correctness is None
-    assert metrics.faithfulness is None
-    assert metrics.model_refusal_rate is None
-    assert metrics.judged == 0
+    assert judge.correctness is None
+    assert judge.faithfulness is None
+    assert judge.refusal_rate is None
+    assert judge.judged == 0
 
 
 def test_an_errored_case_is_not_judged_whatever_it_carries() -> None:

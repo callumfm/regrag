@@ -64,7 +64,7 @@ def run_evals(
         print("\n".join(format_case_lines(run.results)), end="\n\n")
 
     print(run.summary())
-    return 1 if run.metrics.errors else 0
+    return 1 if run.metrics.counts.errors else 0
 
 
 def main(argv: list[str] | None = None) -> int:

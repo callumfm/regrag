@@ -51,23 +51,23 @@ Each case is driven through the same graph the `/chat` endpoint runs, and ends i
 
 ## Metrics
 
-Scoring lives in `metrics.py`, each measure a plain function over the run's results.
+Scoring lives in `metrics.py`, each measure a plain function over the run's results. The run's `EvalMetrics` groups them into blocks — `counts`, `retrieval`, `gate`, `citations`, `judge`, `latency`, `usage` — and a retrieval-only tune run fills the blocks it can plus its own `context` block.
 
 | Metric | Scored over | What it measures |
 | ------ | ----------- | ---------------- |
-| `raw_hit_rate` | in-corpus | Search found at least one authored reference |
-| `raw_recall` | in-corpus | Share of authored references search found |
-| `expanded_hit_rate` | in-corpus | At least one authored reference reached the prompt |
-| `expanded_recall` | in-corpus | Share of authored references that reached the prompt |
-| `cited_references` | in-corpus | Share of authored references the answer cited |
-| `markers_in_context` | answers citing anything | Share of `[n]` markers addressing a block the model was given |
-| `gate_refusal_rate` | out-of-corpus | Share the pre-model gate refused |
-| `false_refusals` | in-corpus | Cases the gate refused |
-| `refused_a_found_reference` | in-corpus | Of those, the ones where search had already found a reference |
-| `correctness` | judged in-corpus | Share of answers stating what the reference answer states |
-| `faithfulness` | judged answers citing anything | Mean share of an answer's claims its cited context backs |
-| `model_refusal_rate` | judged out-of-corpus | Share that passed the gate and declined in the model's own words |
-| `judged` | all | Cases the judge returned a verdict on |
+| `retrieval.raw_hit_rate` | in-corpus | Search found at least one authored reference |
+| `retrieval.raw_recall` | in-corpus | Share of authored references search found |
+| `retrieval.expanded_hit_rate` | in-corpus | At least one authored reference reached the prompt |
+| `retrieval.expanded_recall` | in-corpus | Share of authored references that reached the prompt |
+| `citations.cited_references` | in-corpus | Share of authored references the answer cited |
+| `citations.markers_in_context` | answers citing anything | Share of `[n]` markers addressing a block the model was given |
+| `gate.refusal_rate` | out-of-corpus | Share the pre-model gate refused |
+| `gate.false_refusals` | in-corpus | Cases the gate refused |
+| `gate.refused_a_found_reference` | in-corpus | Of those, the ones where search had already found a reference |
+| `judge.correctness` | judged in-corpus | Share of answers stating what the reference answer states |
+| `judge.faithfulness` | judged answers citing anything | Mean share of an answer's claims its cited context backs |
+| `judge.refusal_rate` | judged out-of-corpus | Share that passed the gate and declined in the model's own words |
+| `judge.judged` | all | Cases the judge returned a verdict on |
 
 The raw and expanded pairs are worth reading together. Expansion widens each hit into its surrounding section, and against a fixed context budget that can push a reference *out*, so expanded recall is not guaranteed to be the higher of the two.
 

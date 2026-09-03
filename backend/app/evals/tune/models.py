@@ -9,7 +9,7 @@ from pydantic import Field
 
 from app.core.config import EVAL_CONFIG_SECTIONS, Config, config
 from app.core.models import FrozenModel
-from app.evals.models import RetrievalMetrics
+from app.evals.models import CaseCounts, GateMetrics, LatencyMetrics, RetrievalMetrics
 
 
 class TunableParam(FrozenModel):
@@ -52,12 +52,22 @@ class TunableParam(FrozenModel):
                 setattr(config, name, old_value)
 
 
-class TuneMetrics(RetrievalMetrics):
-    """Retrieval metrics plus context and retrieval cost."""
+class ContextMetrics(FrozenModel):
+    """What the context costs, per scored in-corpus case: what the recall is bought with."""
 
     mean_context_chunks: float | None
     mean_context_chars: float | None
-    mean_retrieve_ms: int | None
+
+
+class TuneMetrics(FrozenModel):
+    """What a retrieval-only run measures: the blocks a run without a model can fill, plus
+    the context cost recall is traded against."""
+
+    counts: CaseCounts
+    retrieval: RetrievalMetrics
+    gate: GateMetrics
+    latency: LatencyMetrics
+    context: ContextMetrics
 
 
 class TuneResult(FrozenModel):

@@ -77,7 +77,7 @@ async def test_a_run_scores_every_case_and_records_what_it_ran_against(
     assert [r.case.id for r in run.results] == ["fueleu-one"]
     assert run.case_filter == "fueleu"
     assert run.dataset_sha == dataset.sha256
-    assert run.metrics.cases == 1
+    assert run.metrics.counts.cases == 1
     assert run.settings["EXPAND_SECTIONS"] is False
     assert run.cached is False
 

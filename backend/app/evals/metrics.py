@@ -7,7 +7,17 @@ from collections.abc import Sequence
 from app.chat.enums import ChatNode, ChatOutcome
 from app.chat.graph import assess_or_synthesize_or_refuse
 from app.evals.dataset.enums import EvalKind
-from app.evals.models import EvalMetrics, EvalResult, RetrievalMetrics
+from app.evals.models import (
+    CaseCounts,
+    CitationMetrics,
+    EvalMetrics,
+    EvalResult,
+    GateMetrics,
+    JudgeMetrics,
+    LatencyMetrics,
+    RetrievalMetrics,
+    UsageMetrics,
+)
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
 
 MARKER = re.compile(r"\[(\d+)\]")
@@ -92,20 +102,7 @@ def scored_out_of_corpus(results: Sequence[EvalResult]) -> list[EvalResult]:
     return [r for r in _scored(results) if r.case.kind is EvalKind.OUT_OF_CORPUS]
 
 
-def _raw_recall(result: EvalResult) -> float:
-    return score_reference_recall(result.case.references, result.state.hits)
-
-
-def _expanded_recall(result: EvalResult) -> float:
-    return score_reference_recall(result.case.references, result.state.sources)
-
-
-def _gate_refused(result: EvalResult) -> bool:
-    """The branch the graph took, observed off the path so a routing bug shows up here.
-    A retrieval-only run never routes, so its gate is read the way the graph would route."""
-    if result.state.outcome is ChatOutcome.ABORTED:
-        return assess_or_synthesize_or_refuse(result.state) is ChatNode.REFUSE
-    return result.state.outcome is ChatOutcome.REFUSED
+# Counts: the run's shape
 
 
 def count_errors(results: Sequence[EvalResult]) -> int:
@@ -116,6 +113,26 @@ def count_cases_of_kind(results: Sequence[EvalResult], kind: EvalKind) -> int:
     """Cases of this kind the run covered, errored or not: the dataset's shape, which a
     case the graph raised on does not change."""
     return sum(result.case.kind is kind for result in results)
+
+
+def compute_case_counts(results: Sequence[EvalResult]) -> CaseCounts:
+    return CaseCounts(
+        cases=len(results),
+        in_corpus=count_cases_of_kind(results, EvalKind.IN_CORPUS),
+        out_of_corpus=count_cases_of_kind(results, EvalKind.OUT_OF_CORPUS),
+        errors=count_errors(results),
+    )
+
+
+# Retrieval: what search found, raw and expanded
+
+
+def _raw_recall(result: EvalResult) -> float:
+    return score_reference_recall(result.case.references, result.state.hits)
+
+
+def _expanded_recall(result: EvalResult) -> float:
+    return score_reference_recall(result.case.references, result.state.sources)
 
 
 def compute_raw_hit_rate(results: Sequence[EvalResult]) -> float | None:
@@ -138,6 +155,53 @@ def compute_expanded_recall(results: Sequence[EvalResult]) -> float | None:
     return mean_or_none([_expanded_recall(r) for r in scored_in_corpus(results)])
 
 
+def compute_retrieval_metrics(results: Sequence[EvalResult]) -> RetrievalMetrics:
+    return RetrievalMetrics(
+        raw_hit_rate=compute_raw_hit_rate(results),
+        raw_recall=compute_raw_recall(results),
+        expanded_hit_rate=compute_expanded_hit_rate(results),
+        expanded_recall=compute_expanded_recall(results),
+    )
+
+
+# Gate: the pre-model routing decision
+
+
+def _gate_refused(result: EvalResult) -> bool:
+    """The branch the graph took, observed off the path so a routing bug shows up here.
+    A retrieval-only run never routes, so its gate is read the way the graph would route."""
+    if result.state.outcome is ChatOutcome.ABORTED:
+        return assess_or_synthesize_or_refuse(result.state) is ChatNode.REFUSE
+    return result.state.outcome is ChatOutcome.REFUSED
+
+
+def compute_gate_refusal_rate(results: Sequence[EvalResult]) -> float | None:
+    """Share of out-of-corpus cases the pre-model gate refused."""
+    return mean_or_none([_gate_refused(r) for r in scored_out_of_corpus(results)])
+
+
+def count_false_refusals(results: Sequence[EvalResult]) -> int:
+    """In-corpus cases the gate refused."""
+    return sum(_gate_refused(r) for r in scored_in_corpus(results))
+
+
+def count_refusals_of_a_found_reference(results: Sequence[EvalResult]) -> int:
+    """In-corpus cases refused though search had found an authored reference: the gate too
+    tight, rather than a corpus that does not cover the question."""
+    return sum(_gate_refused(r) and _raw_recall(r) > 0 for r in scored_in_corpus(results))
+
+
+def compute_gate_metrics(results: Sequence[EvalResult]) -> GateMetrics:
+    return GateMetrics(
+        refusal_rate=compute_gate_refusal_rate(results),
+        false_refusals=count_false_refusals(results),
+        refused_a_found_reference=count_refusals_of_a_found_reference(results),
+    )
+
+
+# Citations: what the answers cited
+
+
 def compute_cited_references(results: Sequence[EvalResult]) -> float | None:
     """Mean share of authored references the answers cited, over the in-corpus cases."""
     rates = [
@@ -154,6 +218,16 @@ def compute_markers_in_context(results: Sequence[EvalResult]) -> float | None:
         score_citation_validity(r.state.answer, r.state.sources) for r in _scored(results)
     ]
     return mean_or_none([v for v in validities if v is not None])
+
+
+def compute_citation_metrics(results: Sequence[EvalResult]) -> CitationMetrics:
+    return CitationMetrics(
+        cited_references=compute_cited_references(results),
+        markers_in_context=compute_markers_in_context(results),
+    )
+
+
+# Judge: the judge's dimensions over the cases it returned a verdict on
 
 
 def _judged(results: Sequence[EvalResult]) -> list[EvalResult]:
@@ -196,20 +270,16 @@ def compute_model_refusal_rate(results: Sequence[EvalResult]) -> float | None:
     return mean_or_none([s for s in scores if s is not None])
 
 
-def compute_gate_refusal_rate(results: Sequence[EvalResult]) -> float | None:
-    """Share of out-of-corpus cases the pre-model gate refused."""
-    return mean_or_none([_gate_refused(r) for r in scored_out_of_corpus(results)])
+def compute_judge_metrics(results: Sequence[EvalResult]) -> JudgeMetrics:
+    return JudgeMetrics(
+        judged=count_judged(results),
+        correctness=compute_correctness(results),
+        faithfulness=compute_faithfulness(results),
+        refusal_rate=compute_model_refusal_rate(results),
+    )
 
 
-def count_false_refusals(results: Sequence[EvalResult]) -> int:
-    """In-corpus cases the gate refused."""
-    return sum(_gate_refused(r) for r in scored_in_corpus(results))
-
-
-def count_refusals_of_a_found_reference(results: Sequence[EvalResult]) -> int:
-    """In-corpus cases refused though search had found an authored reference: the gate too
-    tight, rather than a corpus that does not cover the question."""
-    return sum(_gate_refused(r) and _raw_recall(r) > 0 for r in scored_in_corpus(results))
+# Latency
 
 
 def compute_mean_step_ms(results: Sequence[EvalResult]) -> dict[str, int]:
@@ -225,6 +295,16 @@ def compute_mean_total_ms(results: Sequence[EvalResult]) -> int:
     return int(mean_or_none([r.state.total_ms or 0 for r in _scored(results)]) or 0)
 
 
+def compute_latency_metrics(results: Sequence[EvalResult]) -> LatencyMetrics:
+    return LatencyMetrics(
+        mean_step_ms=compute_mean_step_ms(results),
+        mean_total_ms=compute_mean_total_ms(results),
+    )
+
+
+# Usage
+
+
 def compute_input_tokens(results: Sequence[EvalResult]) -> int:
     return sum(r.state.token_totals()[0] or 0 for r in _scored(results))
 
@@ -233,35 +313,24 @@ def compute_output_tokens(results: Sequence[EvalResult]) -> int:
     return sum(r.state.token_totals()[1] or 0 for r in _scored(results))
 
 
-def compute_retrieval_metrics(results: Sequence[EvalResult]) -> RetrievalMetrics:
-    """The retrieval measures every run kind shares, each over the cases it applies to."""
-    return RetrievalMetrics(
-        cases=len(results),
-        in_corpus=count_cases_of_kind(results, EvalKind.IN_CORPUS),
-        out_of_corpus=count_cases_of_kind(results, EvalKind.OUT_OF_CORPUS),
-        errors=count_errors(results),
-        raw_hit_rate=compute_raw_hit_rate(results),
-        raw_recall=compute_raw_recall(results),
-        expanded_hit_rate=compute_expanded_hit_rate(results),
-        expanded_recall=compute_expanded_recall(results),
-        gate_refusal_rate=compute_gate_refusal_rate(results),
-        false_refusals=count_false_refusals(results),
-        refused_a_found_reference=count_refusals_of_a_found_reference(results),
+def compute_usage_metrics(results: Sequence[EvalResult]) -> UsageMetrics:
+    return UsageMetrics(
+        input_tokens=compute_input_tokens(results),
+        output_tokens=compute_output_tokens(results),
     )
 
 
+# The run
+
+
 def compute_metrics(results: Sequence[EvalResult]) -> EvalMetrics:
-    """Every measure of the run: the shared retrieval block plus what the model calls added."""
+    """Every measure of the run, block by block."""
     return EvalMetrics(
-        **compute_retrieval_metrics(results).model_dump(),
-        cited_references=compute_cited_references(results),
-        markers_in_context=compute_markers_in_context(results),
-        correctness=compute_correctness(results),
-        faithfulness=compute_faithfulness(results),
-        model_refusal_rate=compute_model_refusal_rate(results),
-        judged=count_judged(results),
-        mean_step_ms=compute_mean_step_ms(results),
-        mean_total_ms=compute_mean_total_ms(results),
-        input_tokens=compute_input_tokens(results),
-        output_tokens=compute_output_tokens(results),
+        counts=compute_case_counts(results),
+        retrieval=compute_retrieval_metrics(results),
+        gate=compute_gate_metrics(results),
+        citations=compute_citation_metrics(results),
+        judge=compute_judge_metrics(results),
+        latency=compute_latency_metrics(results),
+        usage=compute_usage_metrics(results),
     )

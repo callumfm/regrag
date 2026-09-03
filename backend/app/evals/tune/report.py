@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from app.chat.enums import ChatNode
 from app.evals.metrics import format_rate
 from app.evals.tune.models import TuneMetrics, TuneResult, TuneRun
 from app.evals.tune.params import TUNABLE_PARAMS
@@ -65,8 +66,8 @@ def _format_context_chars(value: float | None) -> str:
     return f"{value / 1000:.1f}k" if value is not None else NULL_CHAR
 
 
-def _format_latency(value: float | None) -> str:
-    """Format latency retrieval speed."""
+def _format_latency(value: int | None) -> str:
+    """A step's mean time, or a dash when no case ran it."""
     return str(value) if value is not None else NULL_CHAR
 
 
@@ -96,8 +97,8 @@ def _format_run_metadata(run: TuneRun) -> str:
 def _sort_key(metrics: TuneMetrics) -> tuple[float, bool, float]:
     """Best recall first; identical recall is won by the cheaper context, and a result
     with no measured cost ranks after any measured one."""
-    recall = metrics.expanded_recall
-    context_chars = metrics.mean_context_chars
+    recall = metrics.retrieval.expanded_recall
+    context_chars = metrics.context.mean_context_chars
 
     recall_score = recall if recall is not None else -1.0
     has_no_context = context_chars is None
@@ -112,15 +113,15 @@ def _build_row(rank: int, param: str, value: str, m: TuneMetrics, b: TuneMetrics
         rank=str(rank),
         param=param,
         value=value,
-        delta_exp_recall=_format_delta(m.expanded_recall, b.expanded_recall, 2),
-        delta_chunks=_format_delta(m.mean_context_chunks, b.mean_context_chunks, 1),
-        exp_recall=format_rate(m.expanded_recall),
-        raw_recall=format_rate(m.raw_recall),
-        refusal_rate=format_rate(m.gate_refusal_rate),
-        false_refusals=str(m.false_refusals),
-        chunks=_format_context_chunks(m.mean_context_chunks),
-        chars=_format_context_chars(m.mean_context_chars),
-        retrieve_ms=_format_latency(m.mean_retrieve_ms),
+        delta_exp_recall=_format_delta(m.retrieval.expanded_recall, b.retrieval.expanded_recall, 2),
+        delta_chunks=_format_delta(m.context.mean_context_chunks, b.context.mean_context_chunks, 1),
+        exp_recall=format_rate(m.retrieval.expanded_recall),
+        raw_recall=format_rate(m.retrieval.raw_recall),
+        refusal_rate=format_rate(m.gate.refusal_rate),
+        false_refusals=str(m.gate.false_refusals),
+        chunks=_format_context_chunks(m.context.mean_context_chunks),
+        chars=_format_context_chars(m.context.mean_context_chars),
+        retrieve_ms=_format_latency(m.latency.mean_step_ms.get(ChatNode.RETRIEVE.value)),
     )
 
 

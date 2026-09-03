@@ -36,7 +36,7 @@ def test_an_unmeasured_context_cost_ranks_after_any_measured_one() -> None:
     unmeasured = TuneResult(
         param="RERANK_ENABLED",
         value=False,
-        metrics=metrics(mean_context_chunks=None, mean_context_chars=None, mean_retrieve_ms=None),
+        metrics=metrics(mean_context_chunks=None, mean_context_chars=None, mean_step_ms={}),
     )
 
     table = format_tune_table(tune_run(unmeasured))
