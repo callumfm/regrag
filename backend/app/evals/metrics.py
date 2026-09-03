@@ -80,11 +80,6 @@ def score_reference_citation_rate(
 # Run metrics: each a plain function over the run's results, scoring the cases it applies to
 
 
-def format_rate(value: float | None) -> str:
-    """A rate as a figure, or a dash holding its place when it is unmeasured."""
-    return f"{value:.2f}" if value is not None else "-"
-
-
 def mean_or_none(values: Sequence[float | bool]) -> float | None:
     """The mean, or None when there is nothing to average — unmeasured, not zero."""
     return sum(values) / len(values) if values else None

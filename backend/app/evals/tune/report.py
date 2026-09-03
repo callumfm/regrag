@@ -1,75 +1,81 @@
 """The tune run as one ranked table: recall against what it costs, deltas first."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.chat.enums import ChatNode
-from app.evals.metrics import format_rate
 from app.evals.models import EvalMetrics
+from app.evals.report import UNMEASURED, format_rate
 from app.evals.tune.models import TuneResult, TuneRun
 from app.evals.tune.params import TUNABLE_PARAMS
 
-NULL_CHAR: str = "-"
-
 
 @dataclass(frozen=True)
-class TuneRow:
-    rank: str
+class RankedEntry:
+    """One row's subject: the baseline or a tried value, already placed in the ranking."""
+
+    rank: int
     param: str
     value: str
-    delta_exp_recall: str
-    delta_chunks: str
-    exp_recall: str
-    raw_recall: str
-    refusal_rate: str
-    false_refusals: str
-    chunks: str
-    chars: str
-    retrieve_ms: str
+    metrics: EvalMetrics
 
 
 @dataclass(frozen=True)
 class Column:
+    """A header and the cell it prints for an entry, read against the baseline."""
+
     header: str
-    attribute: str
-    align_left: bool
-
-
-COLUMNS = (
-    Column("rank", "rank", False),
-    Column("param", "param", True),
-    Column("value", "value", True),
-    Column("Δexp_recall", "delta_exp_recall", False),
-    Column("Δchunks", "delta_chunks", False),
-    Column("exp_recall", "exp_recall", False),
-    Column("raw_recall", "raw_recall", False),
-    Column("refusal_rate", "refusal_rate", False),
-    Column("false_refusals", "false_refusals", False),
-    Column("chunks", "chunks", False),
-    Column("chars", "chars", False),
-    Column("retrieve_ms", "retrieve_ms", False),
-)
+    cell: Callable[[RankedEntry, EvalMetrics], str]
+    align_left: bool = False
 
 
 def _format_delta(value: float | None, baseline: float | None, precision: int) -> str:
     """A signed movement against baseline, or a dash when either side is unmeasured."""
     if value is None or baseline is None:
-        return NULL_CHAR
+        return UNMEASURED
     return f"{value - baseline:+.{precision}f}"
 
 
-def _format_context_chunks(value: float | None) -> str:
-    """Format mean context size in chunks."""
-    return f"{value:.1f}" if value is not None else NULL_CHAR
+def _format_chunks(value: float | None) -> str:
+    return f"{value:.1f}" if value is not None else UNMEASURED
 
 
-def _format_context_chars(value: float | None) -> str:
-    """Format mean context size in thousands of characters."""
-    return f"{value / 1000:.1f}k" if value is not None else NULL_CHAR
+def _format_chars(value: float | None) -> str:
+    """Thousands of characters."""
+    return f"{value / 1000:.1f}k" if value is not None else UNMEASURED
 
 
-def _format_latency(value: int | None) -> str:
-    """A step's mean time, or a dash when no case ran it."""
-    return str(value) if value is not None else NULL_CHAR
+def _format_ms(value: int | None) -> str:
+    return str(value) if value is not None else UNMEASURED
+
+
+COLUMNS = (
+    Column("rank", lambda e, b: str(e.rank)),
+    Column("param", lambda e, b: e.param, align_left=True),
+    Column("value", lambda e, b: e.value, align_left=True),
+    Column(
+        "Δexp_recall",
+        lambda e, b: _format_delta(
+            e.metrics.retrieval.expanded_recall, b.retrieval.expanded_recall, 2
+        ),
+    ),
+    Column(
+        "Δchunks",
+        lambda e, b: _format_delta(
+            e.metrics.context.mean_context_chunks, b.context.mean_context_chunks, 1
+        ),
+    ),
+    Column("exp_recall", lambda e, b: format_rate(e.metrics.retrieval.expanded_recall)),
+    Column("raw_recall", lambda e, b: format_rate(e.metrics.retrieval.raw_recall)),
+    Column("refusal_rate", lambda e, b: format_rate(e.metrics.gate.refusal_rate)),
+    Column("false_refusals", lambda e, b: str(e.metrics.gate.false_refusals)),
+    Column("chunks", lambda e, b: _format_chunks(e.metrics.context.mean_context_chunks)),
+    Column("chars", lambda e, b: _format_chars(e.metrics.context.mean_context_chars)),
+    Column(
+        "retrieve_ms",
+        lambda e, b: _format_ms(e.metrics.latency.mean_step_ms.get(ChatNode.RETRIEVE.value)),
+    ),
+)
 
 
 def _format_param(result: TuneResult) -> str:
@@ -82,14 +88,13 @@ def _format_param(result: TuneResult) -> str:
 
 
 def _format_baseline(run: TuneRun) -> str:
-    """Format the tunable parameter values used by the baseline."""
+    """The tunable parameter values the baseline ran with."""
     names = sorted(param.name for param in TUNABLE_PARAMS)
     settings = (f"{name}={run.settings[name]}" for name in names)
     return "baseline: " + " ".join(settings)
 
 
 def _format_run_metadata(run: TuneRun) -> str:
-    """Format metadata identifying the tune run."""
     return (
         f"run: dataset_sha={run.dataset_sha[:12]} case_filter={run.case_filter} cached={run.cached}"
     )
@@ -108,70 +113,35 @@ def _sort_key(metrics: EvalMetrics) -> tuple[float, bool, float]:
     return (-recall_score, has_no_context, context_size)
 
 
-def _build_row(rank: int, param: str, value: str, m: EvalMetrics, b: EvalMetrics) -> TuneRow:
-    """One result's row, every measure already a string so the renderer only aligns."""
-    return TuneRow(
-        rank=str(rank),
-        param=param,
-        value=value,
-        delta_exp_recall=_format_delta(m.retrieval.expanded_recall, b.retrieval.expanded_recall, 2),
-        delta_chunks=_format_delta(m.context.mean_context_chunks, b.context.mean_context_chunks, 1),
-        exp_recall=format_rate(m.retrieval.expanded_recall),
-        raw_recall=format_rate(m.retrieval.raw_recall),
-        refusal_rate=format_rate(m.gate.refusal_rate),
-        false_refusals=str(m.gate.false_refusals),
-        chunks=_format_context_chunks(m.context.mean_context_chunks),
-        chars=_format_context_chars(m.context.mean_context_chars),
-        retrieve_ms=_format_latency(m.latency.mean_step_ms.get(ChatNode.RETRIEVE.value)),
-    )
-
-
-def _column_widths(rows: list[TuneRow]) -> list[int]:
-    """Calculate the width required by each column."""
-    return [
-        max(
-            len(column.header),
-            *(len(getattr(row, column.attribute)) for row in rows),
-        )
-        for column in COLUMNS
-    ]
-
-
-def _render_row(row: TuneRow, widths: list[int]) -> str:
-    """Render a row with labels left-aligned and figures right-aligned."""
-    formatted_cells = []
-    for column, width in zip(COLUMNS, widths, strict=True):
-        cell = getattr(row, column.attribute)
-        formatted_cell = cell.ljust(width) if column.align_left else cell.rjust(width)
-        formatted_cells.append(formatted_cell)
-
-    return "  ".join(formatted_cells).rstrip()
-
-
-def _render_table(rows: list[TuneRow]) -> str:
-    """Render rows as an aligned table."""
-    header = TuneRow(**{column.attribute: column.header for column in COLUMNS})
-    all_rows = [header, *rows]
-    widths = _column_widths(all_rows)
-    rendered_rows = (_render_row(row, widths) for row in all_rows)
-    return "\n".join(rendered_rows)
-
-
-def format_tune_table(run: TuneRun) -> str:
-    """Format a tune run as a ranked table with baseline comparisons."""
+def _rank(run: TuneRun) -> list[RankedEntry]:
+    """The baseline and every tried value, best first."""
     entries = [
-        ("(baseline)", NULL_CHAR, run.baseline),
+        ("(baseline)", UNMEASURED, run.baseline),
         *((_format_param(result), str(result.value), result.metrics) for result in run.results),
     ]
     ranked = sorted(entries, key=lambda entry: _sort_key(entry[2]))
-    rows = [
-        _build_row(rank, param, value, metrics, run.baseline)
+    return [
+        RankedEntry(rank, param, value, metrics)
         for rank, (param, value, metrics) in enumerate(ranked, start=1)
     ]
 
-    table = _render_table(rows)
-    baseline = _format_baseline(run)
-    run_metadata = _format_run_metadata(run)
 
-    output = [table, "", baseline, run_metadata]
-    return "\n".join(output)
+def _render_table(rows: list[list[str]]) -> str:
+    """Header then rows, each column as wide as its widest cell: labels left, figures right."""
+    header = [column.header for column in COLUMNS]
+    widths = [max(len(cell) for cell in cells) for cells in zip(header, *rows, strict=True)]
+
+    def render(row: list[str]) -> str:
+        cells = (
+            cell.ljust(width) if column.align_left else cell.rjust(width)
+            for column, cell, width in zip(COLUMNS, row, widths, strict=True)
+        )
+        return "  ".join(cells).rstrip()
+
+    return "\n".join(render(row) for row in [header, *rows])
+
+
+def format_tune_table(run: TuneRun) -> str:
+    """The ranked table, then the baseline's settings and the run line."""
+    rows = [[column.cell(entry, run.baseline) for column in COLUMNS] for entry in _rank(run)]
+    return "\n".join([_render_table(rows), "", _format_baseline(run), _format_run_metadata(run)])

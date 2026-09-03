@@ -5,10 +5,16 @@ from collections.abc import Sequence
 
 from app.evals.judge.enums import JudgeVerdict
 from app.evals.judge.models import CaseJudgement
-from app.evals.metrics import format_rate, score_reference_citation_rate, score_reference_recall
+from app.evals.metrics import score_reference_citation_rate, score_reference_recall
 from app.evals.models import EvalResult
 
 INDENT = "    "
+UNMEASURED = "-"
+"""Holds a figure's place when no case measured it."""
+
+
+def format_rate(value: float | None) -> str:
+    return f"{value:.2f}" if value is not None else UNMEASURED
 
 
 def _format_case_line(result: EvalResult, width: int) -> str:
