@@ -37,6 +37,13 @@ class RetrievalMetrics(FrozenModel):
     expanded_recall: float | None
 
 
+class ContextMetrics(FrozenModel):
+    """What the prompt carried, per scored in-corpus case: the text recall is bought with."""
+
+    mean_context_chunks: float | None
+    mean_context_chars: float | None
+
+
 class GateMetrics(FrozenModel):
     """The pre-model gate's routing. refusal_rate: out-of-corpus cases it refused.
     false_refusals: in-corpus cases it refused; refused_a_found_reference: those where
@@ -81,10 +88,12 @@ class UsageMetrics(FrozenModel):
 
 
 class EvalMetrics(FrozenModel):
-    """Every measure of a full run, in blocks."""
+    """Every measure of a run, in blocks. A retrieval-only run leaves the blocks past the
+    model call unmeasured: None rates, zero counts."""
 
     counts: CaseCounts
     retrieval: RetrievalMetrics
+    context: ContextMetrics
     gate: GateMetrics
     citations: CitationMetrics
     judge: JudgeMetrics

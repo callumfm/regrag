@@ -7,6 +7,7 @@ from app.evals.judge.enums import JudgeVerdict
 from app.evals.judge.models import CaseJudgement, CorrectnessVerdict
 from app.evals.metrics import (
     compute_cited_references,
+    compute_context_metrics,
     compute_correctness,
     compute_expanded_hit_rate,
     compute_expanded_recall,
@@ -277,6 +278,22 @@ def test_a_run_that_refused_over_sources_is_counted_refused() -> None:
     refused_anyway = refused_result(sources=(retrieved_chunk(),))
 
     assert compute_gate_refusal_rate((refused_anyway,)) == 1.0
+
+
+def test_context_cost_averages_scored_in_corpus_cases_only() -> None:
+    """A refusal builds no context, so it must not drag the mean toward zero."""
+    result = eval_result()
+    context = compute_context_metrics((result, refused_result()))
+
+    assert context.mean_context_chunks == 1.0
+    assert context.mean_context_chars == float(len(result.state.sources[0].text))
+
+
+def test_no_cases_leaves_the_context_cost_unmeasured() -> None:
+    context = compute_context_metrics(())
+
+    assert context.mean_context_chunks is None
+    assert context.mean_context_chars is None
 
 
 # Judged metrics

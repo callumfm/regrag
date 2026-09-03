@@ -10,6 +10,7 @@ from app.evals.dataset.enums import EvalKind
 from app.evals.models import (
     CaseCounts,
     CitationMetrics,
+    ContextMetrics,
     EvalMetrics,
     EvalResult,
     GateMetrics,
@@ -161,6 +162,28 @@ def compute_retrieval_metrics(results: Sequence[EvalResult]) -> RetrievalMetrics
         raw_recall=compute_raw_recall(results),
         expanded_hit_rate=compute_expanded_hit_rate(results),
         expanded_recall=compute_expanded_recall(results),
+    )
+
+
+# Context: what reached the prompt, and what it cost
+
+
+def compute_mean_context_chunks(results: Sequence[EvalResult]) -> float | None:
+    """Mean context blocks per scored in-corpus case."""
+    return mean_or_none([float(len(r.state.sources)) for r in scored_in_corpus(results)])
+
+
+def compute_mean_context_chars(results: Sequence[EvalResult]) -> float | None:
+    """Mean context text length per scored in-corpus case."""
+    return mean_or_none(
+        [float(sum(len(c.text) for c in r.state.sources)) for r in scored_in_corpus(results)]
+    )
+
+
+def compute_context_metrics(results: Sequence[EvalResult]) -> ContextMetrics:
+    return ContextMetrics(
+        mean_context_chunks=compute_mean_context_chunks(results),
+        mean_context_chars=compute_mean_context_chars(results),
     )
 
 
@@ -328,6 +351,7 @@ def compute_metrics(results: Sequence[EvalResult]) -> EvalMetrics:
     return EvalMetrics(
         counts=compute_case_counts(results),
         retrieval=compute_retrieval_metrics(results),
+        context=compute_context_metrics(results),
         gate=compute_gate_metrics(results),
         citations=compute_citation_metrics(results),
         judge=compute_judge_metrics(results),

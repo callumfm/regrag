@@ -51,7 +51,7 @@ Each case is driven through the same graph the `/chat` endpoint runs, and ends i
 
 ## Metrics
 
-Scoring lives in `metrics.py`, each measure a plain function over the run's results. The run's `EvalMetrics` groups them into blocks — `counts`, `retrieval`, `gate`, `citations`, `judge`, `latency`, `usage` — and a retrieval-only tune run fills the blocks it can plus its own `context` block.
+Scoring lives in `metrics.py`, each measure a plain function over the run's results. The run's `EvalMetrics` groups them into blocks — `counts`, `retrieval`, `context`, `gate`, `citations`, `judge`, `latency`, `usage`. A retrieval-only tune run fills the same model and leaves the blocks past the model call unmeasured.
 
 | Metric | Scored over | What it measures |
 | ------ | ----------- | ---------------- |
@@ -59,6 +59,8 @@ Scoring lives in `metrics.py`, each measure a plain function over the run's resu
 | `retrieval.raw_recall` | in-corpus | Share of authored references search found |
 | `retrieval.expanded_hit_rate` | in-corpus | At least one authored reference reached the prompt |
 | `retrieval.expanded_recall` | in-corpus | Share of authored references that reached the prompt |
+| `context.mean_context_chunks` | in-corpus | Context blocks the prompt carried |
+| `context.mean_context_chars` | in-corpus | Context text length the prompt carried, what recall is bought with |
 | `citations.cited_references` | in-corpus | Share of authored references the answer cited |
 | `citations.markers_in_context` | answers citing anything | Share of `[n]` markers addressing a block the model was given |
 | `gate.refusal_rate` | out-of-corpus | Share the pre-model gate refused |

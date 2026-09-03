@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 from app.chat.enums import ChatNode
 from app.evals.metrics import format_rate
-from app.evals.tune.models import TuneMetrics, TuneResult, TuneRun
+from app.evals.models import EvalMetrics
+from app.evals.tune.models import TuneResult, TuneRun
 from app.evals.tune.params import TUNABLE_PARAMS
 
 NULL_CHAR: str = "-"
@@ -94,7 +95,7 @@ def _format_run_metadata(run: TuneRun) -> str:
     )
 
 
-def _sort_key(metrics: TuneMetrics) -> tuple[float, bool, float]:
+def _sort_key(metrics: EvalMetrics) -> tuple[float, bool, float]:
     """Best recall first; identical recall is won by the cheaper context, and a result
     with no measured cost ranks after any measured one."""
     recall = metrics.retrieval.expanded_recall
@@ -107,7 +108,7 @@ def _sort_key(metrics: TuneMetrics) -> tuple[float, bool, float]:
     return (-recall_score, has_no_context, context_size)
 
 
-def _build_row(rank: int, param: str, value: str, m: TuneMetrics, b: TuneMetrics) -> TuneRow:
+def _build_row(rank: int, param: str, value: str, m: EvalMetrics, b: EvalMetrics) -> TuneRow:
     """One result's row, every measure already a string so the renderer only aligns."""
     return TuneRow(
         rank=str(rank),

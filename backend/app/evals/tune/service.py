@@ -9,10 +9,10 @@ from app.chat.graph import retrieve
 from app.chat.models import ChatState
 from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
 from app.evals.dataset.models import EvalCase, EvalDataset
-from app.evals.models import EvalResult
+from app.evals.metrics import compute_metrics
+from app.evals.models import EvalMetrics, EvalResult
 from app.evals.service import evaluate_case
-from app.evals.tune.metrics import compute_tune_metrics
-from app.evals.tune.models import TunableParam, TuneMetrics, TuneResult, TuneRun
+from app.evals.tune.models import TunableParam, TuneResult, TuneRun
 
 
 async def retrieve_graph(state: ChatState) -> dict[str, Any]:
@@ -20,12 +20,12 @@ async def retrieve_graph(state: ChatState) -> dict[str, Any]:
     return await retrieve(state) | {"question": state.question}
 
 
-async def _measure(cases: tuple[EvalCase, ...]) -> TuneMetrics:
-    """Run the selected cases through retrieval and calculate tuning metrics."""
+async def _measure(cases: tuple[EvalCase, ...]) -> EvalMetrics:
+    """Run the selected cases through retrieval alone and score what it found."""
     results: list[EvalResult] = [
         await evaluate_case(case, graph=retrieve_graph, judge=False) for case in cases
     ]
-    return compute_tune_metrics(results)
+    return compute_metrics(results)
 
 
 async def tune(dataset: EvalDataset, params: Sequence[TunableParam]) -> TuneRun:
