@@ -3,28 +3,44 @@
 from app.chat.enums import ChatNode
 from app.chat.models import ChatStepResult
 from app.chat.prompts import REFUSAL_ANSWER
+from app.evals.judge.enums import JudgeVerdict
+from app.evals.judge.models import CaseJudgement, CorrectnessVerdict
 from app.evals.metrics import (
     compute_cited_references,
+    compute_context_metrics,
+    compute_correctness,
     compute_expanded_hit_rate,
     compute_expanded_recall,
+    compute_faithfulness,
     compute_gate_refusal_rate,
     compute_input_tokens,
     compute_markers_in_context,
     compute_mean_step_ms,
     compute_metrics,
+    compute_model_refusal_rate,
     compute_output_tokens,
     compute_raw_recall,
     count_errors,
     count_false_refusals,
+    count_judged,
     count_refusals_of_a_found_reference,
     find_cited_markers,
+    find_cited_sources,
     score_citation_validity,
     score_reference_citation_rate,
     score_reference_recall,
 )
 from app.retrieval.models import ReferenceTarget
 from tests.conftest import retrieved_chunk, search_result
-from tests.evals.conftest import eval_case, eval_result, refused_result
+from tests.evals.conftest import (
+    eval_case,
+    eval_result,
+    failed_judgement,
+    out_of_corpus_case,
+    passed_judgement,
+    refusal_judgement,
+    refused_result,
+)
 
 ARTICLE_4 = ReferenceTarget(celex="32023R1805", article="4")
 ARTICLE_20 = ReferenceTarget(celex="32023R1805", article="20")
@@ -125,6 +141,14 @@ def test_the_reference_citation_rate_is_unmeasured_when_a_case_names_no_referenc
     assert score_reference_citation_rate("Anything [1].", (retrieved_chunk(),), ()) is None
 
 
+def test_cited_sources_pair_each_marker_with_its_block_in_cited_order() -> None:
+    sources = (retrieved_chunk(id=1), retrieved_chunk(id=2), retrieved_chunk(id=3))
+
+    cited = find_cited_sources("So [3], then [1] and [7].", sources)
+
+    assert cited == ((3, sources[2]), (1, sources[0]))
+
+
 def test_validity_is_one_when_every_marker_addresses_a_given_block() -> None:
     assert score_citation_validity("Half of it [1].", (retrieved_chunk(),)) == 1.0
 
@@ -180,9 +204,9 @@ def test_an_errored_case_still_counts_toward_the_kind_it_was_authored_as() -> No
     than by shrinking them, so a run stays comparable to a clean one."""
     boom = eval_result(eval_case(id="boom"), hits=(), sources=(), error="x")
 
-    metrics = compute_metrics((eval_result(), boom))
+    counts = compute_metrics((eval_result(), boom)).counts
 
-    assert (metrics.cases, metrics.in_corpus, metrics.out_of_corpus, metrics.errors) == (2, 2, 0, 1)
+    assert (counts.cases, counts.in_corpus, counts.out_of_corpus, counts.errors) == (2, 2, 0, 1)
 
 
 def test_a_kind_absent_from_the_run_scores_none_rather_than_zero() -> None:
@@ -225,6 +249,16 @@ def test_citation_metrics_average_over_the_cases_that_measure() -> None:
     assert compute_markers_in_context(results) == 0.75
 
 
+def test_a_case_that_wrote_no_answer_leaves_the_citation_rate_unmeasured() -> None:
+    """A retrieval-only or gate-refused in-corpus case has nothing to cite with, so it is
+    unmeasured rather than a zero that reads as an answer citing nothing."""
+    retrieval_only = eval_result(steps=(ChatStepResult(step=ChatNode.RETRIEVE, ms=80),), answer="")
+    refused = refused_result(eval_case())
+
+    assert compute_cited_references((retrieval_only, refused)) is None
+    assert compute_cited_references((retrieval_only, refused, eval_result())) == 1.0
+
+
 def test_node_ms_is_averaged_over_the_cases_that_ran_the_node() -> None:
     results = (eval_result(), refused_result())
 
@@ -238,13 +272,17 @@ def test_tokens_are_summed_over_the_run() -> None:
     assert compute_output_tokens(results) == 80
 
 
-def test_compute_metrics_assembles_every_measure_of_the_run() -> None:
+def test_compute_metrics_assembles_every_block_of_the_run() -> None:
     metrics = compute_metrics((eval_result(), refused_result()))
 
-    assert (metrics.cases, metrics.in_corpus, metrics.out_of_corpus) == (2, 1, 1)
-    assert metrics.raw_recall == 1.0
-    assert metrics.gate_refusal_rate == 1.0
-    assert metrics.mean_total_ms == 542
+    assert (metrics.counts.cases, metrics.counts.in_corpus, metrics.counts.out_of_corpus) == (
+        2,
+        1,
+        1,
+    )
+    assert metrics.retrieval.raw_recall == 1.0
+    assert metrics.gate.refusal_rate == 1.0
+    assert metrics.latency.mean_total_ms == 542
 
 
 def test_a_run_that_synthesized_over_empty_sources_is_not_counted_refused() -> None:
@@ -259,3 +297,71 @@ def test_a_run_that_refused_over_sources_is_counted_refused() -> None:
     refused_anyway = refused_result(sources=(retrieved_chunk(),))
 
     assert compute_gate_refusal_rate((refused_anyway,)) == 1.0
+
+
+def test_context_cost_averages_scored_in_corpus_cases_only() -> None:
+    """A refusal builds no context, so it must not drag the mean toward zero."""
+    result = eval_result()
+    context = compute_context_metrics((result, refused_result()))
+
+    assert context.mean_context_chunks == 1.0
+    assert context.mean_context_chars == float(len(result.state.sources[0].text))
+
+
+def test_no_cases_leaves_the_context_cost_unmeasured() -> None:
+    context = compute_context_metrics(())
+
+    assert context.mean_context_chunks is None
+    assert context.mean_context_chars is None
+
+
+# Judged metrics
+
+
+def test_correctness_is_the_pass_share_of_the_judged_answers() -> None:
+    results = (eval_result(judgement=passed_judgement()), eval_result(judgement=failed_judgement()))
+
+    assert compute_correctness(results) == 0.5
+
+
+def test_a_case_the_judge_could_not_judge_is_left_out_not_failed() -> None:
+    undecided = CaseJudgement(
+        correctness=CorrectnessVerdict(critique="", verdict=JudgeVerdict.CANNOT_JUDGE)
+    )
+    results = (eval_result(judgement=passed_judgement()), eval_result(judgement=undecided))
+
+    assert compute_correctness(results) == 1.0
+    assert count_judged(results) == 2
+
+
+def test_faithfulness_is_the_mean_supported_share() -> None:
+    results = (eval_result(judgement=passed_judgement()), eval_result(judgement=failed_judgement()))
+
+    assert compute_faithfulness(results) == 0.75
+
+
+def test_model_refusal_rate_is_scored_over_the_judged_out_of_corpus_answers() -> None:
+    results = (
+        eval_result(out_of_corpus_case("a"), judgement=refusal_judgement()),
+        eval_result(out_of_corpus_case("b"), judgement=refusal_judgement(JudgeVerdict.FAIL)),
+        refused_result(),
+    )
+
+    assert compute_model_refusal_rate(results) == 0.5
+    assert compute_gate_refusal_rate(results) == 1 / 3
+
+
+def test_an_unjudged_run_leaves_the_judged_metrics_unmeasured() -> None:
+    judge = compute_metrics((eval_result(), refused_result())).judge
+
+    assert judge.correctness is None
+    assert judge.faithfulness is None
+    assert judge.refusal_rate is None
+    assert judge.judged == 0
+
+
+def test_an_errored_case_is_not_judged_whatever_it_carries() -> None:
+    results = (eval_result(judgement=passed_judgement(), error="TimeoutError"),)
+
+    assert count_judged(results) == 0
+    assert compute_correctness(results) is None

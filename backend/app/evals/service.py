@@ -13,6 +13,7 @@ from app.core.clock import elapsed_ms
 from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
 from app.core.exceptions import DomainError
 from app.evals.dataset.models import EvalCase, EvalDataset
+from app.evals.judge.service import judge_results
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalResult, EvalRun
 
@@ -49,8 +50,11 @@ async def evaluate_all_cases(
     dataset: EvalDataset,
     corpus_version: str | None = None,
     stale_cases: tuple[str, ...] = (),
+    *,
+    judge: bool = True,
 ) -> EvalRun:
-    """Every case in the dataset, one at a time, so a per-case timing measures the case alone.
+    """Every case in the dataset, one at a time, so a per-case timing measures the case alone;
+    then, unless told otherwise, the judge over the timed results.
 
     The corpus version and the stale cases are read before the run and carried through it, so
     a score always says which text it was measured against and which cases owe a re-review.
@@ -58,6 +62,8 @@ async def evaluate_all_cases(
     recorded flag cannot disagree with what served the calls.
     """
     results = [await evaluate_case(case) for case in dataset.selected_cases]
+    if judge:
+        results = await judge_results(results)
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
     return EvalRun(
         dataset_sha=dataset.sha256,
@@ -65,6 +71,7 @@ async def evaluate_all_cases(
         corpus_version=corpus_version,
         stale_cases=stale_cases,
         cached=litellm.cache is not None,
+        judged=judge,
         settings=settings,
         metrics=compute_metrics(results),
         results=tuple(results),

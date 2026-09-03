@@ -51,21 +51,41 @@ Each case is driven through the same graph the `/chat` endpoint runs, and ends i
 
 ## Metrics
 
-Scoring lives in `metrics.py`, each measure a plain function over the run's results.
+Scoring lives in `metrics.py`, each measure a plain function over the run's results. The run's `EvalMetrics` groups them into blocks — `counts`, `retrieval`, `context`, `gate`, `citations`, `judge`, `latency`, `usage`. A retrieval-only tune run fills the same model and leaves the blocks past the model call unmeasured.
 
 | Metric | Scored over | What it measures |
 | ------ | ----------- | ---------------- |
-| `raw_hit_rate` | in-corpus | Search found at least one authored reference |
-| `raw_recall` | in-corpus | Share of authored references search found |
-| `expanded_hit_rate` | in-corpus | At least one authored reference reached the prompt |
-| `expanded_recall` | in-corpus | Share of authored references that reached the prompt |
-| `cited_references` | in-corpus | Share of authored references the answer cited |
-| `markers_in_context` | answers citing anything | Share of `[n]` markers addressing a block the model was given |
-| `gate_refusal_rate` | out-of-corpus | Share the pre-model gate refused |
-| `false_refusals` | in-corpus | Cases the gate refused |
-| `refused_a_found_reference` | in-corpus | Of those, the ones where search had already found a reference |
+| `retrieval.raw_hit_rate` | in-corpus | Search found at least one authored reference |
+| `retrieval.raw_recall` | in-corpus | Share of authored references search found |
+| `retrieval.expanded_hit_rate` | in-corpus | At least one authored reference reached the prompt |
+| `retrieval.expanded_recall` | in-corpus | Share of authored references that reached the prompt |
+| `context.mean_context_chunks` | in-corpus | Context blocks the prompt carried |
+| `context.mean_context_chars` | in-corpus | Context text length the prompt carried, what recall is bought with |
+| `citations.cited_references` | answered in-corpus | Share of authored references the answer cited |
+| `citations.markers_in_context` | answers citing anything | Share of `[n]` markers addressing a block the model was given |
+| `gate.refusal_rate` | out-of-corpus | Share the pre-model gate refused |
+| `gate.false_refusals` | in-corpus | Cases the gate refused |
+| `gate.refused_a_found_reference` | in-corpus | Of those, the ones where search had already found a reference |
+| `judge.correctness` | judged in-corpus | Share of answers stating what the reference answer states |
+| `judge.faithfulness` | judged answers citing anything | Mean share of an answer's claims its cited context backs |
+| `judge.refusal_rate` | judged out-of-corpus | Share that passed the gate and declined in the model's own words |
+| `judge.judged` | all | Cases the judge returned a verdict on |
 
 The raw and expanded pairs are worth reading together. Expansion widens each hit into its surrounding section, and against a fixed context budget that can push a reference *out*, so expanded recall is not guaranteed to be the higher of the two.
+
+## Judge
+
+Every measure above the judged rows reads retrieval and citation plumbing; none reads what the answer says. The judge in `judge/` is the measure that does: a second model, set by `EVAL_JUDGE_MODEL` and deliberately not the one that wrote the answer, grades each answered case on the dimensions that apply to it, one model call per dimension.
+
+| Dimension | Applies to | Judge sees | Judge returns |
+| --------- | ---------- | ---------- | ------------- |
+| Correctness | in-corpus | question, reference answer, answer | critique, then pass / fail / cannot_judge, then the failure's kind |
+| Faithfulness | in-corpus answers citing a block they were given | the answer, the blocks it cited under their own markers | critique, then each claim marked supported or not |
+| Refusal | out-of-corpus answers that passed the gate | question, answer | critique, then pass (declined) / fail / cannot_judge |
+
+Verdicts are categorical at the judge and numeric only by aggregation: a pass is 1, a fail 0, faithfulness the supported share of the claims, and cannot_judge unmeasured rather than zero. The critique is written before the verdict, so the reasoning is on the page before the verdict is decided; `--verbose` prints it under any case the judge did not pass. A judge call that fails leaves its dimension unmeasured and the run green; a run asked to judge that gets no verdict on any answered case exits non-zero and says so, so a misnamed judge model does not pass as an unmeasured run. The run records `judged`, whether the judge was on, beside `cached`. `--no-judge` skips the judge, for a retrieval baseline that costs no model spend; tune never judges.
+
+Judging is a pass over the run once every case has been timed, so no case's timing carries a judge call; cases are judged `EVAL_JUDGE_CONCURRENCY` at a time, and an in-corpus answer's correctness and faithfulness calls run together.
 
 ## Tuning
 

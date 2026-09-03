@@ -7,7 +7,19 @@ from collections.abc import Sequence
 from app.chat.enums import ChatNode, ChatOutcome
 from app.chat.graph import assess_or_synthesize_or_refuse
 from app.evals.dataset.enums import EvalKind
-from app.evals.models import EvalMetrics, EvalResult, RetrievalMetrics
+from app.evals.judge.models import CaseJudgement
+from app.evals.models import (
+    CaseCounts,
+    CitationMetrics,
+    ContextMetrics,
+    EvalMetrics,
+    EvalResult,
+    GateMetrics,
+    JudgeMetrics,
+    LatencyMetrics,
+    RetrievalMetrics,
+    UsageMetrics,
+)
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
 
 MARKER = re.compile(r"\[(\d+)\]")
@@ -40,13 +52,25 @@ def find_cited_markers(answer: str) -> tuple[int, ...]:
     return tuple(seen)
 
 
+def find_cited_sources(
+    answer: str, sources: Sequence[RetrievedChunk]
+) -> tuple[tuple[int, RetrievedChunk], ...]:
+    """Each marker the answer cites paired with the block it addresses, in cited order; a
+    marker addressing no block is left out."""
+    return tuple(
+        (marker, sources[marker - 1])
+        for marker in find_cited_markers(answer)
+        if 1 <= marker <= len(sources)
+    )
+
+
 def score_citation_validity(answer: str, sources: Sequence[RetrievedChunk]) -> float | None:
     """Share of the answer's markers addressing a block it was given; None when it cited
     nothing, which is unmeasured rather than zero."""
     markers = find_cited_markers(answer)
     if not markers:
         return None
-    return sum(1 <= marker <= len(sources) for marker in markers) / len(markers)
+    return len(find_cited_sources(answer, sources)) / len(markers)
 
 
 def score_reference_citation_rate(
@@ -58,20 +82,11 @@ def score_reference_citation_rate(
     so an extra citation is not an error; None when the case names none."""
     if not targets:
         return None
-    cited = {
-        _division(sources[marker - 1])
-        for marker in find_cited_markers(answer)
-        if 1 <= marker <= len(sources)
-    }
+    cited = {_division(source) for _, source in find_cited_sources(answer, sources)}
     return sum(_division(target) in cited for target in targets) / len(targets)
 
 
 # Run metrics: each a plain function over the run's results, scoring the cases it applies to
-
-
-def format_rate(value: float | None) -> str:
-    """A rate as a figure, or a dash holding its place when it is unmeasured."""
-    return f"{value:.2f}" if value is not None else "-"
 
 
 def mean_or_none(values: Sequence[float | bool]) -> float | None:
@@ -92,20 +107,7 @@ def scored_out_of_corpus(results: Sequence[EvalResult]) -> list[EvalResult]:
     return [r for r in _scored(results) if r.case.kind is EvalKind.OUT_OF_CORPUS]
 
 
-def _raw_recall(result: EvalResult) -> float:
-    return score_reference_recall(result.case.references, result.state.hits)
-
-
-def _expanded_recall(result: EvalResult) -> float:
-    return score_reference_recall(result.case.references, result.state.sources)
-
-
-def _gate_refused(result: EvalResult) -> bool:
-    """The branch the graph took, observed off the path so a routing bug shows up here.
-    A retrieval-only run never routes, so its gate is read the way the graph would route."""
-    if result.state.outcome is ChatOutcome.ABORTED:
-        return assess_or_synthesize_or_refuse(result.state) is ChatNode.REFUSE
-    return result.state.outcome is ChatOutcome.REFUSED
+# Counts: the run's shape
 
 
 def count_errors(results: Sequence[EvalResult]) -> int:
@@ -116,6 +118,26 @@ def count_cases_of_kind(results: Sequence[EvalResult], kind: EvalKind) -> int:
     """Cases of this kind the run covered, errored or not: the dataset's shape, which a
     case the graph raised on does not change."""
     return sum(result.case.kind is kind for result in results)
+
+
+def compute_case_counts(results: Sequence[EvalResult]) -> CaseCounts:
+    return CaseCounts(
+        cases=len(results),
+        in_corpus=count_cases_of_kind(results, EvalKind.IN_CORPUS),
+        out_of_corpus=count_cases_of_kind(results, EvalKind.OUT_OF_CORPUS),
+        errors=count_errors(results),
+    )
+
+
+# Retrieval: what search found, raw and expanded
+
+
+def _raw_recall(result: EvalResult) -> float:
+    return score_reference_recall(result.case.references, result.state.hits)
+
+
+def _expanded_recall(result: EvalResult) -> float:
+    return score_reference_recall(result.case.references, result.state.sources)
 
 
 def compute_raw_hit_rate(results: Sequence[EvalResult]) -> float | None:
@@ -138,22 +160,46 @@ def compute_expanded_recall(results: Sequence[EvalResult]) -> float | None:
     return mean_or_none([_expanded_recall(r) for r in scored_in_corpus(results)])
 
 
-def compute_cited_references(results: Sequence[EvalResult]) -> float | None:
-    """Mean share of authored references the answers cited, over the in-corpus cases."""
-    rates = [
-        score_reference_citation_rate(r.state.answer, r.state.sources, r.case.references)
-        for r in scored_in_corpus(results)
-    ]
-    return mean_or_none([rate for rate in rates if rate is not None])
+def compute_retrieval_metrics(results: Sequence[EvalResult]) -> RetrievalMetrics:
+    return RetrievalMetrics(
+        raw_hit_rate=compute_raw_hit_rate(results),
+        raw_recall=compute_raw_recall(results),
+        expanded_hit_rate=compute_expanded_hit_rate(results),
+        expanded_recall=compute_expanded_recall(results),
+    )
 
 
-def compute_markers_in_context(results: Sequence[EvalResult]) -> float | None:
-    """Mean share of markers addressing a block that was in context, over the answers
-    that cited anything."""
-    validities = [
-        score_citation_validity(r.state.answer, r.state.sources) for r in _scored(results)
-    ]
-    return mean_or_none([v for v in validities if v is not None])
+# Context: what reached the prompt, and what it cost
+
+
+def compute_mean_context_chunks(results: Sequence[EvalResult]) -> float | None:
+    """Mean context blocks per scored in-corpus case."""
+    return mean_or_none([float(len(r.state.sources)) for r in scored_in_corpus(results)])
+
+
+def compute_mean_context_chars(results: Sequence[EvalResult]) -> float | None:
+    """Mean context text length per scored in-corpus case."""
+    return mean_or_none(
+        [float(sum(len(c.text) for c in r.state.sources)) for r in scored_in_corpus(results)]
+    )
+
+
+def compute_context_metrics(results: Sequence[EvalResult]) -> ContextMetrics:
+    return ContextMetrics(
+        mean_context_chunks=compute_mean_context_chunks(results),
+        mean_context_chars=compute_mean_context_chars(results),
+    )
+
+
+# Gate: the pre-model routing decision
+
+
+def _gate_refused(result: EvalResult) -> bool:
+    """The branch the graph took, observed off the path so a routing bug shows up here.
+    A retrieval-only run never routes, so its gate is read the way the graph would route."""
+    if result.state.outcome is ChatOutcome.ABORTED:
+        return assess_or_synthesize_or_refuse(result.state) is ChatNode.REFUSE
+    return result.state.outcome is ChatOutcome.REFUSED
 
 
 def compute_gate_refusal_rate(results: Sequence[EvalResult]) -> float | None:
@@ -172,6 +218,91 @@ def count_refusals_of_a_found_reference(results: Sequence[EvalResult]) -> int:
     return sum(_gate_refused(r) and _raw_recall(r) > 0 for r in scored_in_corpus(results))
 
 
+def compute_gate_metrics(results: Sequence[EvalResult]) -> GateMetrics:
+    return GateMetrics(
+        refusal_rate=compute_gate_refusal_rate(results),
+        false_refusals=count_false_refusals(results),
+        refused_a_found_reference=count_refusals_of_a_found_reference(results),
+    )
+
+
+# Citations: what the answers cited
+
+
+def _answered_in_corpus(results: Sequence[EvalResult]) -> list[EvalResult]:
+    """The in-corpus cases the model answered: a refused or retrieval-only case wrote no
+    answer, so it has nothing to cite with and is unmeasured rather than zero."""
+    return [r for r in scored_in_corpus(results) if r.state.outcome is ChatOutcome.DONE]
+
+
+def compute_cited_references(results: Sequence[EvalResult]) -> float | None:
+    """Mean share of authored references the answers cited, over the answered in-corpus cases."""
+    rates = [
+        score_reference_citation_rate(r.state.answer, r.state.sources, r.case.references)
+        for r in _answered_in_corpus(results)
+    ]
+    return mean_or_none([rate for rate in rates if rate is not None])
+
+
+def compute_markers_in_context(results: Sequence[EvalResult]) -> float | None:
+    """Mean share of markers addressing a block that was in context, over the answers
+    that cited anything."""
+    validities = [
+        score_citation_validity(r.state.answer, r.state.sources) for r in _scored(results)
+    ]
+    return mean_or_none([v for v in validities if v is not None])
+
+
+def compute_citation_metrics(results: Sequence[EvalResult]) -> CitationMetrics:
+    return CitationMetrics(
+        cited_references=compute_cited_references(results),
+        markers_in_context=compute_markers_in_context(results),
+    )
+
+
+# Judge: the judge's dimensions over the cases it returned a verdict on
+
+
+def _judgements(results: Sequence[EvalResult]) -> list[CaseJudgement]:
+    """The verdicts of the scored cases the judge came back on."""
+    return [r.judgement for r in _scored(results) if r.judgement is not None and r.judgement.judged]
+
+
+def count_judged(results: Sequence[EvalResult]) -> int:
+    return len(_judgements(results))
+
+
+def compute_correctness(results: Sequence[EvalResult]) -> float | None:
+    """Share of judged in-corpus answers the judge passed against the reference answer."""
+    scores = [j.correctness.score() for j in _judgements(results) if j.correctness is not None]
+    return mean_or_none([s for s in scores if s is not None])
+
+
+def compute_faithfulness(results: Sequence[EvalResult]) -> float | None:
+    """Mean share of an answer's claims its cited context backs, over the judged answers
+    that made a checkable claim."""
+    scores = [j.faithfulness.score() for j in _judgements(results) if j.faithfulness is not None]
+    return mean_or_none([s for s in scores if s is not None])
+
+
+def compute_model_refusal_rate(results: Sequence[EvalResult]) -> float | None:
+    """Share of judged out-of-corpus answers that declined in the model's own words."""
+    scores = [j.refusal.score() for j in _judgements(results) if j.refusal is not None]
+    return mean_or_none([s for s in scores if s is not None])
+
+
+def compute_judge_metrics(results: Sequence[EvalResult]) -> JudgeMetrics:
+    return JudgeMetrics(
+        judged=count_judged(results),
+        correctness=compute_correctness(results),
+        faithfulness=compute_faithfulness(results),
+        refusal_rate=compute_model_refusal_rate(results),
+    )
+
+
+# Latency
+
+
 def compute_mean_step_ms(results: Sequence[EvalResult]) -> dict[str, int]:
     """Each step's mean time over the cases that ran it, in the order steps first appear."""
     timings: dict[str, list[int]] = {}
@@ -185,6 +316,16 @@ def compute_mean_total_ms(results: Sequence[EvalResult]) -> int:
     return int(mean_or_none([r.state.total_ms or 0 for r in _scored(results)]) or 0)
 
 
+def compute_latency_metrics(results: Sequence[EvalResult]) -> LatencyMetrics:
+    return LatencyMetrics(
+        mean_step_ms=compute_mean_step_ms(results),
+        mean_total_ms=compute_mean_total_ms(results),
+    )
+
+
+# Usage
+
+
 def compute_input_tokens(results: Sequence[EvalResult]) -> int:
     return sum(r.state.token_totals()[0] or 0 for r in _scored(results))
 
@@ -193,31 +334,25 @@ def compute_output_tokens(results: Sequence[EvalResult]) -> int:
     return sum(r.state.token_totals()[1] or 0 for r in _scored(results))
 
 
-def compute_retrieval_metrics(results: Sequence[EvalResult]) -> RetrievalMetrics:
-    """The retrieval measures every run kind shares, each over the cases it applies to."""
-    return RetrievalMetrics(
-        cases=len(results),
-        in_corpus=count_cases_of_kind(results, EvalKind.IN_CORPUS),
-        out_of_corpus=count_cases_of_kind(results, EvalKind.OUT_OF_CORPUS),
-        errors=count_errors(results),
-        raw_hit_rate=compute_raw_hit_rate(results),
-        raw_recall=compute_raw_recall(results),
-        expanded_hit_rate=compute_expanded_hit_rate(results),
-        expanded_recall=compute_expanded_recall(results),
-        gate_refusal_rate=compute_gate_refusal_rate(results),
-        false_refusals=count_false_refusals(results),
-        refused_a_found_reference=count_refusals_of_a_found_reference(results),
+def compute_usage_metrics(results: Sequence[EvalResult]) -> UsageMetrics:
+    return UsageMetrics(
+        input_tokens=compute_input_tokens(results),
+        output_tokens=compute_output_tokens(results),
     )
 
 
+# The run
+
+
 def compute_metrics(results: Sequence[EvalResult]) -> EvalMetrics:
-    """Every measure of the run: the shared retrieval block plus what the model calls added."""
+    """Every measure of the run, block by block."""
     return EvalMetrics(
-        **compute_retrieval_metrics(results).model_dump(),
-        cited_references=compute_cited_references(results),
-        markers_in_context=compute_markers_in_context(results),
-        mean_step_ms=compute_mean_step_ms(results),
-        mean_total_ms=compute_mean_total_ms(results),
-        input_tokens=compute_input_tokens(results),
-        output_tokens=compute_output_tokens(results),
+        counts=compute_case_counts(results),
+        retrieval=compute_retrieval_metrics(results),
+        context=compute_context_metrics(results),
+        gate=compute_gate_metrics(results),
+        citations=compute_citation_metrics(results),
+        judge=compute_judge_metrics(results),
+        latency=compute_latency_metrics(results),
+        usage=compute_usage_metrics(results),
     )

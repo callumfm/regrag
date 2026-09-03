@@ -1,5 +1,4 @@
-"""Tune values: a configuration under test, what a retrieval-only run of it measures,
-and the whole tune run."""
+"""Tune values: a configuration under test, one value's measurement, and the whole run."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -9,7 +8,7 @@ from pydantic import Field
 
 from app.core.config import EVAL_CONFIG_SECTIONS, Config, config
 from app.core.models import FrozenModel
-from app.evals.models import RetrievalMetrics
+from app.evals.models import EvalMetrics
 
 
 class TunableParam(FrozenModel):
@@ -52,21 +51,13 @@ class TunableParam(FrozenModel):
                 setattr(config, name, old_value)
 
 
-class TuneMetrics(RetrievalMetrics):
-    """Retrieval metrics plus context and retrieval cost."""
-
-    mean_context_chunks: float | None
-    mean_context_chars: float | None
-    mean_retrieve_ms: int | None
-
-
 class TuneResult(FrozenModel):
     """The result of trying one value for one config parameter."""
 
     param: str
     value: Any
     requires: dict[str, Any] = Field(default_factory=dict)
-    metrics: TuneMetrics
+    metrics: EvalMetrics
 
 
 class TuneRun(FrozenModel):
@@ -76,5 +67,5 @@ class TuneRun(FrozenModel):
     case_filter: str | None = None
     cached: bool = False
     settings: dict[str, Any]
-    baseline: TuneMetrics
+    baseline: EvalMetrics
     results: tuple[TuneResult, ...] = Field(default_factory=tuple)

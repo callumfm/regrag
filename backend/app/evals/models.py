@@ -2,9 +2,11 @@
 
 from typing import Any
 
+from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
 from app.core.models import FrozenModel
 from app.evals.dataset.models import EvalCase
+from app.evals.judge.models import CaseJudgement
 
 
 class EvalResult(FrozenModel):
@@ -13,47 +15,91 @@ class EvalResult(FrozenModel):
 
     case: EvalCase
     state: ChatState
+    judgement: CaseJudgement | None = None
 
 
-class RetrievalMetrics(FrozenModel):
-    """The measures retrieval alone fills. A rate is None when no case measured it.
-
-    in_corpus / out_of_corpus: how the run's cases were authored, counted whether or not
-        they scored, so errors overlaps them rather than partitioning with them.
-    raw_*: scored on what search found; expanded_*: on what reached the prompt.
-    gate_refusal_rate: out-of-corpus cases the pre-model gate refused; a model declining in
-        its own words is the judge's to score.
-    false_refusals: in-corpus cases the gate refused; refused_a_found_reference: those where
-        search had already found an authored reference — the gate too tight.
-    """
+class CaseCounts(FrozenModel):
+    """The run's shape: how its cases were authored, and how many the graph raised on.
+    An errored case still counts toward its kind, so errors overlaps the kinds."""
 
     cases: int
     in_corpus: int
     out_of_corpus: int
     errors: int
+
+
+class RetrievalMetrics(FrozenModel):
+    """What search found, over the in-corpus cases. raw_*: what search returned;
+    expanded_*: what reached the prompt. None when no case measured it."""
+
     raw_hit_rate: float | None
     raw_recall: float | None
     expanded_hit_rate: float | None
     expanded_recall: float | None
-    gate_refusal_rate: float | None
+
+
+class ContextMetrics(FrozenModel):
+    """What the prompt carried, per scored in-corpus case: the text recall is bought with."""
+
+    mean_context_chunks: float | None
+    mean_context_chars: float | None
+
+
+class GateMetrics(FrozenModel):
+    """The pre-model gate's routing. refusal_rate: out-of-corpus cases it refused.
+    false_refusals: in-corpus cases it refused; refused_a_found_reference: those where
+    search had already found an authored reference — the gate too tight."""
+
+    refusal_rate: float | None
     false_refusals: int
     refused_a_found_reference: int
 
 
-class EvalMetrics(RetrievalMetrics):
-    """The retrieval measures plus what the model calls added.
-
-    cited_references: share of authored references the answers cited.
-    markers_in_context: share of [n] markers addressing a block that was in context.
-    mean_step_ms: a step's mean time over the cases that ran it.
-    """
+class CitationMetrics(FrozenModel):
+    """What the answers cited. cited_references: share of authored references cited;
+    markers_in_context: share of [n] markers addressing a block that was in context."""
 
     cited_references: float | None
     markers_in_context: float | None
+
+
+class JudgeMetrics(FrozenModel):
+    """The judge's three dimensions over the cases it returned a verdict on. judged says how
+    many, so a run with the judge off reads as unmeasured rather than perfect. refusal_rate:
+    out-of-corpus cases that passed the gate and declined in the model's own words."""
+
+    judged: int
+    correctness: float | None
+    faithfulness: float | None
+    refusal_rate: float | None
+
+
+class LatencyMetrics(FrozenModel):
+    """mean_step_ms: each step's mean over the cases that ran it."""
+
     mean_step_ms: dict[str, int]
     mean_total_ms: int
+
+
+class UsageMetrics(FrozenModel):
+    """Tokens summed over the run."""
+
     input_tokens: int
     output_tokens: int
+
+
+class EvalMetrics(FrozenModel):
+    """Every measure of a run, in blocks. A retrieval-only run leaves the blocks past the
+    model call unmeasured: None rates, zero counts."""
+
+    counts: CaseCounts
+    retrieval: RetrievalMetrics
+    context: ContextMetrics
+    gate: GateMetrics
+    citations: CitationMetrics
+    judge: JudgeMetrics
+    latency: LatencyMetrics
+    usage: UsageMetrics
 
 
 class EvalRun(FrozenModel):
@@ -64,7 +110,9 @@ class EvalRun(FrozenModel):
     when they were measured against the same text; stale_cases names the cases whose cited
     text has moved since they were authored, whose reference answers are owed a re-review.
     cached says the run had the call cache on, so an embed or rerank timing may measure a
-    disk read rather than the provider — a cached run is not a latency baseline.
+    disk read rather than the provider — a cached run is not a latency baseline. judged says
+    the judge was on, so a run reading judged: 0 with it on is a judge that never answered,
+    not a run that did not ask.
     """
 
     dataset_sha: str
@@ -72,14 +120,23 @@ class EvalRun(FrozenModel):
     corpus_version: str | None = None
     stale_cases: tuple[str, ...] = ()
     cached: bool = False
+    judged: bool = False
     settings: dict[str, Any]
     metrics: EvalMetrics
     results: tuple[EvalResult, ...]
 
+    @property
+    def judge_never_answered(self) -> bool:
+        """The judge was on and some case was answered, yet no verdict came back: every
+        judge call failed, which a misnamed judge model does silently."""
+        answered = any(r.state.outcome is ChatOutcome.DONE for r in self.results)
+        return self.judged and answered and self.metrics.judge.judged == 0
+
     def summary(self) -> str:
         """The run's setup and scores as JSON, then any case owed a re-review, then any case
-        the graph raised on. A stale case is reported, never failed: only a human can repair
-        one, so the run stays green and says what needs reading."""
+        the graph raised on, then a judge that never answered. A stale case is reported,
+        never failed: only a human can repair one, so the run stays green and says what
+        needs reading."""
         blocks = [
             self.model_dump_json(
                 indent=2,
@@ -88,6 +145,7 @@ class EvalRun(FrozenModel):
                     "case_filter",
                     "corpus_version",
                     "cached",
+                    "judged",
                     "settings",
                     "metrics",
                 },
@@ -103,4 +161,9 @@ class EvalRun(FrozenModel):
         errored = [f"  {r.case.id}  {r.state.error}" for r in self.results if r.state.error]
         if errored:
             blocks.append("\n".join(["errored:", *errored]))
+        if self.judge_never_answered:
+            blocks.append(
+                "the judge returned no verdict on any answered case: check EVAL_JUDGE_MODEL "
+                "and the warnings above"
+            )
         return "\n\n".join(blocks)

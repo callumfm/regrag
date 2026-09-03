@@ -8,6 +8,7 @@ import pytest
 from app.chat.enums import ChatNode, ChatOutcome
 from app.core.config import config
 from app.core.llm import LLMError
+from app.evals import service
 from app.evals.service import evaluate_all_cases, evaluate_case
 from tests.chat.conftest import USAGE, fake_chat_model
 from tests.conftest import search_result
@@ -76,7 +77,7 @@ async def test_a_run_scores_every_case_and_records_what_it_ran_against(
     assert [r.case.id for r in run.results] == ["fueleu-one"]
     assert run.case_filter == "fueleu"
     assert run.dataset_sha == dataset.sha256
-    assert run.metrics.cases == 1
+    assert run.metrics.counts.cases == 1
     assert run.settings["EXPAND_SECTIONS"] is False
     assert run.cached is False
 
@@ -112,3 +113,44 @@ async def test_a_run_carries_the_corpus_it_was_measured_against(answering_graph:
 
     assert run.corpus_version == "2026-08-01-a3f1c2"
     assert run.stale_cases == ("amended",)
+
+
+# Judging
+
+
+@pytest.fixture
+def recording_judge(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """A judging pass that records which cases it saw and hands them back unjudged."""
+    seen: list[str] = []
+
+    async def fake_judge_results(results):
+        seen.extend(result.case.id for result in results)
+        return list(results)
+
+    monkeypatch.setattr(service, "judge_results", fake_judge_results)
+    return seen
+
+
+async def test_a_run_is_judged_once_every_case_has_run_and_says_so(
+    answering_graph: None, recording_judge
+) -> None:
+    run = await evaluate_all_cases(eval_dataset(eval_case(id="one"), eval_case(id="two")))
+
+    assert recording_judge == ["one", "two"]
+    assert run.judged is True
+    assert '"judged": true' in run.summary()
+
+
+async def test_the_judge_can_be_switched_off(answering_graph: None, recording_judge) -> None:
+    run = await evaluate_all_cases(eval_dataset(eval_case(id="one")), judge=False)
+
+    assert recording_judge == []
+    assert run.judged is False
+
+
+async def test_a_case_is_not_judged_on_its_own(answering_graph: None, recording_judge) -> None:
+    """Judging is a pass over the timed run, so a case's timing never carries a judge call."""
+    result = await evaluate_case(eval_case())
+
+    assert recording_judge == []
+    assert result.judgement is None

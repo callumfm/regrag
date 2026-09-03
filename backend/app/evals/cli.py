@@ -27,6 +27,11 @@ def register_run_command(commands: Any) -> None:
     run.add_argument("--case", help="only cases whose id contains this")
     run.add_argument("--verbose", action="store_true", help="list every case with its own scores")
     run.add_argument(
+        "--no-judge",
+        action="store_true",
+        help="skip the LLM judge, leaving the judged metrics unmeasured",
+    )
+    run.add_argument(
         "--no-cache",
         action="store_true",
         help="pay for every embed and rerank again instead of replaying the cached ones",
@@ -42,7 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_evals(case_filter: str | None, verbose: bool = False, cached: bool = True) -> int:
+def run_evals(
+    case_filter: str | None, verbose: bool = False, cached: bool = True, judge: bool = True
+) -> int:
     """Score the dataset and print what it measured, the cases first when asked for."""
     dataset = EvalDataset.load(case_filter=case_filter)
     drifted, corpus_version = asyncio.run(check_against_corpus(dataset))
@@ -50,12 +57,14 @@ def run_evals(case_filter: str | None, verbose: bool = False, cached: bool = Tru
     if cached:
         enable_call_cache()
 
-    run = asyncio.run(evaluate_all_cases(dataset, corpus_version, stale_case_ids(drifted)))
+    run = asyncio.run(
+        evaluate_all_cases(dataset, corpus_version, stale_case_ids(drifted), judge=judge)
+    )
     if verbose:
         print("\n".join(format_case_lines(run.results)), end="\n\n")
 
     print(run.summary())
-    return 1 if run.metrics.errors else 0
+    return 1 if run.metrics.counts.errors or run.judge_never_answered else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,7 +73,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "run":
-            return run_evals(args.case, args.verbose, cached=not args.no_cache)
+            return run_evals(
+                args.case, args.verbose, cached=not args.no_cache, judge=not args.no_judge
+            )
 
         if args.command == "tune":
             return run_tune(args.case, cached=not args.no_cache)

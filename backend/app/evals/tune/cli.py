@@ -38,4 +38,4 @@ def run_tune(case_filter: str | None, cached: bool = True) -> int:
     print(format_tune_table(run))
 
     measured = (run.baseline, *(result.metrics for result in run.results))
-    return 1 if any(metrics.errors for metrics in measured) else 0
+    return 1 if any(metrics.counts.errors for metrics in measured) else 0

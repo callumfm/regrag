@@ -1,7 +1,16 @@
 """The per-case lines `evals run --verbose` adds."""
 
+from app.evals.judge.enums import JudgeVerdict
 from app.evals.report import format_case_lines
-from tests.evals.conftest import eval_case, eval_result, refused_result
+from tests.evals.conftest import (
+    eval_case,
+    eval_result,
+    failed_judgement,
+    out_of_corpus_case,
+    passed_judgement,
+    refusal_judgement,
+    refused_result,
+)
 
 
 def test_a_case_line_shows_what_it_retrieved_what_it_cited_and_how_it_ended():
@@ -11,6 +20,8 @@ def test_a_case_line_shows_what_it_retrieved_what_it_cited_and_how_it_ended():
     assert "raw 1.00" in line
     assert "exp 1.00" in line
     assert "cite 1.00" in line
+    assert "corr    -" in line
+    assert "faith    -" in line
     assert "done" in line
     assert "1000ms" in line
 
@@ -42,3 +53,34 @@ def test_the_case_column_is_sized_to_the_longest_id_in_the_run():
     )
 
     assert [line.index("raw") for line in lines] == [42, 42]
+
+
+def test_a_judged_case_shows_its_scores_and_a_pass_stays_on_one_line():
+    [line] = format_case_lines((eval_result(judgement=passed_judgement()),))
+
+    assert "corr 1.00" in line
+    assert "faith 1.00" in line
+
+
+def test_a_case_the_judge_failed_prints_why_beneath_it():
+    line, correctness, faithfulness, unsupported = format_case_lines(
+        (eval_result(judgement=failed_judgement()),)
+    )
+
+    assert "corr 0.00" in line
+    assert "faith 0.50" in line
+    assert (
+        correctness
+        == "    correctness fail (wrong_figure): says all of it, the reference says half"
+    )
+    assert faithfulness == "    faithfulness 0.50: the 5,000 GT threshold is not in the cited block"
+    assert unsupported == "    unsupported: ships above 5,000 GT"
+
+
+def test_an_answer_that_did_not_decline_prints_the_judges_reason():
+    result = eval_result(out_of_corpus_case(), judgement=refusal_judgement(JudgeVerdict.FAIL))
+
+    line, refusal = format_case_lines((result,))
+
+    assert "corr    -" in line
+    assert refusal == "    refusal fail: says the corpus lacks it"

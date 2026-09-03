@@ -39,12 +39,17 @@ def _reference_addresses(source: RetrievedChunk) -> list[str]:
     return addresses
 
 
+def format_context_block(marker: int, source: RetrievedChunk) -> str:
+    """One chunk as the numbered block a citation marker refers to."""
+    return f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
+
+
 def format_context(sources: Sequence[RetrievedChunk], *, cites: bool = False) -> str:
     """The retrieved chunks as numbered blocks the citation markers refer to, each block
     followed by the addresses it cites when the caller asks for them."""
     blocks = []
     for marker, source in enumerate(sources, start=1):
-        block = f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
+        block = format_context_block(marker, source)
         if cites and (addresses := _reference_addresses(source)):
             block += f"\ncites: {', '.join(addresses)}"
         blocks.append(block)
