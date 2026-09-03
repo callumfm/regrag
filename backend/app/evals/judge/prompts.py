@@ -25,8 +25,11 @@ FAITHFULNESS_PROMPT = (
     "rule, figure, date, scope or obligation, and mark each supported only when a cited "
     "block states it or it follows directly from one. A claim the blocks do not cover is "
     "unsupported however plausible it is. Do not judge whether a claim is true, only "
-    "whether the cited context backs it. A sentence saying the context does not cover "
-    "something is not a claim. Write the critique first, then the claims."
+    "whether the cited context backs it. Two things are not claims to check: a sentence "
+    "saying the context does not cover something, and a fact the question itself supplies "
+    "or that is common knowledge, such as which country a named port is in, used only to "
+    "apply a cited rule to the question's own case. Write the critique first, then the "
+    "claims."
 )
 
 REFUSAL_PROMPT = (
