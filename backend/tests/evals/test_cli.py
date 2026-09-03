@@ -17,15 +17,25 @@ def test_a_subcommand_is_required(capsys):
         main([])
 
 
+class _RecordedResults(list):
+    """The results a stubbed run returns, plus the judge flag each run was asked for."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.judged: list[bool] = []
+
+
 @pytest.fixture
 def fake_run(monkeypatch):
     """Replace the graph run with a stub returning a chosen list of results."""
-    results: list = []
+    results = _RecordedResults()
+    judged = results.judged
 
     async def _fake_corpus_read(dataset):
         return (), "2026-08-01-a3f1c2"
 
-    async def _fake(dataset, corpus_version=None, stale_cases=()):
+    async def _fake(dataset, corpus_version=None, stale_cases=(), *, judge=True):
+        judged.append(judge)
         chosen = tuple(results)
         return EvalRun(
             dataset_sha=dataset.sha256,
@@ -40,6 +50,15 @@ def fake_run(monkeypatch):
     monkeypatch.setattr(cli, "check_against_corpus", _fake_corpus_read)
     monkeypatch.setattr(cli, "evaluate_all_cases", _fake)
     return results
+
+
+def test_run_judges_unless_told_not_to(fake_run):
+    fake_run.append(eval_result())
+
+    main(["run"])
+    main(["run", "--no-judge"])
+
+    assert fake_run.judged == [True, False]
 
 
 def test_run_prints_the_summary_and_exits_zero(fake_run, capsys):

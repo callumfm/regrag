@@ -3,19 +3,25 @@
 from app.chat.enums import ChatNode
 from app.chat.models import ChatStepResult
 from app.chat.prompts import REFUSAL_ANSWER
+from app.evals.judge.enums import JudgeVerdict
+from app.evals.judge.models import CaseJudgement, CorrectnessVerdict
 from app.evals.metrics import (
     compute_cited_references,
+    compute_correctness,
     compute_expanded_hit_rate,
     compute_expanded_recall,
+    compute_faithfulness,
     compute_gate_refusal_rate,
     compute_input_tokens,
     compute_markers_in_context,
     compute_mean_step_ms,
     compute_metrics,
+    compute_model_refusal_rate,
     compute_output_tokens,
     compute_raw_recall,
     count_errors,
     count_false_refusals,
+    count_judged,
     count_refusals_of_a_found_reference,
     find_cited_markers,
     score_citation_validity,
@@ -24,7 +30,15 @@ from app.evals.metrics import (
 )
 from app.retrieval.models import ReferenceTarget
 from tests.conftest import retrieved_chunk, search_result
-from tests.evals.conftest import eval_case, eval_result, refused_result
+from tests.evals.conftest import (
+    eval_case,
+    eval_result,
+    failed_judgement,
+    out_of_corpus_case,
+    passed_judgement,
+    refusal_judgement,
+    refused_result,
+)
 
 ARTICLE_4 = ReferenceTarget(celex="32023R1805", article="4")
 ARTICLE_20 = ReferenceTarget(celex="32023R1805", article="20")
@@ -259,3 +273,55 @@ def test_a_run_that_refused_over_sources_is_counted_refused() -> None:
     refused_anyway = refused_result(sources=(retrieved_chunk(),))
 
     assert compute_gate_refusal_rate((refused_anyway,)) == 1.0
+
+
+# Judged metrics
+
+
+def test_correctness_is_the_pass_share_of_the_judged_answers() -> None:
+    results = (eval_result(judgement=passed_judgement()), eval_result(judgement=failed_judgement()))
+
+    assert compute_correctness(results) == 0.5
+
+
+def test_a_case_the_judge_could_not_judge_is_left_out_not_failed() -> None:
+    undecided = CaseJudgement(
+        correctness=CorrectnessVerdict(critique="", verdict=JudgeVerdict.CANNOT_JUDGE)
+    )
+    results = (eval_result(judgement=passed_judgement()), eval_result(judgement=undecided))
+
+    assert compute_correctness(results) == 1.0
+    assert count_judged(results) == 2
+
+
+def test_faithfulness_is_the_mean_supported_share() -> None:
+    results = (eval_result(judgement=passed_judgement()), eval_result(judgement=failed_judgement()))
+
+    assert compute_faithfulness(results) == 0.75
+
+
+def test_model_refusal_rate_is_scored_over_the_judged_out_of_corpus_answers() -> None:
+    results = (
+        eval_result(out_of_corpus_case("a"), judgement=refusal_judgement()),
+        eval_result(out_of_corpus_case("b"), judgement=refusal_judgement(JudgeVerdict.FAIL)),
+        refused_result(),
+    )
+
+    assert compute_model_refusal_rate(results) == 0.5
+    assert compute_gate_refusal_rate(results) == 1 / 3
+
+
+def test_an_unjudged_run_leaves_the_judged_metrics_unmeasured() -> None:
+    metrics = compute_metrics((eval_result(), refused_result()))
+
+    assert metrics.correctness is None
+    assert metrics.faithfulness is None
+    assert metrics.model_refusal_rate is None
+    assert metrics.judged == 0
+
+
+def test_an_errored_case_is_not_judged_whatever_it_carries() -> None:
+    results = (eval_result(judgement=passed_judgement(), error="TimeoutError"),)
+
+    assert count_judged(results) == 0
+    assert compute_correctness(results) is None

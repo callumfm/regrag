@@ -265,6 +265,18 @@ class EvalConfig(BaseConfig):
     EVAL_CACHE_DIR: Path = PROJECT_ROOT / "data" / "cache" / "evals"
 
 
+class JudgeConfig(BaseConfig):
+    """The eval judge: the model that reads an answer and grades it.
+
+    EVAL_JUDGE_MODEL: a model other than the one that wrote the answer, so a model does not
+        grade its own habits. Recorded on every run: two runs graded by different judges are
+        not comparable. Timeout and max tokens are the chat values until each role has its
+        own (RRG-99).
+    """
+
+    EVAL_JUDGE_MODEL: str = "anthropic/claude-sonnet-5"
+
+
 class Config(
     AppConfig,
     PostgresConfig,
@@ -275,6 +287,7 @@ class Config(
     RetrievalConfig,
     StorageConfig,
     EvalConfig,
+    JudgeConfig,
 ):
     """Combined configuration class for core app functionality."""
 
@@ -292,12 +305,14 @@ _CONFIG_SECTIONS = (
     RetrievalConfig,
     StorageConfig,
     EvalConfig,
+    JudgeConfig,
 )
 EVAL_CONFIG_SECTIONS = (
     EmbeddingConfig,
     ChatConfig,
     AssessConfig,
     RetrievalConfig,
+    JudgeConfig,
 )
 
 

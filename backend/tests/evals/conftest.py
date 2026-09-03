@@ -10,6 +10,14 @@ from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.evals.dataset.enums import EvalKind
 from app.evals.dataset.models import CaseReference, EvalCase, EvalDataset
+from app.evals.judge.enums import CorrectnessFailure, JudgeVerdict
+from app.evals.judge.models import (
+    CaseJudgement,
+    ClaimVerdict,
+    CorrectnessVerdict,
+    FaithfulnessVerdict,
+    RefusalVerdict,
+)
 from app.evals.models import EvalResult
 from tests.conftest import retrieved_chunk, search_result
 
@@ -21,6 +29,17 @@ def no_assess_loop(monkeypatch: pytest.MonkeyPatch) -> None:
     """Eval tests fake the chat model, not assess — the loop stays off here; its
     coverage lives in tests/chat."""
     monkeypatch.setattr(config, "ASSESS_ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
+def no_judge(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The judge is a paid model call, faked in tests/evals/judge; here a case is judged by
+    nothing, so a run's judged metrics read as unmeasured unless a test says otherwise."""
+
+    async def unjudged(case, state):
+        return None
+
+    monkeypatch.setattr("app.evals.service.judge_case", unjudged)
 
 
 IN_CORPUS_CASE: dict[str, Any] = {
@@ -45,7 +64,9 @@ def eval_dataset(*cases: EvalCase, case_filter: str | None = None) -> EvalDatase
     return EvalDataset(cases=cases, case_filter=case_filter)
 
 
-def eval_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
+def eval_result(
+    case: EvalCase | None = None, judgement: CaseJudgement | None = None, **state: Any
+) -> EvalResult:
     """A completed in-corpus case whose answer cites its one authored reference, with the
     state's fields overridable — nodes, hits, sources, answer, error."""
     defaults: dict[str, Any] = {
@@ -59,7 +80,45 @@ def eval_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
         "answer": "Yes [1].",
         "total_ms": 1000,
     }
-    return EvalResult(case=case or eval_case(), state=ChatState(**{**defaults, **state}))
+    return EvalResult(
+        case=case or eval_case(), state=ChatState(**{**defaults, **state}), judgement=judgement
+    )
+
+
+def passed_judgement() -> CaseJudgement:
+    """A judged in-corpus answer that matched the reference and stayed on its context."""
+    return CaseJudgement(
+        correctness=CorrectnessVerdict(critique="states the half rule", verdict=JudgeVerdict.PASS),
+        faithfulness=FaithfulnessVerdict(
+            critique="every claim is in [1]",
+            claims=(ClaimVerdict(claim="half the energy counts", supported=True),),
+        ),
+    )
+
+
+def failed_judgement() -> CaseJudgement:
+    """A judged in-corpus answer with the wrong figure and one claim its context lacks."""
+    return CaseJudgement(
+        correctness=CorrectnessVerdict(
+            critique="says all of it, the reference says half",
+            verdict=JudgeVerdict.FAIL,
+            failure=CorrectnessFailure.WRONG_FIGURE,
+        ),
+        faithfulness=FaithfulnessVerdict(
+            critique="the 5,000 GT threshold is not in the cited block",
+            claims=(
+                ClaimVerdict(claim="all the energy counts", supported=True),
+                ClaimVerdict(claim="ships above 5,000 GT", supported=False),
+            ),
+        ),
+    )
+
+
+def refusal_judgement(verdict: JudgeVerdict = JudgeVerdict.PASS) -> CaseJudgement:
+    """A judged out-of-corpus answer: declined, or answered from memory."""
+    return CaseJudgement(
+        refusal=RefusalVerdict(critique="says the corpus lacks it", verdict=verdict)
+    )
 
 
 REFUSED_PATH = (

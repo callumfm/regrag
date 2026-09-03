@@ -5,6 +5,7 @@ from typing import Any
 from app.chat.models import ChatState
 from app.core.models import FrozenModel
 from app.evals.dataset.models import EvalCase
+from app.evals.judge.models import CaseJudgement
 
 
 class EvalResult(FrozenModel):
@@ -13,6 +14,7 @@ class EvalResult(FrozenModel):
 
     case: EvalCase
     state: ChatState
+    judgement: CaseJudgement | None = None
 
 
 class RetrievalMetrics(FrozenModel):
@@ -45,11 +47,21 @@ class EvalMetrics(RetrievalMetrics):
 
     cited_references: share of authored references the answers cited.
     markers_in_context: share of [n] markers addressing a block that was in context.
+    correctness: share of judged in-corpus answers stating what the reference states.
+    faithfulness: mean share of an answer's claims its cited context backs.
+    model_refusal_rate: out-of-corpus cases that passed the gate and declined in the
+        model's own words; with gate_refusal_rate, the out-of-corpus cases that were
+        refused one way or the other.
+    judged: cases the judge returned a verdict on, so a run with the judge off says so.
     mean_step_ms: a step's mean time over the cases that ran it.
     """
 
     cited_references: float | None
     markers_in_context: float | None
+    correctness: float | None
+    faithfulness: float | None
+    model_refusal_rate: float | None
+    judged: int
     mean_step_ms: dict[str, int]
     mean_total_ms: int
     input_tokens: int

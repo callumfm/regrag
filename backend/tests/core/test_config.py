@@ -14,6 +14,7 @@ from app.core.config import (
     EmbeddingConfig,
     Environment,
     IngestConfig,
+    JudgeConfig,
     RetrievalConfig,
     StorageBackend,
     StorageConfig,
@@ -190,6 +191,14 @@ def test_assess_defaults():
     assert assess.ASSESS_MAX_CALLS == 4
     assert assess.ASSESS_SEARCH_LIMIT == 5
     assert assess.ASSESS_EXTRA_CHUNKS == 10
+
+
+def test_the_judge_is_a_different_model_from_the_one_that_answers():
+    """A model grading its own answers grades its own habits; the default judge sits a
+    tier above the chat model. Recorded on every run, since it changes what a score means."""
+    assert JudgeConfig().EVAL_JUDGE_MODEL == "anthropic/claude-sonnet-5"
+    assert JudgeConfig().EVAL_JUDGE_MODEL != ChatConfig().CHAT_MODEL
+    assert "EVAL_JUDGE_MODEL" in get_config_snapshot(EVAL_CONFIG_SECTIONS)
 
 
 def test_the_loop_needs_at_least_one_round_when_it_is_on():

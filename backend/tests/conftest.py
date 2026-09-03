@@ -21,6 +21,7 @@ from app.core.clock import utc_now
 from app.core.config import BACKEND_ROOT, EMBED_DIMENSIONS, R2Config, config
 from app.core.db.session import async_session_factory
 from app.core.storage import LocalObjectStore
+from app.evals.judge.service import call_judge_model
 from app.ingestion.chunk.models import Chunk
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.discover.models import ActsQueryRow, DiscoveredDocument
@@ -36,7 +37,13 @@ from app.ingestion.schemas import IngestRun
 from app.main import configure_app
 from app.retrieval.models import RetrievedChunk, SearchResult
 
-RETRIED = (run_acts_by_topic_query, _download_version_html, embed_batch, synthesize)
+RETRIED = (
+    run_acts_by_topic_query,
+    _download_version_html,
+    embed_batch,
+    synthesize,
+    call_judge_model,
+)
 
 PARSE_FIXTURES = Path(__file__).parent / "ingestion" / "parse" / "fixtures"
 FUELEU_HTML = (PARSE_FIXTURES / "32023R1805.html").read_text()

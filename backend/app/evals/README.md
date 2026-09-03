@@ -64,8 +64,24 @@ Scoring lives in `metrics.py`, each measure a plain function over the run's resu
 | `gate_refusal_rate` | out-of-corpus | Share the pre-model gate refused |
 | `false_refusals` | in-corpus | Cases the gate refused |
 | `refused_a_found_reference` | in-corpus | Of those, the ones where search had already found a reference |
+| `correctness` | judged in-corpus | Share of answers stating what the reference answer states |
+| `faithfulness` | judged answers citing anything | Mean share of an answer's claims its cited context backs |
+| `model_refusal_rate` | judged out-of-corpus | Share that passed the gate and declined in the model's own words |
+| `judged` | all | Cases the judge returned a verdict on |
 
 The raw and expanded pairs are worth reading together. Expansion widens each hit into its surrounding section, and against a fixed context budget that can push a reference *out*, so expanded recall is not guaranteed to be the higher of the two.
+
+## Judge
+
+Every measure above the judged rows reads retrieval and citation plumbing; none reads what the answer says. The judge in `judge/` is the measure that does: a second model, set by `EVAL_JUDGE_MODEL` and deliberately not the one that wrote the answer, grades each answered case on the dimensions that apply to it, one model call per dimension.
+
+| Dimension | Applies to | Judge sees | Judge returns |
+| --------- | ---------- | ---------- | ------------- |
+| Correctness | in-corpus | question, reference answer, answer | critique, then pass / fail / cannot_judge, then the failure's kind |
+| Faithfulness | in-corpus answers citing anything | the answer, the blocks it cited under their own markers | critique, then each claim marked supported or not |
+| Refusal | out-of-corpus answers that passed the gate | question, answer | critique, then pass (declined) / fail / cannot_judge |
+
+Verdicts are categorical at the judge and numeric only by aggregation: a pass is 1, a fail 0, faithfulness the supported share of the claims, and cannot_judge unmeasured rather than zero. The critique is written before the verdict, so the reasoning is on the page before the verdict is decided; `--verbose` prints it under any case the judge did not pass. A judge call that fails leaves its dimension unmeasured and the run green. `--no-judge` skips the judge, for a retrieval baseline that costs no model spend; tune never judges.
 
 ## Tuning
 

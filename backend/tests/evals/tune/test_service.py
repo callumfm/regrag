@@ -59,7 +59,7 @@ async def test_tune_measures_baseline_then_each_value_and_restores_between(
 ) -> None:
     seen: list[tuple[int, bool]] = []
 
-    async def fake_evaluate(case, graph=None):
+    async def fake_evaluate(case, graph=None, *, judge=True):
         seen.append((config.CHAT_SOURCES, config.RERANK_ENABLED))
         return eval_result(case=case)
 
@@ -98,7 +98,7 @@ async def test_a_value_equal_to_baseline_is_not_measured_again(
     """The baseline run already measured it, so a second run would add nothing but time."""
     ran: list[str] = []
 
-    async def fake_evaluate(case, graph=None):
+    async def fake_evaluate(case, graph=None, *, judge=True):
         ran.append(case.id)
         return eval_result(case=case)
 
@@ -114,7 +114,7 @@ async def test_a_value_equal_to_baseline_is_not_measured_again(
 async def test_a_renamed_param_fails_before_any_measurement(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_evaluate(case, graph=None):
+    async def fake_evaluate(case, graph=None, *, judge=True):
         raise AssertionError("no case should run")
 
     monkeypatch.setattr(service, "evaluate_case", fake_evaluate)
@@ -130,7 +130,7 @@ async def test_a_value_that_raises_still_restores_the_baseline(
     """The override window must close however a value ends, or the leak poisons the rest."""
     baseline = config.CHAT_SOURCES
 
-    async def fake_evaluate(case, graph=None):
+    async def fake_evaluate(case, graph=None, *, judge=True):
         if config.CHAT_SOURCES != baseline:
             raise RuntimeError("boom")
         return eval_result(case=case)
@@ -150,7 +150,7 @@ async def test_a_gated_value_is_measured_with_its_companions_applied(
     """A knob read only under a companion setting is measured with that setting on."""
     seen: list[tuple[bool, int]] = []
 
-    async def fake_evaluate(case, graph=None):
+    async def fake_evaluate(case, graph=None, *, judge=True):
         seen.append((config.EXPAND_SECTIONS, config.CHAT_CONTEXT_CHUNKS))
         return eval_result(case=case)
 

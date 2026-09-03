@@ -8,6 +8,7 @@ import pytest
 from app.chat.enums import ChatNode, ChatOutcome
 from app.core.config import config
 from app.core.llm import LLMError
+from app.evals import service
 from app.evals.service import evaluate_all_cases, evaluate_case
 from tests.chat.conftest import USAGE, fake_chat_model
 from tests.conftest import search_result
@@ -112,3 +113,32 @@ async def test_a_run_carries_the_corpus_it_was_measured_against(answering_graph:
 
     assert run.corpus_version == "2026-08-01-a3f1c2"
     assert run.stale_cases == ("amended",)
+
+
+# Judging
+
+
+@pytest.fixture
+def recording_judge(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """A judge that records which case it saw and returns nothing."""
+    seen: list[str] = []
+
+    async def fake_judge(case, state):
+        seen.append(case.id)
+        return None
+
+    monkeypatch.setattr(service, "judge_case", fake_judge)
+    return seen
+
+
+async def test_a_case_is_judged_after_it_ran(answering_graph: None, recording_judge) -> None:
+    await evaluate_case(eval_case(id="judged"))
+
+    assert recording_judge == ["judged"]
+
+
+async def test_the_judge_can_be_switched_off(answering_graph: None, recording_judge) -> None:
+    await evaluate_case(eval_case(), judge=False)
+    await evaluate_all_cases(eval_dataset(eval_case(id="one"), eval_case(id="two")), judge=False)
+
+    assert recording_judge == []

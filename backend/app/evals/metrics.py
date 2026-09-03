@@ -156,6 +156,46 @@ def compute_markers_in_context(results: Sequence[EvalResult]) -> float | None:
     return mean_or_none([v for v in validities if v is not None])
 
 
+def _judged(results: Sequence[EvalResult]) -> list[EvalResult]:
+    """The scored cases the judge returned a verdict on."""
+    return [r for r in _scored(results) if r.judgement is not None and r.judgement.judged]
+
+
+def count_judged(results: Sequence[EvalResult]) -> int:
+    return len(_judged(results))
+
+
+def compute_correctness(results: Sequence[EvalResult]) -> float | None:
+    """Share of judged in-corpus answers the judge passed against the reference answer."""
+    scores = [
+        r.judgement.correctness.score()
+        for r in _judged(results)
+        if r.judgement is not None and r.judgement.correctness is not None
+    ]
+    return mean_or_none([s for s in scores if s is not None])
+
+
+def compute_faithfulness(results: Sequence[EvalResult]) -> float | None:
+    """Mean share of an answer's claims its cited context backs, over the judged answers
+    that made a checkable claim."""
+    scores = [
+        r.judgement.faithfulness.score()
+        for r in _judged(results)
+        if r.judgement is not None and r.judgement.faithfulness is not None
+    ]
+    return mean_or_none([s for s in scores if s is not None])
+
+
+def compute_model_refusal_rate(results: Sequence[EvalResult]) -> float | None:
+    """Share of judged out-of-corpus answers that declined in the model's own words."""
+    scores = [
+        r.judgement.refusal.score()
+        for r in _judged(results)
+        if r.judgement is not None and r.judgement.refusal is not None
+    ]
+    return mean_or_none([s for s in scores if s is not None])
+
+
 def compute_gate_refusal_rate(results: Sequence[EvalResult]) -> float | None:
     """Share of out-of-corpus cases the pre-model gate refused."""
     return mean_or_none([_gate_refused(r) for r in scored_out_of_corpus(results)])
@@ -216,6 +256,10 @@ def compute_metrics(results: Sequence[EvalResult]) -> EvalMetrics:
         **compute_retrieval_metrics(results).model_dump(),
         cited_references=compute_cited_references(results),
         markers_in_context=compute_markers_in_context(results),
+        correctness=compute_correctness(results),
+        faithfulness=compute_faithfulness(results),
+        model_refusal_rate=compute_model_refusal_rate(results),
+        judged=count_judged(results),
         mean_step_ms=compute_mean_step_ms(results),
         mean_total_ms=compute_mean_total_ms(results),
         input_tokens=compute_input_tokens(results),
