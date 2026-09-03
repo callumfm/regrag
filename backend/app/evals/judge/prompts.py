@@ -2,7 +2,8 @@
 
 from collections.abc import Sequence
 
-from app.evals.metrics import find_cited_markers
+from app.chat.prompts import format_context_block
+from app.evals.metrics import find_cited_sources
 from app.retrieval.models import RetrievedChunk
 
 CORRECTNESS_PROMPT = (
@@ -50,13 +51,10 @@ def build_correctness_message(question: str, reference: str, answer: str) -> str
 def format_cited_blocks(answer: str, sources: Sequence[RetrievedChunk]) -> str:
     """The blocks the answer cited, under the markers the answer used for them, so a [3]
     in the answer is a [3] in the context; a marker addressing no block is skipped."""
-    blocks = []
-    for marker in find_cited_markers(answer):
-        if not 1 <= marker <= len(sources):
-            continue
-        source = sources[marker - 1]
-        blocks.append(f"[{marker}] ({source.celex}, {source.citation})\n{source.text}")
-    return "\n\n".join(blocks)
+    return "\n\n".join(
+        format_context_block(marker, source)
+        for marker, source in find_cited_sources(answer, sources)
+    )
 
 
 def build_faithfulness_message(answer: str, sources: Sequence[RetrievedChunk]) -> str:

@@ -120,25 +120,37 @@ async def test_a_run_carries_the_corpus_it_was_measured_against(answering_graph:
 
 @pytest.fixture
 def recording_judge(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """A judge that records which case it saw and returns nothing."""
+    """A judging pass that records which cases it saw and hands them back unjudged."""
     seen: list[str] = []
 
-    async def fake_judge(case, state):
-        seen.append(case.id)
-        return None
+    async def fake_judge_results(results):
+        seen.extend(result.case.id for result in results)
+        return list(results)
 
-    monkeypatch.setattr(service, "judge_case", fake_judge)
+    monkeypatch.setattr(service, "judge_results", fake_judge_results)
     return seen
 
 
-async def test_a_case_is_judged_after_it_ran(answering_graph: None, recording_judge) -> None:
-    await evaluate_case(eval_case(id="judged"))
+async def test_a_run_is_judged_once_every_case_has_run_and_says_so(
+    answering_graph: None, recording_judge
+) -> None:
+    run = await evaluate_all_cases(eval_dataset(eval_case(id="one"), eval_case(id="two")))
 
-    assert recording_judge == ["judged"]
+    assert recording_judge == ["one", "two"]
+    assert run.judged is True
+    assert '"judged": true' in run.summary()
 
 
 async def test_the_judge_can_be_switched_off(answering_graph: None, recording_judge) -> None:
-    await evaluate_case(eval_case(), judge=False)
-    await evaluate_all_cases(eval_dataset(eval_case(id="one"), eval_case(id="two")), judge=False)
+    run = await evaluate_all_cases(eval_dataset(eval_case(id="one")), judge=False)
 
     assert recording_judge == []
+    assert run.judged is False
+
+
+async def test_a_case_is_not_judged_on_its_own(answering_graph: None, recording_judge) -> None:
+    """Judging is a pass over the timed run, so a case's timing never carries a judge call."""
+    result = await evaluate_case(eval_case())
+
+    assert recording_judge == []
+    assert result.judgement is None

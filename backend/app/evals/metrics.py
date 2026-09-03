@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from app.chat.enums import ChatNode, ChatOutcome
 from app.chat.graph import assess_or_synthesize_or_refuse
 from app.evals.dataset.enums import EvalKind
+from app.evals.judge.models import CaseJudgement
 from app.evals.models import (
     CaseCounts,
     CitationMetrics,
@@ -51,13 +52,25 @@ def find_cited_markers(answer: str) -> tuple[int, ...]:
     return tuple(seen)
 
 
+def find_cited_sources(
+    answer: str, sources: Sequence[RetrievedChunk]
+) -> tuple[tuple[int, RetrievedChunk], ...]:
+    """Each marker the answer cites paired with the block it addresses, in cited order; a
+    marker addressing no block is left out."""
+    return tuple(
+        (marker, sources[marker - 1])
+        for marker in find_cited_markers(answer)
+        if 1 <= marker <= len(sources)
+    )
+
+
 def score_citation_validity(answer: str, sources: Sequence[RetrievedChunk]) -> float | None:
     """Share of the answer's markers addressing a block it was given; None when it cited
     nothing, which is unmeasured rather than zero."""
     markers = find_cited_markers(answer)
     if not markers:
         return None
-    return sum(1 <= marker <= len(sources) for marker in markers) / len(markers)
+    return len(find_cited_sources(answer, sources)) / len(markers)
 
 
 def score_reference_citation_rate(
@@ -69,11 +82,7 @@ def score_reference_citation_rate(
     so an extra citation is not an error; None when the case names none."""
     if not targets:
         return None
-    cited = {
-        _division(sources[marker - 1])
-        for marker in find_cited_markers(answer)
-        if 1 <= marker <= len(sources)
-    }
+    cited = {_division(source) for _, source in find_cited_sources(answer, sources)}
     return sum(_division(target) in cited for target in targets) / len(targets)
 
 
@@ -220,11 +229,17 @@ def compute_gate_metrics(results: Sequence[EvalResult]) -> GateMetrics:
 # Citations: what the answers cited
 
 
+def _answered_in_corpus(results: Sequence[EvalResult]) -> list[EvalResult]:
+    """The in-corpus cases the model answered: a refused or retrieval-only case wrote no
+    answer, so it has nothing to cite with and is unmeasured rather than zero."""
+    return [r for r in scored_in_corpus(results) if r.state.outcome is ChatOutcome.DONE]
+
+
 def compute_cited_references(results: Sequence[EvalResult]) -> float | None:
-    """Mean share of authored references the answers cited, over the in-corpus cases."""
+    """Mean share of authored references the answers cited, over the answered in-corpus cases."""
     rates = [
         score_reference_citation_rate(r.state.answer, r.state.sources, r.case.references)
-        for r in scored_in_corpus(results)
+        for r in _answered_in_corpus(results)
     ]
     return mean_or_none([rate for rate in rates if rate is not None])
 
@@ -248,43 +263,31 @@ def compute_citation_metrics(results: Sequence[EvalResult]) -> CitationMetrics:
 # Judge: the judge's dimensions over the cases it returned a verdict on
 
 
-def _judged(results: Sequence[EvalResult]) -> list[EvalResult]:
-    """The scored cases the judge returned a verdict on."""
-    return [r for r in _scored(results) if r.judgement is not None and r.judgement.judged]
+def _judgements(results: Sequence[EvalResult]) -> list[CaseJudgement]:
+    """The verdicts of the scored cases the judge came back on."""
+    return [r.judgement for r in _scored(results) if r.judgement is not None and r.judgement.judged]
 
 
 def count_judged(results: Sequence[EvalResult]) -> int:
-    return len(_judged(results))
+    return len(_judgements(results))
 
 
 def compute_correctness(results: Sequence[EvalResult]) -> float | None:
     """Share of judged in-corpus answers the judge passed against the reference answer."""
-    scores = [
-        r.judgement.correctness.score()
-        for r in _judged(results)
-        if r.judgement is not None and r.judgement.correctness is not None
-    ]
+    scores = [j.correctness.score() for j in _judgements(results) if j.correctness is not None]
     return mean_or_none([s for s in scores if s is not None])
 
 
 def compute_faithfulness(results: Sequence[EvalResult]) -> float | None:
     """Mean share of an answer's claims its cited context backs, over the judged answers
     that made a checkable claim."""
-    scores = [
-        r.judgement.faithfulness.score()
-        for r in _judged(results)
-        if r.judgement is not None and r.judgement.faithfulness is not None
-    ]
+    scores = [j.faithfulness.score() for j in _judgements(results) if j.faithfulness is not None]
     return mean_or_none([s for s in scores if s is not None])
 
 
 def compute_model_refusal_rate(results: Sequence[EvalResult]) -> float | None:
     """Share of judged out-of-corpus answers that declined in the model's own words."""
-    scores = [
-        r.judgement.refusal.score()
-        for r in _judged(results)
-        if r.judgement is not None and r.judgement.refusal is not None
-    ]
+    scores = [j.refusal.score() for j in _judgements(results) if j.refusal is not None]
     return mean_or_none([s for s in scores if s is not None])
 
 

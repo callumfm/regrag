@@ -25,6 +25,7 @@ from app.evals.metrics import (
     count_judged,
     count_refusals_of_a_found_reference,
     find_cited_markers,
+    find_cited_sources,
     score_citation_validity,
     score_reference_citation_rate,
     score_reference_recall,
@@ -140,6 +141,14 @@ def test_the_reference_citation_rate_is_unmeasured_when_a_case_names_no_referenc
     assert score_reference_citation_rate("Anything [1].", (retrieved_chunk(),), ()) is None
 
 
+def test_cited_sources_pair_each_marker_with_its_block_in_cited_order() -> None:
+    sources = (retrieved_chunk(id=1), retrieved_chunk(id=2), retrieved_chunk(id=3))
+
+    cited = find_cited_sources("So [3], then [1] and [7].", sources)
+
+    assert cited == ((3, sources[2]), (1, sources[0]))
+
+
 def test_validity_is_one_when_every_marker_addresses_a_given_block() -> None:
     assert score_citation_validity("Half of it [1].", (retrieved_chunk(),)) == 1.0
 
@@ -238,6 +247,16 @@ def test_citation_metrics_average_over_the_cases_that_measure() -> None:
 
     assert compute_cited_references(results) == 1.0
     assert compute_markers_in_context(results) == 0.75
+
+
+def test_a_case_that_wrote_no_answer_leaves_the_citation_rate_unmeasured() -> None:
+    """A retrieval-only or gate-refused in-corpus case has nothing to cite with, so it is
+    unmeasured rather than a zero that reads as an answer citing nothing."""
+    retrieval_only = eval_result(steps=(ChatStepResult(step=ChatNode.RETRIEVE, ms=80),), answer="")
+    refused = refused_result(eval_case())
+
+    assert compute_cited_references((retrieval_only, refused)) is None
+    assert compute_cited_references((retrieval_only, refused, eval_result())) == 1.0
 
 
 def test_node_ms_is_averaged_over_the_cases_that_ran_the_node() -> None:

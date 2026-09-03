@@ -61,7 +61,7 @@ Scoring lives in `metrics.py`, each measure a plain function over the run's resu
 | `retrieval.expanded_recall` | in-corpus | Share of authored references that reached the prompt |
 | `context.mean_context_chunks` | in-corpus | Context blocks the prompt carried |
 | `context.mean_context_chars` | in-corpus | Context text length the prompt carried, what recall is bought with |
-| `citations.cited_references` | in-corpus | Share of authored references the answer cited |
+| `citations.cited_references` | answered in-corpus | Share of authored references the answer cited |
 | `citations.markers_in_context` | answers citing anything | Share of `[n]` markers addressing a block the model was given |
 | `gate.refusal_rate` | out-of-corpus | Share the pre-model gate refused |
 | `gate.false_refusals` | in-corpus | Cases the gate refused |
@@ -80,10 +80,12 @@ Every measure above the judged rows reads retrieval and citation plumbing; none 
 | Dimension | Applies to | Judge sees | Judge returns |
 | --------- | ---------- | ---------- | ------------- |
 | Correctness | in-corpus | question, reference answer, answer | critique, then pass / fail / cannot_judge, then the failure's kind |
-| Faithfulness | in-corpus answers citing anything | the answer, the blocks it cited under their own markers | critique, then each claim marked supported or not |
+| Faithfulness | in-corpus answers citing a block they were given | the answer, the blocks it cited under their own markers | critique, then each claim marked supported or not |
 | Refusal | out-of-corpus answers that passed the gate | question, answer | critique, then pass (declined) / fail / cannot_judge |
 
-Verdicts are categorical at the judge and numeric only by aggregation: a pass is 1, a fail 0, faithfulness the supported share of the claims, and cannot_judge unmeasured rather than zero. The critique is written before the verdict, so the reasoning is on the page before the verdict is decided; `--verbose` prints it under any case the judge did not pass. A judge call that fails leaves its dimension unmeasured and the run green. `--no-judge` skips the judge, for a retrieval baseline that costs no model spend; tune never judges.
+Verdicts are categorical at the judge and numeric only by aggregation: a pass is 1, a fail 0, faithfulness the supported share of the claims, and cannot_judge unmeasured rather than zero. The critique is written before the verdict, so the reasoning is on the page before the verdict is decided; `--verbose` prints it under any case the judge did not pass. A judge call that fails leaves its dimension unmeasured and the run green; a run asked to judge that gets no verdict on any answered case exits non-zero and says so, so a misnamed judge model does not pass as an unmeasured run. The run records `judged`, whether the judge was on, beside `cached`. `--no-judge` skips the judge, for a retrieval baseline that costs no model spend; tune never judges.
+
+Judging is a pass over the run once every case has been timed, so no case's timing carries a judge call; cases are judged `EVAL_JUDGE_CONCURRENCY` at a time, and an in-corpus answer's correctness and faithfulness calls run together.
 
 ## Tuning
 

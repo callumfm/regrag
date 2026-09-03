@@ -272,9 +272,11 @@ class JudgeConfig(BaseConfig):
         grade its own habits. Recorded on every run: two runs graded by different judges are
         not comparable. Timeout and max tokens are the chat values until each role has its
         own (RRG-99).
+    EVAL_JUDGE_CONCURRENCY: cases judged at once; llm_retry absorbs the rate limits.
     """
 
     EVAL_JUDGE_MODEL: str = "anthropic/claude-sonnet-5"
+    EVAL_JUDGE_CONCURRENCY: int = 4
 
 
 class Config(

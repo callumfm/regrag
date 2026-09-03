@@ -198,6 +198,7 @@ def test_the_judge_is_a_different_model_from_the_one_that_answers():
     tier above the chat model. Recorded on every run, since it changes what a score means."""
     assert JudgeConfig().EVAL_JUDGE_MODEL == "anthropic/claude-sonnet-5"
     assert JudgeConfig().EVAL_JUDGE_MODEL != ChatConfig().CHAT_MODEL
+    assert JudgeConfig().EVAL_JUDGE_CONCURRENCY == 4
     assert "EVAL_JUDGE_MODEL" in get_config_snapshot(EVAL_CONFIG_SECTIONS)
 
 

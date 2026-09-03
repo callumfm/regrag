@@ -1,12 +1,15 @@
-"""Judging one case: the dimensions that apply to it, each one model call."""
+"""Judging a run's cases: the dimensions that apply to each, one model call per dimension."""
 
+import asyncio
 import logging
+from collections.abc import Sequence
 
 import litellm
 from pydantic import ValidationError
 
 from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
+from app.core.concurrency import run_concurrently
 from app.core.config import config
 from app.core.llm import LLMError, llm_retry, wrap_provider_errors
 from app.core.models import FrozenModel
@@ -26,7 +29,8 @@ from app.evals.judge.prompts import (
     build_faithfulness_message,
     build_refusal_message,
 )
-from app.evals.metrics import find_cited_markers
+from app.evals.metrics import find_cited_sources
+from app.evals.models import EvalResult
 
 logger = logging.getLogger(__name__)
 
@@ -64,21 +68,38 @@ async def _judge[T: FrozenModel](system: str, user: str, output: type[T]) -> T |
         return None
 
 
+async def _judge_answer(case: EvalCase, state: ChatState) -> CaseJudgement:
+    """An in-corpus answer on its correctness, and on its faithfulness when it cited a block
+    it was given to be faithful to; the two calls share nothing, so they run together."""
+    message = build_correctness_message(case.question, case.answer or "", state.answer)
+    correctness = _judge(CORRECTNESS_PROMPT, message, CorrectnessVerdict)
+    if not find_cited_sources(state.answer, state.sources):
+        return CaseJudgement(correctness=await correctness)
+    message = build_faithfulness_message(state.answer, state.sources)
+    faithfulness = _judge(FAITHFULNESS_PROMPT, message, FaithfulnessVerdict)
+    correct, faithful = await asyncio.gather(correctness, faithfulness)
+    return CaseJudgement(correctness=correct, faithfulness=faithful)
+
+
 async def judge_case(case: EvalCase, state: ChatState) -> CaseJudgement:
     """The dimensions this case can be judged on. Only an answered case is judged: a gate
     refusal is scored by the gate metrics, and an errored case is scored by nothing. An
     out-of-corpus answer is judged on whether it declined; an in-corpus answer on its
-    correctness, and on its faithfulness when it cited anything to be faithful to."""
+    correctness and faithfulness."""
     if state.outcome is not ChatOutcome.DONE:
         return CaseJudgement()
     if case.kind is EvalKind.OUT_OF_CORPUS:
         message = build_refusal_message(case.question, state.answer)
         return CaseJudgement(refusal=await _judge(REFUSAL_PROMPT, message, RefusalVerdict))
+    return await _judge_answer(case, state)
 
-    message = build_correctness_message(case.question, case.answer or "", state.answer)
-    correctness = await _judge(CORRECTNESS_PROMPT, message, CorrectnessVerdict)
-    faithfulness = None
-    if find_cited_markers(state.answer):
-        message = build_faithfulness_message(state.answer, state.sources)
-        faithfulness = await _judge(FAITHFULNESS_PROMPT, message, FaithfulnessVerdict)
-    return CaseJudgement(correctness=correctness, faithfulness=faithfulness)
+
+async def judge_results(results: Sequence[EvalResult]) -> list[EvalResult]:
+    """Every result with its judgement filled in, the cases judged a few at a time. Runs
+    once the cases have all been timed, so judge latency never reaches a case's timing."""
+
+    async def judge_one(result: EvalResult) -> CaseJudgement:
+        return await judge_case(result.case, result.state)
+
+    async with run_concurrently(results, judge_one, limit=config.EVAL_JUDGE_CONCURRENCY) as pairs:
+        return [result.model_copy(update={"judgement": await task}) for result, task in pairs]

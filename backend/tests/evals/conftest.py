@@ -33,13 +33,14 @@ def no_assess_loop(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def no_judge(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The judge is a paid model call, faked in tests/evals/judge; here a case is judged by
-    nothing, so a run's judged metrics read as unmeasured unless a test says otherwise."""
+    """The judge is a paid model call, faked in tests/evals/judge; here the judging pass
+    hands the results back unjudged, so a run's judged metrics read as unmeasured unless a
+    test says otherwise."""
 
-    async def unjudged(case, state):
-        return None
+    async def unjudged(results):
+        return list(results)
 
-    monkeypatch.setattr("app.evals.service.judge_case", unjudged)
+    monkeypatch.setattr("app.evals.service.judge_results", unjudged)
 
 
 IN_CORPUS_CASE: dict[str, Any] = {

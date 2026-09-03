@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
 from app.core.models import FrozenModel
 from app.evals.dataset.models import EvalCase
@@ -109,7 +110,9 @@ class EvalRun(FrozenModel):
     when they were measured against the same text; stale_cases names the cases whose cited
     text has moved since they were authored, whose reference answers are owed a re-review.
     cached says the run had the call cache on, so an embed or rerank timing may measure a
-    disk read rather than the provider — a cached run is not a latency baseline.
+    disk read rather than the provider — a cached run is not a latency baseline. judged says
+    the judge was on, so a run reading judged: 0 with it on is a judge that never answered,
+    not a run that did not ask.
     """
 
     dataset_sha: str
@@ -117,14 +120,23 @@ class EvalRun(FrozenModel):
     corpus_version: str | None = None
     stale_cases: tuple[str, ...] = ()
     cached: bool = False
+    judged: bool = False
     settings: dict[str, Any]
     metrics: EvalMetrics
     results: tuple[EvalResult, ...]
 
+    @property
+    def judge_never_answered(self) -> bool:
+        """The judge was on and some case was answered, yet no verdict came back: every
+        judge call failed, which a misnamed judge model does silently."""
+        answered = any(r.state.outcome is ChatOutcome.DONE for r in self.results)
+        return self.judged and answered and self.metrics.judge.judged == 0
+
     def summary(self) -> str:
         """The run's setup and scores as JSON, then any case owed a re-review, then any case
-        the graph raised on. A stale case is reported, never failed: only a human can repair
-        one, so the run stays green and says what needs reading."""
+        the graph raised on, then a judge that never answered. A stale case is reported,
+        never failed: only a human can repair one, so the run stays green and says what
+        needs reading."""
         blocks = [
             self.model_dump_json(
                 indent=2,
@@ -133,6 +145,7 @@ class EvalRun(FrozenModel):
                     "case_filter",
                     "corpus_version",
                     "cached",
+                    "judged",
                     "settings",
                     "metrics",
                 },
@@ -148,4 +161,9 @@ class EvalRun(FrozenModel):
         errored = [f"  {r.case.id}  {r.state.error}" for r in self.results if r.state.error]
         if errored:
             blocks.append("\n".join(["errored:", *errored]))
+        if self.judge_never_answered:
+            blocks.append(
+                "the judge returned no verdict on any answered case: check EVAL_JUDGE_MODEL "
+                "and the warnings above"
+            )
         return "\n\n".join(blocks)

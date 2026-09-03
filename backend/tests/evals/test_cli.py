@@ -9,7 +9,7 @@ from app.evals.dataset.enums import DriftKind
 from app.evals.dataset.models import CaseReference, DriftedReference
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalRun
-from tests.evals.conftest import eval_case, eval_result
+from tests.evals.conftest import eval_case, eval_result, passed_judgement
 
 
 def test_a_subcommand_is_required(capsys):
@@ -42,6 +42,7 @@ def fake_run(monkeypatch):
             case_filter=dataset.case_filter,
             corpus_version=corpus_version,
             stale_cases=stale_cases,
+            judged=judge,
             settings=get_config_snapshot(EVAL_CONFIG_SECTIONS),
             metrics=compute_metrics(chosen),
             results=chosen,
@@ -52,8 +53,13 @@ def fake_run(monkeypatch):
     return results
 
 
+def judged_result():
+    """An answered case the judge passed: what a healthy judged run holds."""
+    return eval_result(judgement=passed_judgement())
+
+
 def test_run_judges_unless_told_not_to(fake_run):
-    fake_run.append(eval_result())
+    fake_run.append(judged_result())
 
     main(["run"])
     main(["run", "--no-judge"])
@@ -62,7 +68,7 @@ def test_run_judges_unless_told_not_to(fake_run):
 
 
 def test_run_prints_the_summary_and_exits_zero(fake_run, capsys):
-    fake_run.append(eval_result())
+    fake_run.append(judged_result())
 
     assert main(["run"]) == 0
 
@@ -76,6 +82,17 @@ def test_run_exits_nonzero_when_a_case_raised(fake_run, capsys):
 
     assert main(["run"]) == 1
     assert "boom  TimeoutError" in capsys.readouterr().out
+
+
+def test_run_exits_nonzero_when_the_judge_answered_on_no_case(fake_run, capsys):
+    """Every judge call failing is only warnings, so without this a misnamed judge model
+    would print the same summary as --no-judge and pass."""
+    fake_run.append(eval_result())
+
+    assert main(["run"]) == 1
+    assert "the judge returned no verdict on any answered case" in capsys.readouterr().out
+
+    assert main(["run", "--no-judge"]) == 0
 
 
 def test_run_exits_nonzero_when_no_case_matches_the_filter(fake_run, capsys):
@@ -97,21 +114,21 @@ def enabled(monkeypatch):
 
 
 def test_run_replays_its_embed_and_rerank_calls_by_default(fake_run, enabled):
-    fake_run.append(eval_result())
+    fake_run.append(judged_result())
 
     assert main(["run"]) == 0
     assert enabled
 
 
 def test_no_cache_makes_a_run_pay_for_its_calls_again(fake_run, enabled):
-    fake_run.append(eval_result())
+    fake_run.append(judged_result())
 
     assert main(["run", "--no-cache"]) == 0
     assert not enabled
 
 
 def test_run_lists_every_case_only_when_asked(fake_run, capsys):
-    fake_run.append(eval_result())
+    fake_run.append(judged_result())
 
     assert main(["run"]) == 0
     assert "raw 1.00" not in capsys.readouterr().out
@@ -133,7 +150,7 @@ def test_run_reports_the_corpus_and_the_stale_cases_it_read_before_scoring(
         drifted = DriftedReference(case_id="amended", target=moved, kind=DriftKind.STALE)
         return (drifted,), "2026-08-01-a3f1c2"
 
-    fake_run.append(eval_result())
+    fake_run.append(judged_result())
     monkeypatch.setattr(cli, "check_against_corpus", _fake_corpus_read)
 
     assert main(["run"]) == 0

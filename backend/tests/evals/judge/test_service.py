@@ -1,5 +1,6 @@
 """Judging a case: which dimensions run, what each call asks, and how a failing call lands."""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -11,15 +12,17 @@ from openai import APIConnectionError
 
 from app.core.config import config
 from app.core.models import FrozenModel
+from app.evals.judge import service
 from app.evals.judge.enums import CorrectnessFailure, JudgeVerdict
 from app.evals.judge.models import (
+    CaseJudgement,
     ClaimVerdict,
     CorrectnessVerdict,
     FaithfulnessVerdict,
     RefusalVerdict,
 )
 from app.evals.judge.prompts import CORRECTNESS_PROMPT, REFUSAL_PROMPT, build_refusal_message
-from app.evals.judge.service import call_judge_model, judge_case
+from app.evals.judge.service import call_judge_model, judge_case, judge_results
 from tests.evals.conftest import eval_case, eval_result, out_of_corpus_case, refused_result
 
 pytestmark = pytest.mark.anyio
@@ -43,7 +46,8 @@ def judge_response(payload: FrozenModel | str) -> ModelResponse:
 @pytest.fixture
 def judge_answers(monkeypatch: pytest.MonkeyPatch):
     """Install a judge answering each call with the next given verdict, or raising the next
-    given error; hands back the list every call's arguments are recorded in."""
+    given error; hands back the list every call's arguments are recorded in. Gathered calls
+    still arrive in the order they were made, as the fake never yields."""
     calls: list[dict[str, Any]] = []
 
     def install(*answers: FrozenModel | str | Exception) -> list[dict[str, Any]]:
@@ -112,7 +116,7 @@ async def test_a_transient_provider_failure_is_retried_then_left_unjudged(
 # Which dimensions a case is judged on
 
 
-async def test_an_in_corpus_answer_is_judged_on_correctness_then_faithfulness(
+async def test_an_in_corpus_answer_is_judged_on_correctness_and_faithfulness(
     judge_answers,
 ) -> None:
     calls = judge_answers(PASSED, GROUNDED)
@@ -133,6 +137,21 @@ async def test_an_in_corpus_answer_is_judged_on_correctness_then_faithfulness(
 async def test_an_answer_citing_nothing_is_not_judged_for_faithfulness(judge_answers) -> None:
     calls = judge_answers(PASSED)
     result = eval_result(answer="Half of it, uncited.")
+
+    judgement = await judge_case(result.case, result.state)
+
+    assert judgement.correctness == PASSED
+    assert judgement.faithfulness is None
+    assert len(calls) == 1
+
+
+async def test_an_answer_citing_only_blocks_it_was_never_given_is_not_judged_for_faithfulness(
+    judge_answers,
+) -> None:
+    """There is no cited context to be faithful to, so a call would grade every claim
+    unsupported and double-count what markers_in_context already scores."""
+    calls = judge_answers(PASSED)
+    result = eval_result(answer="Half of it [7].")
 
     judgement = await judge_case(result.case, result.state)
 
@@ -177,6 +196,37 @@ async def test_a_failed_dimension_does_not_stop_the_next(judge_answers) -> None:
 
     assert judgement.correctness is None
     assert judgement.faithfulness == GROUNDED
+
+
+# Judging a run
+
+
+async def test_a_run_is_judged_case_by_case_a_few_at_a_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every result comes back with its verdict in the run's order, and no more cases are
+    in the judge at once than the limit allows."""
+    in_flight, most_in_flight = 0, 0
+    monkeypatch.setattr(config, "EVAL_JUDGE_CONCURRENCY", 2)
+
+    async def fake_judge_case(case, state):
+        nonlocal in_flight, most_in_flight
+        in_flight += 1
+        most_in_flight = max(most_in_flight, in_flight)
+        await asyncio.sleep(0)
+        in_flight -= 1
+        return CaseJudgement(refusal=DECLINED) if case.id == "ooc" else CaseJudgement()
+
+    monkeypatch.setattr(service, "judge_case", fake_judge_case)
+    results = [eval_result(eval_case(id=f"case-{n}")) for n in range(3)]
+    results.append(eval_result(out_of_corpus_case()))
+
+    judged = await judge_results(results)
+
+    assert [r.case.id for r in judged] == ["case-0", "case-1", "case-2", "ooc"]
+    assert [r.judgement for r in judged[:3]] == [CaseJudgement()] * 3
+    assert judged[3].judgement == CaseJudgement(refusal=DECLINED)
+    assert most_in_flight == 2
 
 
 # The real seam, run only with a key in the environment

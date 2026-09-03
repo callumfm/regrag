@@ -22,9 +22,7 @@ async def retrieve_graph(state: ChatState) -> dict[str, Any]:
 
 async def _measure(cases: tuple[EvalCase, ...]) -> EvalMetrics:
     """Run the selected cases through retrieval alone and score what it found."""
-    results: list[EvalResult] = [
-        await evaluate_case(case, graph=retrieve_graph, judge=False) for case in cases
-    ]
+    results: list[EvalResult] = [await evaluate_case(case, graph=retrieve_graph) for case in cases]
     return compute_metrics(results)
 
 
