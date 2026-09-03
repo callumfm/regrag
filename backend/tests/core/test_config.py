@@ -184,7 +184,7 @@ def test_config_includes_chat_settings():
 
 def test_assess_defaults():
     assess = AssessConfig()
-    assert assess.ASSESS_ENABLED is False
+    assert assess.ASSESS_ENABLED is True
     assert assess.ASSESS_MODEL == "anthropic/claude-haiku-4-5"
     assert assess.ASSESS_MAX_ROUNDS == 1
     assert assess.ASSESS_MAX_CALLS == 4

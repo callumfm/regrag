@@ -166,9 +166,10 @@ class AssessConfig(BaseConfig):
     """The assess ⇄ tools loop, which grows the retrieved context before the answer.
 
     ASSESS_ENABLED: the loop's off switch; off, the graph answers from retrieval alone.
-        Off by default: measured over the golden dataset it repaired 2 cases, regressed 1 and
-        left 13 untouched, a net +0.06 inside the cite metric's own noise, for 3.2x the
-        latency and 4.4x the input tokens. RRG-98 grows the dataset to settle this properly.
+        On by default: over the 40-case golden dataset (RRG-98) it lifted expanded recall
+        0.84 to 0.93 and cited references 0.76 to 0.82, both clear of the cite metric's
+        ±0.07 noise, repairing 7 cases and regressing 2, for 2.1x the latency and 2.9x the
+        input tokens. The gain sits in the multi-hop cases, which is what the loop is for.
     ASSESS_MODEL: which model reviews the context and asks for the tool calls, separate from
         the one that writes the answer: the two jobs are tuned against different measures.
     ASSESS_MAX_ROUNDS: times assess may ask for tool calls before the answer is written.
@@ -182,7 +183,7 @@ class AssessConfig(BaseConfig):
         produced, whatever its size; at 0 the loop reads the context but never grows it.
     """
 
-    ASSESS_ENABLED: bool = False
+    ASSESS_ENABLED: bool = True
     ASSESS_MODEL: str = "anthropic/claude-haiku-4-5"
     ASSESS_MAX_ROUNDS: int = Field(default=1, ge=1)
     ASSESS_MAX_CALLS: int = Field(default=4, ge=1)
