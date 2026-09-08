@@ -12,11 +12,13 @@ from langchain_core.runnables import Runnable
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from pydantic import ValidationError
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatState, ChatStepResult, ToolCall
+from app.chat.models import ChatState, ChatStepResult, DecomposedQuestion, ToolCall
 from app.chat.prompts import (
     ASSESS_SYSTEM_PROMPT,
+    DECOMPOSE_SYSTEM_PROMPT,
     REFUSAL_ANSWER,
     SYSTEM_PROMPT,
     build_assess_message,
@@ -118,6 +120,41 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
 async def refuse(state: ChatState) -> dict[str, Any]:
     """The fixed refusal, in place of an answer, for a question without context."""
     return {"answer": REFUSAL_ANSWER}
+
+
+def decompose_model() -> Runnable:
+    """The decompose model as decompose calls it: one blocking turn, answering in the
+    DecomposedQuestion shape."""
+    return chat_model(config.DECOMPOSE_MODEL, streaming=False).bind(
+        response_format=DecomposedQuestion
+    )
+
+
+@llm_retry
+@wrap_provider_errors("decompose call")
+async def call_decompose_model(state: ChatState) -> dict[str, Any]:
+    """One model turn splitting the question into the searches it needs, capped to the
+    parts allowed. One part means the question asked one thing, and queries stays empty
+    so retrieve searches the question as asked; an answer off the schema is a failed call."""
+    messages = [SystemMessage(DECOMPOSE_SYSTEM_PROMPT), HumanMessage(state.question)]
+    response = await decompose_model().ainvoke(messages)
+    try:
+        split = DecomposedQuestion.model_validate_json(response.text)
+    except ValidationError as exc:
+        raise LLMError("decompose call failed") from exc
+    queries = split.queries[: config.DECOMPOSE_MAX_PARTS]
+    return {"queries": queries if len(queries) > 1 else (), "usage": response.usage_metadata}
+
+
+@traced
+async def decompose(state: ChatState) -> dict[str, Any]:
+    """The question split into its parts, or left whole when it has one — or when the
+    call fails, which costs the split rather than the request."""
+    try:
+        return await call_decompose_model(state)
+    except LLMError as exc:
+        logger.warning("decompose call failed, searching the question as asked: %s", exc)
+        return {"queries": ()}
 
 
 def assess_model() -> Runnable:

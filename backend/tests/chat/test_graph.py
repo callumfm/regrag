@@ -13,9 +13,16 @@ from langchain_core.runnables import RunnableBinding
 from langchain_litellm import ChatLiteLLM
 
 from app.chat.enums import ChatNode, ToolStep
-from app.chat.graph import GRAPH_EDGES, assess_model, chat_graph, merge_sources
-from app.chat.models import ChatState, ToolCall
-from app.chat.prompts import ASSESS_SYSTEM_PROMPT, REFUSAL_ANSWER
+from app.chat.graph import (
+    GRAPH_EDGES,
+    assess_model,
+    chat_graph,
+    decompose,
+    decompose_model,
+    merge_sources,
+)
+from app.chat.models import ChatState, DecomposedQuestion, ToolCall
+from app.chat.prompts import ASSESS_SYSTEM_PROMPT, DECOMPOSE_SYSTEM_PROMPT, REFUSAL_ANSWER
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
@@ -25,6 +32,7 @@ from tests.chat.conftest import (
     USAGE,
     RecordingChatModel,
     fake_chat_model,
+    split_message,
     tool_call_message,
 )
 from tests.conftest import search_result
@@ -346,6 +354,83 @@ class TestMergeSources:
         merged = merge_sources(existing, [search_result(id=3)], cap=2)
 
         assert tuple(chunk.id for chunk in merged) == (1, 2)
+
+
+class TestDecompose:
+    async def test_a_multi_part_question_becomes_one_query_per_part(self, decompose_turns):
+        model = decompose_turns(split_message("what is A", "what is B"))
+
+        update = await decompose(ChatState(question="What are A and B?"))
+
+        assert update["queries"] == ("what is A", "what is B")
+        [messages] = model.received
+        assert isinstance(messages[0], SystemMessage)
+        assert messages[0].content == DECOMPOSE_SYSTEM_PROMPT
+        assert messages[1].content == "What are A and B?"
+
+    async def test_a_single_part_question_leaves_queries_empty(self, decompose_turns):
+        """One query back means the question asked one thing; the original text is what
+        retrieve searches, so a lightly rephrased echo cannot change retrieval."""
+        decompose_turns(split_message("What is the GHG intensity limit, rephrased?"))
+
+        update = await decompose(ChatState(question=QUESTION))
+
+        assert update["queries"] == ()
+
+    async def test_surplus_parts_are_truncated_to_the_cap(self, decompose_turns, monkeypatch):
+        monkeypatch.setattr(config, "DECOMPOSE_MAX_PARTS", 2)
+        decompose_turns(split_message("a", "b", "c"))
+
+        update = await decompose(ChatState(question="a, b and c?"))
+
+        assert update["queries"] == ("a", "b")
+
+    async def test_an_answer_off_the_schema_falls_back_to_the_question(
+        self, decompose_turns, caplog
+    ):
+        decompose_turns(AIMessage(content="I'd split this into two."))
+
+        update = await decompose(ChatState(question=QUESTION))
+
+        assert update["queries"] == ()
+        assert "decompose call failed" in caplog.text
+
+    async def test_a_failing_call_falls_back_to_the_question(self, monkeypatch, caplog):
+        monkeypatch.setattr(
+            "app.chat.graph.decompose_model", lambda: FailingModel(messages=iter([]), failures=9)
+        )
+
+        update = await decompose(ChatState(question=QUESTION))
+
+        assert update["queries"] == ()
+        assert "decompose call failed" in caplog.text
+
+    async def test_the_step_records_the_calls_usage(self, decompose_turns):
+        decompose_turns(split_message("what is A", "what is B"))
+
+        update = await decompose(ChatState(question="What are A and B?"))
+
+        [step] = update["steps"]
+        assert step.step is ChatNode.DECOMPOSE
+        assert (step.input_tokens, step.output_tokens) == (
+            USAGE["input_tokens"],
+            USAGE["output_tokens"],
+        )
+
+
+def test_decompose_is_built_on_its_own_model_with_the_output_format_bound(monkeypatch):
+    """The split is asked for in the DecomposedQuestion shape, on a model set apart from
+    the answer's and assess's, as one setting per role requires."""
+    monkeypatch.setattr(config, "CHAT_MODEL", "anthropic/answer-model")
+    monkeypatch.setattr(config, "DECOMPOSE_MODEL", "anthropic/decompose-model")
+
+    binding = decompose_model()
+    assert isinstance(binding, RunnableBinding)
+    model = binding.bound
+    assert isinstance(model, ChatLiteLLM)
+    assert model.model == "anthropic/decompose-model"
+    assert model.streaming is False
+    assert binding.kwargs["response_format"] is DecomposedQuestion
 
 
 class TestAssessLoop:

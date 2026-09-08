@@ -1,5 +1,6 @@
 """Chat test fakes shared across the chat test modules."""
 
+import json
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -133,6 +134,26 @@ def assess_turns(
         return model
 
     return install
+
+
+@pytest.fixture
+def decompose_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[..., RecordingChatModel]:
+    """Install a decompose model answering with the given turns in order, and hand back
+    the fake, whose `received` holds the prompts it saw."""
+
+    def install(*turns: AIMessage) -> RecordingChatModel:
+        model = RecordingChatModel(messages=iter(turns), usage=USAGE)
+        monkeypatch.setattr("app.chat.graph.decompose_model", lambda: model)
+        return model
+
+    return install
+
+
+def split_message(*queries: str) -> AIMessage:
+    """A decompose turn, shaped as a model bound to the DecomposedQuestion format answers."""
+    return AIMessage(content=json.dumps({"queries": list(queries)}))
 
 
 @pytest.fixture
