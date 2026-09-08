@@ -1,5 +1,6 @@
 """Chat graph: state flow, search passthrough, prompt assembly, error wrapping."""
 
+import json
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -189,6 +190,43 @@ async def test_the_chat_client_asks_litellm_for_usage_and_the_node_records_it(
     assert calls[0]["stream_options"] == {"include_usage": True}
     [_retrieve, synthesize] = state.steps
     assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
+
+
+def litellm_completion(monkeypatch, content: str, usage: dict[str, int]) -> list[dict[str, Any]]:
+    """Stand litellm's completion call in for one blocking answer, returning the calls made."""
+    calls: list[dict[str, Any]] = []
+
+    async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
+            ],
+            "usage": usage,
+        }
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    return calls
+
+
+async def test_the_decompose_client_sends_the_output_format_and_the_node_records_usage(
+    monkeypatch,
+):
+    """The format is bound on the client and must reach litellm as response_format; the
+    blocking answer carries usage on the message, which becomes the step's tokens."""
+    calls = litellm_completion(
+        monkeypatch,
+        json.dumps({"queries": ["what is A", "what is B"]}),
+        usage={"prompt_tokens": 120, "completion_tokens": 20, "total_tokens": 140},
+    )
+
+    update = await decompose(ChatState(question="What are A and B?"))
+
+    assert calls[0]["response_format"] is DecomposedQuestion
+    assert calls[0]["stream"] is not True
+    assert update["queries"] == ("what is A", "what is B")
+    [step] = update["steps"]
+    assert (step.input_tokens, step.output_tokens) == (120, 20)
 
 
 async def test_the_chat_client_answers_with_the_text_of_a_reasoning_response(
