@@ -1,7 +1,7 @@
 """The assess loop's tool surface: what the model may call, and how each call runs."""
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import NamedTuple
 
 from pydantic import ValidationError
@@ -109,6 +109,23 @@ TOOL_SURFACE = {
 
 TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
 """The surface as the model is shown it, built once: it depends on nothing at call time."""
+
+
+def fetches_a_shown_division(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:
+    """Whether the call would only fetch a division the context already shows in full, so
+    running it could add nothing: a follow of a division every part of which is a source.
+    A call the surface cannot read is left to run_tool_call to reject."""
+    if call.name != "follow_reference":
+        return False
+    try:
+        args = FollowReferenceArgs.model_validate(call.args)
+        target = ReferenceTarget(
+            celex=args.celex, article=args.article, paragraph=args.paragraph, annex=args.annex
+        )
+    except ValidationError:
+        return False
+    shown = [s for s in sources if s.celex == target.celex and s.citation == target.citation]
+    return bool(shown) and {s.part for s in shown} == set(range(1, shown[0].parts + 1))
 
 
 def tool_step(name: str) -> ToolStep:

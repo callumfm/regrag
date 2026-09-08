@@ -22,7 +22,7 @@ from app.chat.prompts import (
     build_assess_message,
     build_user_message,
 )
-from app.chat.tools import TOOL_DEFINITIONS, run_tool_call, tool_step
+from app.chat.tools import TOOL_DEFINITIONS, fetches_a_shown_division, run_tool_call, tool_step
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -128,17 +128,17 @@ def assess_model() -> Runnable:
 @llm_retry
 @wrap_provider_errors("assess call")
 async def call_assess_model(state: ChatState) -> dict[str, Any]:
-    """One model turn asking what would fill the gaps in the context, capped to the
-    calls a round may run — the rest dropped before state or the ledger sees them."""
+    """One model turn asking what would fill the gaps in the context. A call that would
+    only re-fetch a division the context already shows is dropped, then the rest are capped
+    to the calls a round may run — neither reaches state or the ledger."""
     messages = [
         SystemMessage(ASSESS_SYSTEM_PROMPT),
         HumanMessage(build_assess_message(state.question, state.sources)),
     ]
     response = await assess_model().ainvoke(messages)
-    calls = tuple(
-        ToolCall(name=c["name"], args=c["args"])
-        for c in response.tool_calls[: config.ASSESS_MAX_CALLS]
-    )
+    asked = (ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls)
+    useful = [call for call in asked if not fetches_a_shown_division(call, state.sources)]
+    calls = tuple(useful[: config.ASSESS_MAX_CALLS])
     return {"pending_calls": calls, "usage": response.usage_metadata}
 
 

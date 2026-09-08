@@ -46,15 +46,18 @@ async def call_judge_model[T: FrozenModel](system: str, user: str, output: type[
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format=output,
         api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
-        max_tokens=config.CHAT_MAX_TOKENS,
+        max_tokens=config.EVAL_JUDGE_MAX_TOKENS,
         timeout=config.CHAT_TIMEOUT,
         drop_params=True,
     )
-    content = response.choices[0].message.content or ""
+    choice = response.choices[0]
+    content = choice.message.content or ""
     try:
         return output.model_validate_json(content)
     except ValidationError as exc:
-        logger.warning("judge answered off its schema: %s", exc)
+        logger.warning(
+            "judge answered off its schema, stopped on %s: %s", choice.finish_reason, exc
+        )
         raise LLMError("judge call failed") from exc
 
 
