@@ -281,3 +281,30 @@ def test_resolves_a_bare_commission_regulation() -> None:
     assert references == (
         Reference(raw="Commission Regulation (EU) No 601/2012", instrument="32012R0601"),
     )
+
+
+def test_attributes_an_article_cited_by_point_to_the_instrument_after_the_point() -> None:
+    references = extract_references(
+        "means gross tonnage as defined in Article 3, point (e), of Regulation (EU) 2015/757"
+    )
+    assert references == (
+        Reference(
+            raw="Article 3, point (e), of Regulation (EU) 2015/757",
+            instrument="32015R0757",
+            article="3",
+        ),
+    )
+
+
+def test_attributes_an_article_cited_by_subparagraph_to_the_instrument_after_it() -> None:
+    references = extract_references(
+        "under Article 6(2), second subparagraph, of Regulation (EU) 2015/757"
+    )
+    assert references == (
+        Reference(
+            raw="Article 6(2), second subparagraph, of Regulation (EU) 2015/757",
+            instrument="32015R0757",
+            article="6",
+            paragraph="2",
+        ),
+    )

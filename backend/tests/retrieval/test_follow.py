@@ -285,3 +285,64 @@ async def test_a_division_with_no_stored_chunks_hashes_to_nothing(
     target = ReferenceTarget(celex=INVENTED_CELEX, article="404")
 
     assert await division_content_hashes(db_session, target) == ()
+
+
+DEFINITIONS_PARTS = (
+    "For the purposes of this Regulation:\n(a) ‘ship’ means a seagoing vessel;",
+    "(e) ‘gross tonnage’ means the tonnage on the certificate;\n(f) ‘verifier’ means a body;",
+    "(15) ‘ship at berth’ means a moored ship;\n(16) ‘ship at anchorage’ means a ship not moored;",
+)
+
+
+async def store_definitions_article(
+    session: AsyncSession, ingest_run: IngestRun, make_chunk_row: Callable[..., DocumentChunk]
+) -> None:
+    """A definitions article as the chunker stores one: no paragraph, split into parts."""
+    for part, text in enumerate(DEFINITIONS_PARTS, start=1):
+        session.add(
+            make_chunk_row(
+                ingest_run,
+                celex=INVENTED_CELEX,
+                article="3",
+                paragraph=None,
+                part=part,
+                parts=len(DEFINITIONS_PARTS),
+                position=part,
+                citation="Article 3",
+                text=text,
+                content_hash=f"{part:064d}",
+            )
+        )
+    await session.flush()
+
+
+@pytest.mark.parametrize(("point", "opening"), [("e", "(e) ‘gross"), ("16", "(15) ‘ship")])
+async def test_a_point_of_a_definitions_article_reaches_the_part_that_defines_it(
+    db_session: AsyncSession,
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+    point: str,
+    opening: str,
+) -> None:
+    """A definitions article numbers no paragraphs, so a citation's point is found in the text."""
+    await store_definitions_article(db_session, ingest_run, make_chunk_row)
+
+    found = await follow_reference(
+        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", paragraph=point)
+    )
+
+    assert [chunk.text[: len(opening)] for chunk in found] == [opening]
+
+
+async def test_a_point_no_part_defines_returns_nothing_rather_than_the_whole_article(
+    db_session: AsyncSession,
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    await store_definitions_article(db_session, ingest_run, make_chunk_row)
+
+    found = await follow_reference(
+        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", paragraph="z")
+    )
+
+    assert found == ()

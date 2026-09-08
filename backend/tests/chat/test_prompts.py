@@ -55,6 +55,21 @@ class TestBuildAssessMessage:
 
         assert "cites: 32015R0757 Article 3" in message
 
+    def test_names_an_address_once_however_many_points_of_it_are_cited(self):
+        references = tuple(
+            Reference(
+                raw=f"Article 3, point ({point}), of Regulation X",
+                instrument="32015R0757",
+                article="3",
+            )
+            for point in "cen"
+        )
+        sources = (search_result(references=references),)
+
+        message = build_assess_message("q", sources)
+
+        assert message.count("32015R0757 Article 3") == 1
+
     def test_skips_references_that_name_no_division(self):
         reference = Reference(raw="Regulation (EU) 2015/757", instrument="32015R0757")
         sources = (search_result(references=(reference,)),)

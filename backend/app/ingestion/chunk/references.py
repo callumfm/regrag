@@ -11,7 +11,12 @@ from app.core.models import FrozenModel
 from app.ingestion import celex
 from app.ingestion.chunk.models import Reference, format_citation
 
-QUALIFIER = re.compile(r"^\s+(?:of|to|in)\s+(?:that\s+|the\s+)?$")
+QUALIFIER = re.compile(
+    r"^(?:,\s*(?:point\s+\([0-9a-z]+\)|(?:first|second|third|fourth|fifth|last)\s+subparagraph),?)?"
+    r"\s+(?:of|to|in)\s+(?:that\s+|the\s+)?$"
+)
+"""What may sit between a division and the instrument qualifying it: the qualifier alone, or
+a point or subparagraph of the division first — 'Article 3, point (e), of Regulation X'."""
 
 
 class Mention(FrozenModel):
