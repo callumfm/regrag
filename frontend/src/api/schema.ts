@@ -46,6 +46,12 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * ChatNode
+         * @description The graph's nodes, as astream keys their updates.
+         * @enum {string}
+         */
+        ChatNode: "retrieve" | "assess" | "tools" | "synthesize" | "refuse";
+        /**
          * ChatQuery
          * @description The question a caller asks.
          */
@@ -70,6 +76,24 @@ export interface components {
             title: string | null;
             /** Text */
             text: string;
+        };
+        /**
+         * ChatStepResult
+         * @description One step of the path — a graph node, or one tool call a round ran: what it was, how
+         *     long it took, and the tokens it used if it called a model. The shape the ledger persists
+         *     per step, and the trace a run is read back from.
+         */
+        ChatStepResult: {
+            /** Step */
+            step: components["schemas"]["ChatNode"] | components["schemas"]["ToolStep"];
+            /** Ms */
+            ms: number;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** Subject */
+            subject?: string | null;
         };
         /**
          * DoneEvent
@@ -153,6 +177,18 @@ export interface components {
             data: components["schemas"]["ChatSource"][];
         };
         /**
+         * StepEvent
+         * @description One step of the path, sent as it finishes: what the run did before the answer.
+         */
+        StepEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "step";
+            data: components["schemas"]["ChatStepResult"];
+        };
+        /**
          * TextEvent
          * @description One fragment of the answer's text, as the model streams it — or the whole refusal.
          */
@@ -165,6 +201,13 @@ export interface components {
             /** Data */
             data: string;
         };
+        /**
+         * ToolStep
+         * @description The tool calls a path records, prefixed so one column holds both these and the
+         *     graph's nodes without either being read for the other.
+         * @enum {string}
+         */
+        ToolStep: "tool_search" | "tool_follow_reference" | "tool_unknown";
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -226,7 +269,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": components["schemas"]["SourcesEvent"] | components["schemas"]["TextEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
+                    "text/event-stream": components["schemas"]["SourcesEvent"] | components["schemas"]["StepEvent"] | components["schemas"]["TextEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
                 };
             };
             /** @description Validation Error */

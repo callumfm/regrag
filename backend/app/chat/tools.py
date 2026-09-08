@@ -111,6 +111,13 @@ TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
 """The surface as the model is shown it, built once: it depends on nothing at call time."""
 
 
+def describe_call(call: ToolCall) -> str | None:
+    """What a call was for, as the trail shows it: the arguments it was given, in the order
+    the model gave them — a query, or a citation's address — and nothing when it gave none."""
+    given = [str(value) for value in call.args.values() if value]
+    return " · ".join(given) or None
+
+
 def tool_step(name: str) -> ToolStep:
     """The step a call to this tool records; a tool the surface does not have records that."""
     spec = TOOL_SURFACE.get(name)

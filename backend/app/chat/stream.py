@@ -16,6 +16,7 @@ from app.chat.models import (
     DoneEvent,
     ErrorEvent,
     SourcesEvent,
+    StepEvent,
     TextEvent,
 )
 from app.chat.service import create_chat_request
@@ -43,11 +44,17 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
     """The graph run as chat events. LangGraph provides two streams: 'values' - a snapshot of
     the state after each node, and 'messages' - the tokens a node's model call produces."""
     sources_sent = False
+    steps_sent = 0
     graph_stream: AsyncIterator[Any] = chat_graph.astream(state, stream_mode=["values", "messages"])
     async for mode, payload in graph_stream:
         # Node completed
         if mode == "values":
             state.sync_from_snapshot(payload)
+
+            # Report the path walked since the last snapshot, which carries the whole of it
+            for step in state.steps[steps_sent:]:
+                yield StepEvent(data=step)
+            steps_sent = len(state.steps)
 
             if not sources_sent and state.context_settled:
                 sources_sent = True

@@ -98,8 +98,20 @@ async def test_log_line_carries_the_stats_but_not_the_content(db_session: AsyncS
     assert record.__dict__["outcome"] == "done"
     assert record.__dict__["sources"] == 6
     assert record.__dict__["steps"] == [
-        {"step": "retrieve", "ms": 120, "input_tokens": None, "output_tokens": None},
-        {"step": "synthesize", "ms": 1300, "input_tokens": 1500, "output_tokens": 40},
+        {
+            "step": "retrieve",
+            "ms": 120,
+            "input_tokens": None,
+            "output_tokens": None,
+            "subject": None,
+        },
+        {
+            "step": "synthesize",
+            "ms": 1300,
+            "input_tokens": 1500,
+            "output_tokens": 40,
+            "subject": None,
+        },
     ]
     assert "question" not in record.__dict__
     assert "answer" not in record.__dict__

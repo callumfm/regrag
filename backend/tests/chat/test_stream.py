@@ -10,8 +10,8 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk
 from sqlalchemy.exc import OperationalError
 
-from app.chat.enums import ChatNode, ChatOutcome
-from app.chat.models import DoneEvent, ErrorEvent, SourcesEvent, TextEvent
+from app.chat.enums import ChatNode, ChatOutcome, ToolStep
+from app.chat.models import DoneEvent, ErrorEvent, SourcesEvent, StepEvent, TextEvent
 from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.stream import stream_chat_events
 from app.core.llm import LLMError
@@ -151,17 +151,45 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
 
     events = [event async for event in stream_chat_events("best pizza topping?")]
 
-    assert events == [
-        SourcesEvent(data=()),
-        TextEvent(data=REFUSAL_ANSWER),
-        DoneEvent(),
+    assert [type(event) for event in events] == [
+        StepEvent,
+        SourcesEvent,
+        StepEvent,
+        TextEvent,
+        DoneEvent,
     ]
+    assert events[1] == SourcesEvent(data=())
+    assert events[3] == TextEvent(data=REFUSAL_ANSWER)
     assert model.received == []
     [state] = recorded_requests
     assert state.outcome is ChatOutcome.REFUSED
     assert [result.step for result in state.steps] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
     assert state.sources == ()
     assert state.token_totals() == (None, None)
+
+
+async def test_stream_reports_each_step_as_it_finishes(two_results, monkeypatch):
+    """The path reaches the client as it is walked, retrieve's step ahead of the sources
+    it found, so the reader sees the run rather than a wait."""
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+
+    events = [event async for event in stream_chat_events("q")]
+
+    steps = [event.data for event in events if isinstance(event, StepEvent)]
+    assert [step.step for step in steps] == [ChatNode.RETRIEVE, ChatNode.SYNTHESIZE]
+    assert all(step.subject is None for step in steps)
+    first_step = next(i for i, e in enumerate(events) if isinstance(e, StepEvent))
+    assert first_step < next(i for i, e in enumerate(events) if isinstance(e, SourcesEvent))
+
+
+async def test_steps_are_sent_once_each(two_results, monkeypatch, recorded_requests):
+    """A values update carries the whole path, not the tail; only what is new goes out."""
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+
+    events = [event async for event in stream_chat_events("q")]
+
+    [state] = recorded_requests
+    assert len(state.steps) == len([e for e in events if isinstance(e, StepEvent)])
 
 
 class ToolCallStreamingModel(RecordingChatModel):
@@ -232,3 +260,20 @@ class TestLoopStreaming:
 
         text = "".join(e.data for e in events if isinstance(e, TextEvent))
         assert text == "The answer [1]."
+
+    async def test_tool_steps_say_what_the_call_was_for(
+        self, loop_on, one_result, one_assess_round, monkeypatch
+    ):
+        """Three identical `tool_search` rows would tell the reader nothing; the query does."""
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+
+        events = [event async for event in stream_chat_events("q")]
+
+        steps = [event.data for event in events if isinstance(event, StepEvent)]
+        assert [(step.step, step.subject) for step in steps] == [
+            (ChatNode.RETRIEVE, None),
+            (ChatNode.ASSESS, None),
+            (ToolStep.SEARCH, "gap"),
+            (ChatNode.ASSESS, None),
+            (ChatNode.SYNTHESIZE, None),
+        ]

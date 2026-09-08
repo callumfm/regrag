@@ -28,6 +28,7 @@ class ChatEventName(StrEnum):
     """The events a chat stream carries, as the SSE frames name them."""
 
     SOURCES = "sources"
+    STEP = "step"
     TEXT = "text"
     DONE = "done"
     ERROR = "error"

@@ -28,6 +28,9 @@ class ChatStepResult(FrozenModel):
     ms: int
     input_tokens: int | None = None
     output_tokens: int | None = None
+    subject: str | None = None
+    """What the step was about, when the step alone does not say it: the query a search ran,
+    the division a follow fetched. Shown in the trail, not kept by the ledger."""
 
     @classmethod
     def from_usage(
@@ -189,6 +192,13 @@ class SourcesEvent(ChatEventBase):
         )
 
 
+class StepEvent(ChatEventBase):
+    """One step of the path, sent as it finishes: what the run did before the answer."""
+
+    event: Literal[ChatEventName.STEP] = ChatEventName.STEP
+    data: ChatStepResult
+
+
 class TextEvent(ChatEventBase):
     """One fragment of the answer's text, as the model streams it — or the whole refusal."""
 
@@ -211,6 +221,6 @@ class ErrorEvent(ChatEventBase):
 
 
 ChatEvent = Annotated[
-    SourcesEvent | TextEvent | DoneEvent | ErrorEvent, Field(discriminator="event")
+    SourcesEvent | StepEvent | TextEvent | DoneEvent | ErrorEvent, Field(discriminator="event")
 ]
 """Every frame a chat stream carries, told apart by its event name."""
