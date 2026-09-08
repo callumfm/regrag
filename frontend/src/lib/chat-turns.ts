@@ -16,6 +16,15 @@ export type ChatAction =
 	| { type: "fail"; message: string }
 	| ChatStreamEvent
 
+/** The trail with this step in it: a starting step joins the end, and a finished one settles
+ * the longest-running of its kind, which the graph finishes in the order it started them. */
+function recordStep(steps: ChatStep[], step: ChatStep): ChatStep[] {
+	if (step.status === "running") return [...steps, step]
+	const settling = steps.findIndex((held) => held.status === "running")
+	if (settling === -1) return [...steps, step]
+	return steps.map((held, index) => (index === settling ? step : held))
+}
+
 function applyToTurn(turn: ChatTurn, action: ChatAction): ChatTurn {
 	if ("event" in action) {
 		switch (action.event) {
@@ -24,7 +33,7 @@ function applyToTurn(turn: ChatTurn, action: ChatAction): ChatTurn {
 			case "step":
 				return {
 					...turn,
-					steps: [...turn.steps, action.data],
+					steps: recordStep(turn.steps, action.data),
 					status: "streaming",
 				}
 			case "text":

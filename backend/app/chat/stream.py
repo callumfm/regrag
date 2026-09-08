@@ -8,11 +8,12 @@ from typing import Any
 import anyio
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.chat.enums import ChatNode
+from app.chat.enums import ChatNode, ChatStepStatus
 from app.chat.graph import chat_graph
 from app.chat.models import (
     ChatEvent,
     ChatState,
+    ChatStepResult,
     DoneEvent,
     ErrorEvent,
     SourcesEvent,
@@ -20,6 +21,7 @@ from app.chat.models import (
     TextEvent,
 )
 from app.chat.service import create_chat_request
+from app.chat.tools import describe_call, tool_step
 from app.core.clock import elapsed_ms
 from app.core.db.session import get_session
 from app.core.exceptions import DomainError, describe
@@ -40,13 +42,38 @@ def _error_event(exc: Exception) -> ErrorEvent:
     return ErrorEvent(data=body)
 
 
+def _starting_steps(entry: ChatState, node: ChatNode) -> list[ChatStepResult]:
+    """What a node starting announces: a tool round is one step per call it is about to run,
+    read off the state it was handed; every other node is itself."""
+    if node is not ChatNode.TOOLS:
+        return [ChatStepResult(step=node, ms=0, status=ChatStepStatus.RUNNING)]
+    return [
+        ChatStepResult(
+            step=tool_step(call.name),
+            ms=0,
+            status=ChatStepStatus.RUNNING,
+            subject=describe_call(call),
+        )
+        for call in entry.pending_calls
+    ]
+
+
 async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, None]:
-    """The graph run as chat events. LangGraph provides two streams: 'values' - a snapshot of
-    the state after each node, and 'messages' - the tokens a node's model call produces."""
+    """The graph run as chat events. LangGraph provides three streams: 'tasks' - an event as
+    each node starts and finishes, 'values' - a snapshot of the state after each node, and
+    'messages' - the tokens a node's model call produces."""
     sources_sent = False
     steps_sent = 0
-    graph_stream: AsyncIterator[Any] = chat_graph.astream(state, stream_mode=["values", "messages"])
+    graph_stream: AsyncIterator[Any] = chat_graph.astream(
+        state, stream_mode=["tasks", "values", "messages"]
+    )
     async for mode, payload in graph_stream:
+        # Node starting, which only a task event carries: a finishing one has no input
+        if mode == "tasks":
+            if "input" in payload:
+                for step in _starting_steps(payload["input"], ChatNode(payload["name"])):
+                    yield StepEvent(data=step)
+            continue
         # Node completed
         if mode == "values":
             state.sync_from_snapshot(payload)

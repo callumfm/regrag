@@ -133,3 +133,22 @@
 		cursor: pointer;
 	}
 }
+
+@keyframes shimmer-text {
+	to {
+		background-position: -200% 0;
+	}
+}
+
+@keyframes fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+
+@keyframes fade-in {
+	from {
+		opacity: 0;
+	}
+}

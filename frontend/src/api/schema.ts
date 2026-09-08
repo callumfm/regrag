@@ -82,6 +82,12 @@ export interface components {
          * @description One step of the path — a graph node, or one tool call a round ran: what it was, how
          *     long it took, and the tokens it used if it called a model. The shape the ledger persists
          *     per step, and the trace a run is read back from.
+         *
+         *     status: whether the step has finished. Only the stream announces a running one; every step
+         *         the graph appends to the path has returned, so completed is the default.
+         *     ms: how long the step took, which a running one has not spent yet and nothing reads.
+         *     subject: what the step was about where the step alone does not say — the query a search
+         *         ran, the division a follow fetched. Carried to the client, not to the ledger.
          */
         ChatStepResult: {
             /** Step */
@@ -92,9 +98,17 @@ export interface components {
             input_tokens?: number | null;
             /** Output Tokens */
             output_tokens?: number | null;
+            /** @default completed */
+            status: components["schemas"]["ChatStepStatus"];
             /** Subject */
             subject?: string | null;
         };
+        /**
+         * ChatStepStatus
+         * @description Where a step is: announced as it starts, then reported again once it has finished.
+         * @enum {string}
+         */
+        ChatStepStatus: "running" | "completed";
         /**
          * DoneEvent
          * @description The last event of a completed stream.
@@ -178,7 +192,7 @@ export interface components {
         };
         /**
          * StepEvent
-         * @description One step of the path, sent as it finishes: what the run did before the answer.
+         * @description One step of the path, sent as it starts and again as it finishes.
          */
         StepEvent: {
             /**

@@ -40,9 +40,8 @@ def test_stream_orders_steps_then_sources_then_text_then_done(client, two_result
 
     names = [name for name, _ in events]
     assert names[0] == "step"
-    assert names[1] == "sources"
     assert names[-1] == "done"
-    assert set(names[2:-1]) == {"text", "step"}
+    assert set(names) == {"step", "sources", "text", "done"}
     assert names.index("sources") < names.index("text")
     answer = "".join(payload for name, payload in events if name == "text")
     assert answer == "Two words [1]."
@@ -94,6 +93,8 @@ def test_sources_event_carries_the_paragraph_text(client, two_results, monkeypat
 
 
 def test_stream_failure_emits_an_error_event(client, monkeypatch):
+    """The step that was running when it failed still went out, so the trail says where."""
+
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
@@ -103,8 +104,8 @@ def test_stream_failure_emits_an_error_event(client, monkeypatch):
         assert response.status_code == 200
         events = read_events(response)
 
-    [(name, payload)] = events
-    assert name == "error"
+    assert [name for name, _ in events] == ["step", "error"]
+    payload = first_payload(events, "error")
     assert payload["error"] == "LLMError"
     assert payload["message"] == "embedding call failed"
     assert payload["request_id"] == response.headers["X-Request-ID"]
@@ -120,8 +121,8 @@ def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
 
-    [(name, payload)] = events
-    assert name == "error"
+    assert [name for name, _ in events] == ["step", "error"]
+    payload = first_payload(events, "error")
     assert payload["error"] == "InternalServerError"
     assert payload["message"] == "An unexpected error occurred"
     assert "secret internals" not in json.dumps(payload)
@@ -159,7 +160,15 @@ def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
     with client.stream("POST", "/chat", json={"question": "best pizza topping?"}) as response:
         events = read_events(response)
 
-    assert [name for name, _ in events] == ["step", "sources", "step", "text", "done"]
+    assert [name for name, _ in events] == [
+        "step",
+        "step",
+        "sources",
+        "step",
+        "step",
+        "text",
+        "done",
+    ]
     assert first_payload(events, "sources") == []
     assert first_payload(events, "text") == REFUSAL_ANSWER
     assert model.received == []
