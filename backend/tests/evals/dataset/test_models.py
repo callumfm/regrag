@@ -142,12 +142,10 @@ def test_a_selection_narrows_on_trait_and_kind_as_well_as_id() -> None:
     assert selected(id_contains="fueleu", trait=EvalTrait.MULTI_PART) == ["fueleu-split"]
 
 
-def test_a_selection_says_whether_it_narrows_anything_and_how() -> None:
-    assert not CaseSelection().selects_a_subset
+def test_a_selection_describes_the_criteria_it_narrows_on() -> None:
     assert CaseSelection().describe() == "every case"
 
     narrowed = CaseSelection(id_contains="fueleu", trait=EvalTrait.MULTI_HOP)
-    assert narrowed.selects_a_subset
     assert narrowed.describe() == "id_contains=fueleu trait=multi_hop"
 
 
