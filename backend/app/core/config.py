@@ -192,6 +192,25 @@ class AssessConfig(BaseConfig):
     ASSESS_EXTRA_CHUNKS: int = Field(default=10, ge=0)
 
 
+class DecomposeConfig(BaseConfig):
+    """The decompose node, which splits a multi-part question into one search per part.
+
+    DECOMPOSE_ENABLED: the node's off switch; off, retrieve searches the question as asked
+        and the run records no decompose step. Off by default: over the 40-case golden
+        dataset (RRG-73) it moved multi_part recall 0.885 to 0.910, inside the ±0.07 noise,
+        and wrongly split 2 single-part cases, for 1.2x the latency and input tokens.
+    DECOMPOSE_MODEL: which model splits the question, separate from the answer's and
+        assess's on the one-setting-per-role rule.
+    DECOMPOSE_MAX_PARTS: the most queries a question may split into; surplus parts are
+        dropped, not refused. Each part searches CHAT_SOURCES hits, so keep the product at
+        or under CHAT_CONTEXT_CHUNKS or expansion truncates the deepest hits.
+    """
+
+    DECOMPOSE_ENABLED: bool = False
+    DECOMPOSE_MODEL: str = "anthropic/claude-haiku-4-5"
+    DECOMPOSE_MAX_PARTS: int = Field(default=3, ge=2)
+
+
 class IngestConfig(BaseConfig):
     """Ingestion tunables.
 
@@ -285,6 +304,7 @@ class Config(
     EmbeddingConfig,
     ChatConfig,
     AssessConfig,
+    DecomposeConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,
@@ -303,6 +323,7 @@ _CONFIG_SECTIONS = (
     EmbeddingConfig,
     ChatConfig,
     AssessConfig,
+    DecomposeConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,
@@ -313,6 +334,7 @@ EVAL_CONFIG_SECTIONS = (
     EmbeddingConfig,
     ChatConfig,
     AssessConfig,
+    DecomposeConfig,
     RetrievalConfig,
     JudgeConfig,
 )

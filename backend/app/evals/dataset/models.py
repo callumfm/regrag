@@ -79,11 +79,6 @@ class CaseSelection(FrozenModel):
             and (self.kind is None or self.kind is case.kind)
         )
 
-    @property
-    def selects_a_subset(self) -> bool:
-        """Whether any criterion is set, so a run scores fewer than every case."""
-        return any(value is not None for value in self.model_dump().values())
-
     def describe(self) -> str:
         """The criteria set as `name=value` pairs, or 'every case' when none is."""
         criteria = {name: value for name, value in self.model_dump().items() if value is not None}

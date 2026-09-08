@@ -6,6 +6,7 @@ from enum import StrEnum
 class ChatNode(StrEnum):
     """The graph's nodes, as astream keys their updates."""
 
+    DECOMPOSE = "decompose"
     RETRIEVE = "retrieve"
     ASSESS = "assess"
     TOOLS = "tools"

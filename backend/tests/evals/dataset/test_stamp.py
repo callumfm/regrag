@@ -15,7 +15,7 @@ from app.evals.dataset.stamp import save_dataset, stamp_dataset
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.enums import IngestRunStatus
 from app.ingestion.schemas import IngestRun
-from tests.evals.conftest import eval_case, eval_dataset
+from tests.evals.conftest import eval_case, eval_dataset, out_of_corpus_case
 
 pytestmark = pytest.mark.anyio
 
@@ -77,18 +77,35 @@ async def test_a_filtered_stamp_leaves_the_cases_it_did_not_select_alone(
     assert stamped.cases[1].references[0].content_hashes == ("0" * 12,)
 
 
-@pytest.mark.parametrize("filters", [{"id_contains": "case"}, {"trait": EvalTrait.MULTI_HOP}])
-async def test_a_filtered_stamp_leaves_the_corpus_stamp_alone(
+WAS = CorpusStamp(corpus_version="2026-08-15-2cc038d", stamped_at="2026-08-28")
+
+
+@pytest.mark.parametrize("filters", [{"id_contains": "kept"}, {"trait": EvalTrait.MULTI_HOP}])
+async def test_a_stamp_that_skips_a_cited_case_leaves_the_corpus_stamp_alone(
     db_session: AsyncSession, article_4: DocumentChunk, filters: dict
 ) -> None:
-    """The stamp covers the whole dataset, so only an unfiltered stamp can honestly claim it."""
-    was = CorpusStamp(corpus_version="2026-08-15-2cc038d", stamped_at="2026-08-28")
-    case = eval_case(traits=(EvalTrait.MULTI_HOP,))
-    dataset = eval_dataset(case, **filters).model_copy(update={"corpus": was})
+    """The stamp covers every reference, so a selection that skipped one cannot claim it."""
+    kept = eval_case(id="kept-case", traits=(EvalTrait.MULTI_HOP,))
+    skipped = eval_case(id="skipped-case", references=(MOVED,))
+    dataset = eval_dataset(kept, skipped, **filters).model_copy(update={"corpus": WAS})
 
     stamped = await stamp_dataset(db_session, dataset)
 
-    assert stamped.corpus == was
+    assert stamped.corpus == WAS
+
+
+async def test_a_stamp_that_skips_only_uncited_cases_rewrites_the_corpus_stamp(
+    db_session: AsyncSession, article_4: DocumentChunk
+) -> None:
+    """`--kind in_corpus` restamps every reference there is, so the corpus stamp is honest."""
+    dataset = eval_dataset(eval_case(), out_of_corpus_case(), kind=EvalKind.IN_CORPUS).model_copy(
+        update={"corpus": WAS}
+    )
+
+    stamped = await stamp_dataset(db_session, dataset)
+
+    assert stamped.corpus is not None
+    assert stamped.corpus.corpus_version == "2026-09-02-4e81a90"
 
 
 async def test_a_reference_the_corpus_cannot_resolve_refuses_the_whole_stamp(

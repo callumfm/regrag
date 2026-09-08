@@ -54,12 +54,13 @@ def _stamp_case(case: EvalCase, stamps: Stamps) -> EvalCase:
 
 
 async def stamp_dataset(session: AsyncSession, dataset: EvalDataset) -> EvalDataset:
-    """Restamp only the selected cases; the corpus stamp covers the whole dataset, so it is
-    rewritten only by an unfiltered stamp."""
+    """Restamp only the selected cases; the corpus stamp covers every reference in the dataset,
+    so it is rewritten only when the selection left none of them unstamped."""
     stamps = await _selected_stamps(session, dataset)
     selected = {case.id for case in dataset.selected_cases}
     cases = [_stamp_case(case, stamps) if case.id in selected else case for case in dataset.cases]
-    if dataset.selection.selects_a_subset:
+    left_unstamped = any(case.references and case.id not in selected for case in dataset.cases)
+    if left_unstamped:
         corpus = dataset.corpus
     else:
         version = await get_latest_corpus_version(session)

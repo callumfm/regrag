@@ -50,7 +50,7 @@ export interface components {
          * @description The graph's nodes, as astream keys their updates.
          * @enum {string}
          */
-        ChatNode: "retrieve" | "assess" | "tools" | "synthesize" | "refuse";
+        ChatNode: "decompose" | "retrieve" | "assess" | "tools" | "synthesize" | "refuse";
         /**
          * ChatQuery
          * @description The question a caller asks.

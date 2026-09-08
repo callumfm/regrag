@@ -84,3 +84,17 @@ def test_an_answer_that_did_not_decline_prints_the_judges_reason():
 
     assert "corr    -" in line
     assert refusal == "    refusal fail: says the corpus lacks it"
+
+
+def test_a_split_case_shows_its_queries_beneath_it():
+    result = eval_result(queries=("what is A", "what is B"))
+
+    line, split = format_case_lines((result,))
+
+    assert split == "    split: what is A | what is B"
+
+
+def test_an_unsplit_case_prints_no_split_line():
+    [line] = format_case_lines((eval_result(),))
+
+    assert "split:" not in line
