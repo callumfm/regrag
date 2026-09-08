@@ -121,6 +121,19 @@ def loop_on(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 2)
 
 
+@pytest.fixture(autouse=True)
+def no_decompose(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The split is off by default so every test that runs the graph keeps meaning exactly
+    what it said; a decompose test takes `decompose_on` and fakes decompose_model itself."""
+    monkeypatch.setattr(config, "DECOMPOSE_ENABLED", False)
+
+
+@pytest.fixture
+def decompose_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The split back on, undoing the autouse switch-off."""
+    monkeypatch.setattr(config, "DECOMPOSE_ENABLED", True)
+
+
 @pytest.fixture
 def assess_turns(
     monkeypatch: pytest.MonkeyPatch,

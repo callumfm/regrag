@@ -462,6 +462,71 @@ class TestRetrieveOverQueries:
         assert tuple(chunk.id for chunk in update["sources"]) == (1, 2, 3)
 
 
+class TestDecomposeInTheGraph:
+    async def test_off_records_no_decompose_step_and_searches_the_question(
+        self, one_result, answer_model
+    ):
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [ChatNode.RETRIEVE, ChatNode.SYNTHESIZE]
+        assert one_result == [SearchRequest(query=QUESTION, limit=config.CHAT_SOURCES)]
+        assert state.queries == ()
+
+    async def test_on_a_split_question_searches_each_part_then_answers_the_whole(
+        self, decompose_on, answer_model, decompose_turns, monkeypatch
+    ):
+        decompose_turns(split_message("what is A", "what is B"))
+        fake_search, requests = hits_for(
+            **{"what is A": (search_result(id=1),), "what is B": (search_result(id=2),)}
+        )
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+        state = ChatState(question="What are A and B?")
+        state.sync_from_snapshot(await chat_graph.ainvoke(state))
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.DECOMPOSE,
+            ChatNode.RETRIEVE,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert state.queries == ("what is A", "what is B")
+        assert {r.query for r in requests} == {"what is A", "what is B"}
+        assert tuple(chunk.id for chunk in state.sources) == (1, 2)
+        [messages] = answer_model.received
+        assert messages[1].content.endswith("Question: What are A and B?")
+
+    async def test_on_a_single_part_question_is_searched_as_asked(
+        self, decompose_on, one_result, answer_model, decompose_turns
+    ):
+        """The only difference from the switch being off is the recorded step."""
+        decompose_turns(split_message(QUESTION))
+
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.DECOMPOSE,
+            ChatNode.RETRIEVE,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert one_result == [SearchRequest(query=QUESTION, limit=config.CHAT_SOURCES)]
+        assert state.queries == ()
+
+    async def test_on_a_split_whose_every_part_misses_the_bar_is_refused(
+        self, decompose_on, decompose_turns, monkeypatch
+    ):
+        decompose_turns(split_message("pizza", "pasta"))
+        junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
+        fake_search, _ = hits_for(pizza=(junk,), pasta=(junk,))
+        model = fake_chat_model()
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+
+        state = await chat_graph.ainvoke(ChatState(question="Best pizza and pasta?"))
+
+        assert state["answer"] == REFUSAL_ANSWER
+        assert model.received == []
+
+
 class TestDecompose:
     async def test_a_multi_part_question_becomes_one_query_per_part(self, decompose_turns):
         model = decompose_turns(split_message("what is A", "what is B"))

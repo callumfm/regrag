@@ -10,20 +10,24 @@ curl -N localhost:8000/chat -H 'content-type: application/json' \
 ## The graph
 
 ```
-START → retrieve ─┬→ refuse ──────────────→ END   nothing cleared the gate
-                  │
-                  ├→ assess ⇄ tools              while assess asks and the budget remains
-                  │      │
-                  └──────┴→ synthesize ────→ END   the context is settled
+START ─┬→ decompose ─┐                            DECOMPOSE_ENABLED
+       │             ↓
+       └──────────→ retrieve ─┬→ refuse ──────────────→ END   nothing cleared the gate
+                              │
+                              ├→ assess ⇄ tools              while assess asks and the budget remains
+                              │      │
+                              └──────┴→ synthesize ────→ END   the context is settled
 ```
 
-`retrieve` searches the corpus and checks the hits against the refusal gate ([`../retrieval/README.md`](../retrieval/README.md)). If nothing clears the gate the context is empty, and the edge takes us to `refuse`, which returns fixed wording and calls no model.
+`decompose` makes one blocking model call on `DECOMPOSE_MODEL`, answering in a fixed shape with the searches the question needs, one per thing it asks, capped at `DECOMPOSE_MAX_PARTS`. A question asking one thing comes back as one query and is searched exactly as asked, so switching the node off and asking a single-part question run the same retrieval; the only trace is the recorded step. `DECOMPOSE_ENABLED=false` takes the edge straight to `retrieve` and records no step. The call is best-effort: one that fails or answers off its shape logs and searches the question as asked.
+
+`retrieve` searches the corpus for each query — the parts decompose split off, or the question as asked — each on its own session and at once, and checks each query's hits against the refusal gate on their own ([`../retrieval/README.md`](../retrieval/README.md)), so an out-of-corpus part cannot bring sub-bar hits into the context. The survivors are interleaved by rank, each query's first hit before any query's second, and every query's hits, gated or not, stay on the state as `hits`. If no query clears the gate the context is empty, and the edge takes us to `refuse`, which returns fixed wording and calls no model.
 
 Otherwise the assess loop runs. `assess` makes one blocking model call and answers with the tool calls that would fill what the context is missing — a fresh `search`, or a `follow_reference` fetching a division the context cites. `tools` runs them and merges what they find in, keeping the earlier blocks in place so the `[n]` markers a client already holds keep meaning what they meant. It ends when assess asks for nothing or `ASSESS_MAX_ROUNDS` is spent; `ASSESS_ENABLED=false` skips it entirely, leaving the two-node graph this started as. Either way, `synthesize` makes one streamed call answering from the numbered blocks.
 
 Three bounds keep the loop honest. A search's hits face the same score bar `retrieve` holds its own to, so what the gate would refuse to answer from cannot arrive by the back door. The merge stops once the loop has added `ASSESS_EXTRA_CHUNKS` on top of what retrieval left. And each call runs on its own session, so one that fails on the database costs its own result and no other's.
 
-Both model calls run at `CHAT_TEMPERATURE`, which is 0 — an answer quoting law back gains nothing from sampling variety, and assess sampling differently changes the context the answer is built from.
+Every model call runs at `CHAT_TEMPERATURE`, which is 0 — an answer quoting law back gains nothing from sampling variety, and assess sampling differently changes the context the answer is built from, and decompose sampling differently changes which searches run.
 
 The loop is best-effort: a failed assess call or a failed tool call costs the answer that round's context, never the request. The diagram is hand-drawn, and a test holds the compiled graph to the edge list it was drawn from.
 

@@ -1,5 +1,6 @@
-"""Chat graph: retrieve corpus context, run the assess ⇄ tools loop, then synthesize a
-cited answer — or refuse, before any model call, a question the corpus does not cover."""
+"""Chat graph: split a multi-part question, retrieve corpus context, run the assess ⇄
+tools loop, then synthesize a cited answer — or refuse, before any model call, a question
+the corpus does not cover."""
 
 import asyncio
 import functools
@@ -270,8 +271,16 @@ def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
     return ChatNode.REFUSE if not state.sources else assess_or_synthesize(state)
 
 
+def decompose_or_retrieve(state: ChatState) -> ChatNode:
+    """At the start: split the question when the node is on, else search it as asked. An
+    edge rather than a check inside the node, so a run with it off records no step."""
+    return ChatNode.DECOMPOSE if config.DECOMPOSE_ENABLED else ChatNode.RETRIEVE
+
+
 GRAPH_EDGES = (
+    (START, ChatNode.DECOMPOSE),
     (START, ChatNode.RETRIEVE),
+    (ChatNode.DECOMPOSE, ChatNode.RETRIEVE),
     (ChatNode.RETRIEVE, ChatNode.ASSESS),
     (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE),
     (ChatNode.RETRIEVE, ChatNode.REFUSE),
@@ -287,14 +296,18 @@ this, so an edge added here without redrawing the README fails before it is merg
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:
-    """The compiled retrieve → (assess ⇄ tools) → (synthesize | refuse) graph."""
+    """The compiled (decompose →) retrieve → (assess ⇄ tools) → (synthesize | refuse) graph."""
     graph = StateGraph(ChatState)
+    graph.add_node(ChatNode.DECOMPOSE, decompose)
     graph.add_node(ChatNode.RETRIEVE, retrieve)
     graph.add_node(ChatNode.ASSESS, assess)
     graph.add_node(ChatNode.TOOLS, tools)
     graph.add_node(ChatNode.SYNTHESIZE, synthesize)
     graph.add_node(ChatNode.REFUSE, refuse)
-    graph.add_edge(START, ChatNode.RETRIEVE)
+    graph.add_conditional_edges(
+        START, decompose_or_retrieve, [ChatNode.DECOMPOSE, ChatNode.RETRIEVE]
+    )
+    graph.add_edge(ChatNode.DECOMPOSE, ChatNode.RETRIEVE)
     graph.add_conditional_edges(
         ChatNode.RETRIEVE,
         assess_or_synthesize_or_refuse,
