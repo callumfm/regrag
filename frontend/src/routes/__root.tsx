@@ -11,14 +11,14 @@ export const Route = createRootRoute({
 	errorComponent: GlobalError,
 })
 
-/** Recolours the thinking orb, which draws itself in greyscale: the flood is kept only where
- * the canvas has ink, so the animation's shading survives as its alpha. */
+/** Paints the thinking orb in the text colour. It draws itself in greyscale, so flooding it
+ * and keeping the flood only where the canvas has ink leaves the shading in the alpha. */
 function OrbTint() {
 	return (
 		<svg aria-hidden className="absolute size-0" role="presentation">
 			<title>Orb tint</title>
 			<filter id="orb-tint" colorInterpolationFilters="sRGB">
-				<feFlood floodColor="var(--primary)" result="tint" />
+				<feFlood floodColor="var(--foreground)" result="tint" />
 				<feComposite in="tint" in2="SourceGraphic" operator="in" />
 			</filter>
 		</svg>
