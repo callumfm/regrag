@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from "react"
 import { streamChat } from "@/api/client"
-import { chatReducer } from "@/lib/chat-turns"
+import { chatReducer, isTurnRunning } from "@/lib/chat-turns"
 
 let turnsCreated = 0
 
@@ -44,11 +44,11 @@ export function useChatStream() {
 		}
 	}, [])
 
-	const status = turns.at(-1)?.status
+	const current = turns.at(-1)
 	return {
 		turns,
 		ask,
 		stop,
-		isBusy: status === "pending" || status === "streaming",
+		isBusy: current !== undefined && isTurnRunning(current),
 	}
 }

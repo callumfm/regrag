@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import type { ChatStep } from "@/api/types"
 import { type ChatAction, type ChatTurn, chatReducer } from "./chat-turns"
 
 function asked(): ChatTurn[] {
@@ -9,22 +10,19 @@ function run(...actions: ChatAction[]): ChatTurn {
 	return actions.reduce(chatReducer, asked())[0]
 }
 
-function started(step: string, subject: string | null = null): ChatAction {
-	return {
-		event: "step",
-		data: { step, ms: 0, status: "running", subject },
-	} as ChatAction
+function started(
+	step: ChatStep["step"],
+	subject: string | null = null,
+): ChatAction {
+	return { event: "step", data: { step, ms: 0, status: "running", subject } }
 }
 
 function finished(
-	step: string,
+	step: ChatStep["step"],
 	ms: number,
 	subject: string | null = null,
 ): ChatAction {
-	return {
-		event: "step",
-		data: { step, ms, status: "completed", subject },
-	} as ChatAction
+	return { event: "step", data: { step, ms, status: "completed", subject } }
 }
 
 describe("chatReducer", () => {

@@ -10,6 +10,11 @@ export type ChatTurn = {
 	error: string | null
 }
 
+/** Whether the run behind a turn is still under way: asked and not yet answering, or answering. */
+export function isTurnRunning(turn: ChatTurn): boolean {
+	return turn.status === "pending" || turn.status === "streaming"
+}
+
 export type ChatAction =
 	| { type: "ask"; id: string; question: string }
 	| { type: "settle" }

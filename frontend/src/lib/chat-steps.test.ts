@@ -2,24 +2,25 @@ import { describe, expect, it } from "vitest"
 import type { ChatStep } from "@/api/types"
 import { formatDuration, stepLabel } from "./chat-steps"
 
-function step(name: string, ms = 0, status = "completed"): ChatStep {
-	return {
-		step: name as ChatStep["step"],
-		ms,
-		status: status as ChatStep["status"],
-	}
+function step(
+	name: ChatStep["step"],
+	ms = 0,
+	status: ChatStep["status"] = "completed",
+): ChatStep {
+	return { step: name, ms, status }
 }
 
 describe("stepLabel", () => {
-	it("names a known step in English", () => {
+	it("names a finished step in the past tense", () => {
 		expect(stepLabel(step("tool_follow_reference"))).toBe(
 			"Followed a reference",
 		)
 	})
 
-	it("falls back to the step's own name when the graph grows one", () => {
-		expect(stepLabel(step("decompose"))).toBe("Decompose")
-		expect(stepLabel(step("tool_widen_search"))).toBe("Tool widen search")
+	it("names a running step in the present tense", () => {
+		expect(stepLabel(step("retrieve", 0, "running"))).toBe(
+			"Searching the corpus",
+		)
 	})
 })
 

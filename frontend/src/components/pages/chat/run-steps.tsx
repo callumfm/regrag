@@ -1,46 +1,37 @@
-import { useLayoutEffect, useRef, useState } from "react"
+import { Collapsible } from "@base-ui/react/collapsible"
+import { CheckIcon, ChevronDownIcon } from "lucide-react"
+import { memo, useState } from "react"
 import { ThinkingOrb } from "thinking-orbs"
 import type { ChatStep } from "@/api/types"
 import { formatDuration, stepLabel } from "@/lib/chat-steps"
+import { cn } from "@/lib/utils"
 
 function StepIcon({ step, isRunning }: { step: ChatStep; isRunning: boolean }) {
 	if (step.status === "completed") {
 		return (
-			<svg
-				width="14"
-				height="14"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="2.5"
-				strokeLinecap="round"
-				strokeLinejoin="round"
+			<CheckIcon
+				size={14}
+				strokeWidth={2.5}
 				className="shrink-0 text-muted-foreground"
 				aria-hidden
-			>
-				<path d="M20 6L9 17l-5-5" />
-			</svg>
-		)
-	}
-	if (!isRunning) {
-		return (
-			<span
-				aria-hidden
-				className="size-3 shrink-0 rounded-full border-[1.5px] border-border"
 			/>
 		)
 	}
 	return (
 		<span
 			aria-hidden
-			className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border border-t-muted-foreground"
+			className={cn(
+				"size-3 shrink-0 rounded-full border-[1.5px] border-border",
+				isRunning && "animate-spin border-t-muted-foreground",
+			)}
 		/>
 	)
 }
 
 /** The path a run took, above the answer it produced: the step it is on while it runs, and a
- * record of how the answer was reached once it settles. */
-export function RunSteps({
+ * record of how the answer was reached once it settles. Open while running unless the reader
+ * has chosen otherwise. */
+export const RunSteps = memo(function RunSteps({
 	steps,
 	isRunning,
 }: {
@@ -48,119 +39,70 @@ export function RunSteps({
 	isRunning: boolean
 }) {
 	const [openedByReader, setOpenedByReader] = useState<boolean | null>(null)
-	const traceRef = useRef<HTMLOListElement>(null)
-	const [lineHeight, setLineHeight] = useState(0)
 	const isOpen = openedByReader ?? isRunning
-
-	useLayoutEffect(() => {
-		const trace = traceRef.current
-		if (trace === null) return
-		const observer = new ResizeObserver(() => setLineHeight(trace.offsetHeight))
-		observer.observe(trace)
-		return () => observer.disconnect()
-	}, [])
 
 	if (steps.length === 0 && !isRunning) return null
 
-	const settled = `${steps.length} ${steps.length === 1 ? "step" : "steps"} · ${formatDuration(steps)}`
-
 	return (
-		<div className="flex w-full flex-col">
-			<button
-				type="button"
-				aria-expanded={isOpen}
-				onClick={() => setOpenedByReader(!isOpen)}
-				className="-mx-1.5 flex w-fit items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-muted"
-			>
+		<Collapsible.Root
+			open={isOpen}
+			onOpenChange={setOpenedByReader}
+			className="flex w-full flex-col"
+		>
+			<Collapsible.Trigger className="group -mx-1.5 flex w-fit items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-muted">
 				<ThinkingOrb
-					className="orb-tint"
 					state="solving"
 					size={20}
+					theme="light"
 					paused={!isRunning}
 				/>
-				<span role="status" className="contents">
-					{isRunning ? (
-						<span
-							className="bg-clip-text font-medium text-[13px] text-transparent whitespace-nowrap"
-							style={{
-								backgroundImage:
-									"linear-gradient(90deg, var(--muted-foreground) 35%, var(--foreground) 50%, var(--muted-foreground) 65%)",
-								backgroundSize: "200% 100%",
-								animation: "shimmer-text 1.4s linear infinite",
-							}}
-						>
-							Working
-						</span>
-					) : (
-						<span
-							className="font-medium text-[13px] text-muted-foreground whitespace-nowrap"
-							style={{ animation: "fade-in 350ms ease-out both" }}
-						>
-							{settled}
-						</span>
+				<span
+					role="status"
+					className={cn(
+						"font-medium text-sm whitespace-nowrap",
+						isRunning
+							? "shimmer-text"
+							: "fade-in animate-in text-muted-foreground duration-300",
 					)}
-				</span>
-				<svg
-					width="14"
-					height="14"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					strokeWidth="2.2"
-					strokeLinecap="round"
-					strokeLinejoin="round"
-					className="text-muted-foreground transition-transform duration-300"
-					style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)" }}
-					aria-hidden
 				>
-					<path d="M6 9l6 6 6-6" />
-				</svg>
-			</button>
+					{isRunning
+						? "Working"
+						: `${steps.length} ${steps.length === 1 ? "step" : "steps"} · ${formatDuration(steps)}`}
+				</span>
+				<ChevronDownIcon
+					size={14}
+					className="text-muted-foreground transition-transform duration-300 group-data-panel-open:rotate-180"
+					aria-hidden
+				/>
+			</Collapsible.Trigger>
 
-			<div
-				className="grid transition-[grid-template-rows,opacity] duration-400"
-				style={{
-					gridTemplateRows: isOpen ? "1fr" : "0fr",
-					opacity: isOpen ? 1 : 0,
-					transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
-				}}
-			>
-				<div className="overflow-hidden">
-					<div className="relative mt-1 ml-[5px] pl-4">
-						<span
-							aria-hidden
-							className="absolute left-[3px] w-px bg-border"
-							style={{
-								top: -8,
-								height: lineHeight ? lineHeight - 2 : 0,
-								transition: "height 500ms cubic-bezier(0.23,1,0.32,1)",
-							}}
-						/>
-						<ol ref={traceRef} className="flex flex-col gap-1 py-1">
-							{steps.map((step, index) => (
-								<li
-									// biome-ignore lint/suspicious/noArrayIndexKey: the trail only grows at its end, so a step's position is its identity
-									key={index}
-									className="flex min-h-7 w-full items-center gap-2 px-1.5 py-0.5"
-									style={{
-										animation: `fade-up 320ms cubic-bezier(0.23,1,0.32,1) both`,
-									}}
-								>
-									<StepIcon step={step} isRunning={isRunning} />
-									<span className="min-w-0 truncate font-medium text-[12.5px]">
-										{stepLabel(step)}
+			<Collapsible.Panel className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-400 ease-[cubic-bezier(0.23,1,0.32,1)] data-ending-style:h-0 data-ending-style:opacity-0 data-starting-style:h-0 data-starting-style:opacity-0">
+				<div className="relative mt-1 ml-[5px] pl-4">
+					<span
+						aria-hidden
+						className="-top-2 absolute bottom-2.5 left-[3px] w-px bg-border"
+					/>
+					<ol className="flex flex-col gap-1 py-1">
+						{steps.map((step, index) => (
+							<li
+								// biome-ignore lint/suspicious/noArrayIndexKey: the trail only grows at its end, so a step's position is its identity
+								key={index}
+								className="fade-in slide-in-from-bottom-1 flex min-h-7 w-full animate-in items-center gap-2 fill-mode-both px-1.5 py-0.5 duration-300"
+							>
+								<StepIcon step={step} isRunning={isRunning} />
+								<span className="min-w-0 truncate font-medium text-xs">
+									{stepLabel(step)}
+								</span>
+								{step.subject && (
+									<span className="min-w-0 truncate text-muted-foreground text-xs">
+										{step.subject}
 									</span>
-									{step.subject && (
-										<span className="min-w-0 truncate text-[11.5px] text-muted-foreground">
-											{step.subject}
-										</span>
-									)}
-								</li>
-							))}
-						</ol>
-					</div>
+								)}
+							</li>
+						))}
+					</ol>
 				</div>
-			</div>
-		</div>
+			</Collapsible.Panel>
+		</Collapsible.Root>
 	)
-}
+})

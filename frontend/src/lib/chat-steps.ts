@@ -1,9 +1,10 @@
 import type { ChatStep } from "@/api/types"
 
-const LABELS: Record<string, { running: string; done: string }> = {
+const LABELS: Record<ChatStep["step"], { running: string; done: string }> = {
 	retrieve: { running: "Searching the corpus", done: "Searched the corpus" },
 	assess: { running: "Reviewing the evidence", done: "Reviewed the evidence" },
-	tool_search: { running: "Searching again", done: "Searched again" },
+	tools: { running: "Running tools", done: "Ran tools" },
+	tool_search: { running: "Extending the search", done: "Extended the search" },
 	tool_follow_reference: {
 		running: "Following a reference",
 		done: "Followed a reference",
@@ -16,15 +17,10 @@ const LABELS: Record<string, { running: string; done: string }> = {
 	refuse: { running: "Declining to answer", done: "Declined to answer" },
 }
 
-/** What a step is called in the trail, in the tense its status calls for; one with no label
- * of its own goes by its name. */
+/** What a step is called in the trail, in the tense its status calls for. */
 export function stepLabel(step: ChatStep): string {
 	const named = LABELS[step.step]
-	if (named !== undefined) {
-		return step.status === "running" ? named.running : named.done
-	}
-	const words = step.step.replaceAll("_", " ")
-	return words.charAt(0).toUpperCase() + words.slice(1)
+	return step.status === "running" ? named.running : named.done
 }
 
 /** How long the run spent on the steps it finished, as the collapsed trail reports it. */
