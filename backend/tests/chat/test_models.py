@@ -1,7 +1,10 @@
 """Chat run state: what a graph snapshot copies over, and what it leaves alone."""
 
+import pytest
+from pydantic import ValidationError
+
 from app.chat.enums import ChatNode, ToolStep
-from app.chat.models import ChatState, ChatStepResult, ToolCall
+from app.chat.models import ChatState, ChatStepResult, DecomposedQuestion, ToolCall
 from app.core.config import config
 from app.core.exceptions import DomainError
 from tests.conftest import search_result
@@ -37,15 +40,27 @@ def test_an_unexpected_error_is_recorded_by_its_type():
     assert state.error == "RuntimeError"
 
 
-def test_log_fields_count_hits_and_sources_rather_than_dumping_them():
+def test_log_fields_count_hits_sources_and_queries_rather_than_dumping_them():
     state = ChatState(
-        question="q", hits=(search_result(), search_result(id=2)), sources=(search_result(),)
+        question="q",
+        queries=("first part", "second part"),
+        hits=(search_result(), search_result(id=2)),
+        sources=(search_result(),),
     )
 
     fields = state.log_fields()
 
-    assert (fields["hits"], fields["sources"]) == (2, 1)
+    assert (fields["hits"], fields["sources"], fields["queries"]) == (2, 1, 2)
     assert "question" not in fields
+    assert "first part" not in str(fields)
+
+
+def test_a_decomposed_question_is_frozen_and_holds_its_queries_in_order():
+    split = DecomposedQuestion(queries=("what is A", "what is B"))
+
+    assert split.queries == ("what is A", "what is B")
+    with pytest.raises(ValidationError):
+        split.queries = ()  # type: ignore
 
 
 def visited(*steps: ChatNode | ToolStep) -> tuple[ChatStepResult, ...]:
