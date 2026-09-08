@@ -3,8 +3,9 @@
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.chat.enums import ChatStepStatus, ToolStep
 from app.chat.models import ToolCall
-from app.chat.tools import TOOL_DEFINITIONS, describe_call, run_tool_call
+from app.chat.tools import TOOL_DEFINITIONS, build_call_step, describe_call, run_tool_call
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import ReferenceTarget, SearchFilters, SearchRequest
@@ -156,3 +157,17 @@ class TestDescribeCall:
 
     def test_a_call_with_no_arguments_has_nothing_to_say(self):
         assert describe_call(ToolCall(name="search")) is None
+
+
+class TestBuildCallStep:
+    def test_the_starting_and_settled_frames_name_the_same_step_and_subject(self):
+        call = ToolCall(name="search", args={"query": "scope"})
+        running = build_call_step(call, status=ChatStepStatus.RUNNING)
+        settled = build_call_step(call, ms=40)
+
+        assert (running.step, running.subject) == (settled.step, settled.subject)
+        assert (running.status, running.ms) == (ChatStepStatus.RUNNING, 0)
+        assert (settled.status, settled.ms) == (ChatStepStatus.COMPLETED, 40)
+
+    def test_a_tool_the_surface_lacks_is_recorded_as_unknown(self):
+        assert build_call_step(ToolCall(name="teleport")).step is ToolStep.UNKNOWN

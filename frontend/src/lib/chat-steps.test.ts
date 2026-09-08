@@ -22,6 +22,11 @@ describe("stepLabel", () => {
 			"Searching the corpus",
 		)
 	})
+
+	it("names a step the schema does not know by its own name", () => {
+		const unknown = "decompose" as ChatStep["step"]
+		expect(stepLabel(step(unknown))).toBe("decompose")
+	})
 })
 
 describe("formatDuration", () => {

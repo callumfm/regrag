@@ -51,13 +51,11 @@ The reach has a real edge, though. A question needing more than `ASSESS_MAX_CALL
 
 | Event | When | Data |
 | ----- | ---- | ---- |
-| `step` | once per node or tool call, as each finishes | what the step was, how long it took, the tokens it spent, and — for a tool call — what it was for |
+| `step` | twice per node or tool call: as it starts, and again once it finishes | what the step was and whether it has finished; once it has, how long it took and the tokens it spent; for a tool call, what it was for |
 | `sources` | once, as soon as the context settles — after retrieval, or after the loop's last round | the context blocks, each bound to the `[n]` marker the answer will cite it by |
 | `text` | repeatedly as the model writes, or once for a refusal | a fragment of the answer |
 | `done` | last, on a completed stream | empty |
 | `error` | last, in place of everything after it | the app's one error shape, with the request id |
-
-Steps arrive as they finish, so `retrieve`'s step precedes the `sources` it found and `synthesize`'s follows the answer's last fragment. A client reads them as the path the run took, not as a running commentary.
 
 Markers run `1..n` in context order and match the numbering the prompt gave the model, so a client can resolve `[2]` to an act and article on its own.
 

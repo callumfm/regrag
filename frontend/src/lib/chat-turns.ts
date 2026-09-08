@@ -22,12 +22,17 @@ export type ChatAction =
 	| ChatStreamEvent
 
 /** The trail with this step in it: a starting step joins the end, and a finished one settles
- * the longest-running of its kind, which the graph finishes in the order it started them. */
+ * the earliest still running, since the graph finishes steps in the order it started them. */
 function recordStep(steps: ChatStep[], step: ChatStep): ChatStep[] {
 	if (step.status === "running") return [...steps, step]
 	const settling = steps.findIndex((held) => held.status === "running")
 	if (settling === -1) return [...steps, step]
 	return steps.map((held, index) => (index === settling ? step : held))
+}
+
+/** The path a run took once it is over: a step still running when the run ended never ran. */
+function finishedSteps(steps: ChatStep[]): ChatStep[] {
+	return steps.filter((step) => step.status === "completed")
 }
 
 function applyToTurn(turn: ChatTurn, action: ChatAction): ChatTurn {
@@ -50,14 +55,26 @@ function applyToTurn(turn: ChatTurn, action: ChatAction): ChatTurn {
 			case "done":
 				return turn.status === "failed" ? turn : { ...turn, status: "settled" }
 			case "error":
-				return { ...turn, status: "failed", error: action.data.message }
+				return {
+					...turn,
+					steps: finishedSteps(turn.steps),
+					status: "failed",
+					error: action.data.message,
+				}
 		}
 	}
 	switch (action.type) {
 		case "settle":
-			return turn.status === "failed" ? turn : { ...turn, status: "settled" }
+			return turn.status === "failed"
+				? turn
+				: { ...turn, steps: finishedSteps(turn.steps), status: "settled" }
 		case "fail":
-			return { ...turn, status: "failed", error: action.message }
+			return {
+				...turn,
+				steps: finishedSteps(turn.steps),
+				status: "failed",
+				error: action.message,
+			}
 		default:
 			return turn
 	}

@@ -69,14 +69,33 @@ describe("chatReducer", () => {
 		expect(run(started("retrieve")).status).toBe("streaming")
 	})
 
-	it("keeps an unfinished step when the turn fails", () => {
-		const turn = run(started("retrieve"), {
-			event: "error",
-			data: { error: "LLMError", message: "boom", request_id: null },
-		})
+	it("drops the step that was running when the turn fails", () => {
+		const turn = run(
+			started("retrieve"),
+			finished("retrieve", 12),
+			started("assess"),
+			{
+				event: "error",
+				data: { error: "LLMError", message: "boom", request_id: null },
+			},
+		)
 
 		expect(turn.status).toBe("failed")
-		expect(turn.steps).toMatchObject([{ status: "running" }])
+		expect(turn.steps.map((step) => step.step)).toEqual(["retrieve"])
+	})
+
+	it("drops the step that was running when the reader stops the turn", () => {
+		const turn = run(
+			started("retrieve"),
+			finished("retrieve", 12),
+			started("assess"),
+			{
+				type: "settle",
+			},
+		)
+
+		expect(turn.status).toBe("settled")
+		expect(turn.steps.map((step) => step.step)).toEqual(["retrieve"])
 	})
 
 	it("adds a finished step that was never announced as starting", () => {

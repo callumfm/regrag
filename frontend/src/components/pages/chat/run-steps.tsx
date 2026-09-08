@@ -50,12 +50,13 @@ export const RunSteps = memo(function RunSteps({
 			className="flex w-full flex-col"
 		>
 			<Collapsible.Trigger className="group -mx-1.5 flex w-fit items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-muted">
-				<ThinkingOrb
-					state="solving"
-					size={20}
-					theme="light"
-					paused={!isRunning}
-				/>
+				{isRunning ? (
+					<ThinkingOrb state="solving" size={20} theme="light" />
+				) : (
+					<span aria-hidden className="flex size-5 items-center justify-center">
+						<span className="size-2 rounded-full bg-muted-foreground" />
+					</span>
+				)}
 				<span
 					role="status"
 					className={cn(

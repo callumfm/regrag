@@ -21,7 +21,7 @@ from app.chat.models import (
     TextEvent,
 )
 from app.chat.service import create_chat_request
-from app.chat.tools import describe_call, tool_step
+from app.chat.tools import build_call_step
 from app.core.clock import elapsed_ms
 from app.core.db.session import get_session
 from app.core.exceptions import DomainError, describe
@@ -47,15 +47,7 @@ def _starting_steps(entry: ChatState, node: ChatNode) -> list[ChatStepResult]:
     read off the state it was handed; every other node is itself."""
     if node is not ChatNode.TOOLS:
         return [ChatStepResult(step=node, ms=0, status=ChatStepStatus.RUNNING)]
-    return [
-        ChatStepResult(
-            step=tool_step(call.name),
-            ms=0,
-            status=ChatStepStatus.RUNNING,
-            subject=describe_call(call),
-        )
-        for call in entry.pending_calls
-    ]
+    return [build_call_step(call, status=ChatStepStatus.RUNNING) for call in entry.pending_calls]
 
 
 async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, None]:

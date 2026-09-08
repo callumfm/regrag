@@ -17,9 +17,10 @@ const LABELS: Record<ChatStep["step"], { running: string; done: string }> = {
 	refuse: { running: "Declining to answer", done: "Declined to answer" },
 }
 
-/** What a step is called in the trail, in the tense its status calls for. */
+/** What a step is called in the trail, in the tense its status calls for. A step the schema
+ * has outgrown goes by its own name rather than taking the page down with it. */
 export function stepLabel(step: ChatStep): string {
-	const named = LABELS[step.step]
+	const named = LABELS[step.step] ?? { running: step.step, done: step.step }
 	return step.status === "running" ? named.running : named.done
 }
 

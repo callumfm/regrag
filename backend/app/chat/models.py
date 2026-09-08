@@ -109,8 +109,11 @@ class ChatState(AppModel):
         self.error = exc.message if isinstance(exc, DomainError) else type(exc).__name__
 
     def log_fields(self) -> dict[str, Any]:
-        """The run as the stats line logs it: everything but the content."""
-        exclude_fields = {"question", "hits", "sources", "answer", "pending_calls"}
+        """The run as the stats line logs it: everything but the content — which, on a tool
+        step, includes what the call was for."""
+        exclude_fields: dict[str, Any] = {
+            field: True for field in ("question", "hits", "sources", "answer", "pending_calls")
+        } | {"steps": {"__all__": {"status", "subject"}}}
         fields = self.model_dump(mode="json", exclude=exclude_fields)
         return fields | {"hits": len(self.hits), "sources": len(self.sources)}
 
