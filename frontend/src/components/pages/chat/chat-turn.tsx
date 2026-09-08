@@ -3,9 +3,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
 import { Message, MessageContent } from "@/components/ui/message"
-import type { ChatTurn as Turn } from "@/hooks/use-chat-stream"
+import { isTurnRunning, type ChatTurn as Turn } from "@/lib/chat-turns"
 import { Answer } from "./answer"
 import { CitedSourcesLine } from "./cited-sources-line"
+import { RunSteps } from "./run-steps"
 
 export const ChatTurn = memo(function ChatTurn({
 	turn,
@@ -29,11 +30,7 @@ export const ChatTurn = memo(function ChatTurn({
 			</Message>
 			<Message align="start">
 				<MessageContent>
-					{turn.status === "pending" && (
-						<p className="animate-pulse text-muted-foreground text-sm">
-							Retrieving…
-						</p>
-					)}
+					<RunSteps steps={turn.steps} isRunning={isTurnRunning(turn)} />
 					{turn.status === "failed" ? (
 						<Alert variant="destructive">
 							<AlertTitle>Request failed</AlertTitle>

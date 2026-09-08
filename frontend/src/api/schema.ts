@@ -46,6 +46,12 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * ChatNode
+         * @description The graph's nodes, as astream keys their updates.
+         * @enum {string}
+         */
+        ChatNode: "decompose" | "retrieve" | "assess" | "tools" | "synthesize" | "refuse";
+        /**
          * ChatQuery
          * @description The question a caller asks.
          */
@@ -71,6 +77,38 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * ChatStepResult
+         * @description One step of the path — a graph node, or one tool call a round ran: what it was, how
+         *     long it took, and the tokens it used if it called a model. The shape the ledger persists
+         *     per step, and the trace a run is read back from.
+         *
+         *     status: whether the step has finished. Only the stream announces a running one; every step
+         *         the graph appends to the path has returned, so completed is the default.
+         *     ms: how long the step took, which a running one has not spent yet and nothing reads.
+         *     subject: what the step was about where the step alone does not say — the query a search
+         *         ran, the division a follow fetched. Carried to the client, not to the ledger.
+         */
+        ChatStepResult: {
+            /** Step */
+            step: components["schemas"]["ChatNode"] | components["schemas"]["ToolStep"];
+            /** Ms */
+            ms: number;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** @default completed */
+            status: components["schemas"]["ChatStepStatus"];
+            /** Subject */
+            subject?: string | null;
+        };
+        /**
+         * ChatStepStatus
+         * @description Where a step is: announced as it starts, then reported again once it has finished.
+         * @enum {string}
+         */
+        ChatStepStatus: "running" | "completed";
         /**
          * DoneEvent
          * @description The last event of a completed stream.
@@ -153,6 +191,18 @@ export interface components {
             data: components["schemas"]["ChatSource"][];
         };
         /**
+         * StepEvent
+         * @description One step of the path, sent as it starts and again as it finishes.
+         */
+        StepEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "step";
+            data: components["schemas"]["ChatStepResult"];
+        };
+        /**
          * TextEvent
          * @description One fragment of the answer's text, as the model streams it — or the whole refusal.
          */
@@ -165,6 +215,13 @@ export interface components {
             /** Data */
             data: string;
         };
+        /**
+         * ToolStep
+         * @description The tool calls a path records, prefixed so one column holds both these and the
+         *     graph's nodes without either being read for the other.
+         * @enum {string}
+         */
+        ToolStep: "tool_search" | "tool_follow_reference" | "tool_unknown";
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -226,7 +283,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": components["schemas"]["SourcesEvent"] | components["schemas"]["TextEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
+                    "text/event-stream": components["schemas"]["SourcesEvent"] | components["schemas"]["StepEvent"] | components["schemas"]["TextEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
                 };
             };
             /** @description Validation Error */

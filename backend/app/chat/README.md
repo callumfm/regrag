@@ -51,10 +51,11 @@ The reach has a real edge, though. A question needing more than `ASSESS_MAX_CALL
 
 ## The stream
 
-`POST /chat` responds with SSE. Four frame types, in this order:
+`POST /chat` responds with SSE. Five frame types, in this order:
 
 | Event | When | Data |
 | ----- | ---- | ---- |
+| `step` | twice per node or tool call: as it starts, and again once it finishes | what the step was and whether it has finished; once it has, how long it took and the tokens it spent; for a tool call, what it was for |
 | `sources` | once, as soon as the context settles — after retrieval, or after the loop's last round | the context blocks, each bound to the `[n]` marker the answer will cite it by |
 | `text` | repeatedly as the model writes, or once for a refusal | a fragment of the answer |
 | `done` | last, on a completed stream | empty |

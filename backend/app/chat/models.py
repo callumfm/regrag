@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 from langchain_core.messages.ai import UsageMetadata
 from pydantic import ConfigDict, Field, computed_field
 
-from app.chat.enums import ChatEventName, ChatNode, ChatOutcome, ToolStep
+from app.chat.enums import ChatEventName, ChatNode, ChatOutcome, ChatStepStatus, ToolStep
 from app.core.config import config
 from app.core.exceptions import DomainError
 from app.core.models import AppModel, ErrorResponse, FrozenModel
@@ -22,12 +22,21 @@ class ChatQuery(AppModel):
 class ChatStepResult(FrozenModel):
     """One step of the path — a graph node, or one tool call a round ran: what it was, how
     long it took, and the tokens it used if it called a model. The shape the ledger persists
-    per step, and the trace a run is read back from."""
+    per step, and the trace a run is read back from.
+
+    status: whether the step has finished. Only the stream announces a running one; every step
+        the graph appends to the path has returned, so completed is the default.
+    ms: how long the step took, which a running one has not spent yet and nothing reads.
+    subject: what the step was about where the step alone does not say — the query a search
+        ran, the division a follow fetched. Carried to the client, not to the ledger.
+    """
 
     step: ChatNode | ToolStep
     ms: int
     input_tokens: int | None = None
     output_tokens: int | None = None
+    status: ChatStepStatus = ChatStepStatus.COMPLETED
+    subject: str | None = None
 
     @classmethod
     def from_usage(
@@ -111,8 +120,12 @@ class ChatState(AppModel):
         self.error = exc.message if isinstance(exc, DomainError) else type(exc).__name__
 
     def log_fields(self) -> dict[str, Any]:
-        """The run as the stats line logs it: everything but the content."""
-        exclude_fields = {"question", "queries", "hits", "sources", "answer", "pending_calls"}
+        """The run as the stats line logs it: everything but the content — which, on a tool
+        step, includes what the call was for."""
+        content = ("question", "queries", "hits", "sources", "answer", "pending_calls")
+        exclude_fields: dict[str, Any] = {field: True for field in content} | {
+            "steps": {"__all__": {"status", "subject"}}
+        }
         fields = self.model_dump(mode="json", exclude=exclude_fields)
         return fields | {
             "hits": len(self.hits),
@@ -204,6 +217,13 @@ class SourcesEvent(ChatEventBase):
         )
 
 
+class StepEvent(ChatEventBase):
+    """One step of the path, sent as it starts and again as it finishes."""
+
+    event: Literal[ChatEventName.STEP] = ChatEventName.STEP
+    data: ChatStepResult
+
+
 class TextEvent(ChatEventBase):
     """One fragment of the answer's text, as the model streams it — or the whole refusal."""
 
@@ -226,6 +246,6 @@ class ErrorEvent(ChatEventBase):
 
 
 ChatEvent = Annotated[
-    SourcesEvent | TextEvent | DoneEvent | ErrorEvent, Field(discriminator="event")
+    SourcesEvent | StepEvent | TextEvent | DoneEvent | ErrorEvent, Field(discriminator="event")
 ]
 """Every frame a chat stream carries, told apart by its event name."""

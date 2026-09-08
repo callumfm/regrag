@@ -1,0 +1,32 @@
+import type { ChatStep } from "@/api/types"
+
+const LABELS: Record<ChatStep["step"], { running: string; done: string }> = {
+	decompose: { running: "Splitting the question", done: "Split the question" },
+	retrieve: { running: "Searching the corpus", done: "Searched the corpus" },
+	assess: { running: "Reviewing the evidence", done: "Reviewed the evidence" },
+	tools: { running: "Running tools", done: "Ran tools" },
+	tool_search: { running: "Extending the search", done: "Extended the search" },
+	tool_follow_reference: {
+		running: "Following a reference",
+		done: "Followed a reference",
+	},
+	tool_unknown: {
+		running: "Asking for a tool it does not have",
+		done: "Asked for a tool it does not have",
+	},
+	synthesize: { running: "Writing the answer", done: "Wrote the answer" },
+	refuse: { running: "Declining to answer", done: "Declined to answer" },
+}
+
+/** What a step is called in the trail, in the tense its status calls for. A step the schema
+ * has outgrown goes by its own name rather than taking the page down with it. */
+export function stepLabel(step: ChatStep): string {
+	const named = LABELS[step.step] ?? { running: step.step, done: step.step }
+	return step.status === "running" ? named.running : named.done
+}
+
+/** How long the run spent on the steps it finished, as the collapsed trail reports it. */
+export function formatDuration(steps: ChatStep[]): string {
+	const ms = steps.reduce((total, step) => total + step.ms, 0)
+	return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+}

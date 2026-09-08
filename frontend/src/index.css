@@ -133,3 +133,22 @@
 		cursor: pointer;
 	}
 }
+
+.shimmer-text {
+	background-image: linear-gradient(
+		90deg,
+		var(--muted-foreground) 35%,
+		var(--foreground) 50%,
+		var(--muted-foreground) 65%
+	);
+	background-size: 200% 100%;
+	background-clip: text;
+	color: transparent;
+	animation: shimmer-text 1.4s linear infinite;
+}
+
+@keyframes shimmer-text {
+	to {
+		background-position: -200% 0;
+	}
+}

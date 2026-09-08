@@ -27,7 +27,7 @@ from app.chat.prompts import (
     build_assess_message,
     build_user_message,
 )
-from app.chat.tools import TOOL_DEFINITIONS, run_tool_call, tool_step
+from app.chat.tools import TOOL_DEFINITIONS, build_call_step, run_tool_call
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -247,7 +247,7 @@ async def tools(state: ChatState) -> dict[str, Any]:
     for call in state.pending_calls:
         start = time.perf_counter()
         fetched.extend(await run_tool_call(call))
-        steps.append(ChatStepResult(step=tool_step(call.name), ms=elapsed_ms(start)))
+        steps.append(build_call_step(call, ms=elapsed_ms(start)))
 
     cap = state.retrieved_sources + config.ASSESS_EXTRA_CHUNKS
     return {

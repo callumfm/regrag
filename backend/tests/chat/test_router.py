@@ -24,7 +24,12 @@ def read_events(response: httpx.Response) -> list[tuple[str, Any]]:
     return events
 
 
-def test_stream_orders_sources_then_text_then_done(client, two_results, monkeypatch):
+def first_payload(events: list[tuple[str, Any]], name: str) -> Any:
+    """The payload of the first frame with this event name."""
+    return next(payload for event, payload in events if event == name)
+
+
+def test_stream_orders_steps_then_sources_then_text_then_done(client, two_results, monkeypatch):
     model = fake_chat_model("Two words [1].")
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
@@ -34,9 +39,10 @@ def test_stream_orders_sources_then_text_then_done(client, two_results, monkeypa
         events = read_events(response)
 
     names = [name for name, _ in events]
-    assert names[0] == "sources"
+    assert names[0] == "step"
     assert names[-1] == "done"
-    assert set(names[1:-1]) == {"text"}
+    assert set(names) == {"step", "sources", "text", "done"}
+    assert names.index("sources") < names.index("text")
     answer = "".join(payload for name, payload in events if name == "text")
     assert answer == "Two words [1]."
 
@@ -68,7 +74,7 @@ def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch)
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
 
-    sources = events[0][1]
+    sources = first_payload(events, "sources")
     assert [source["marker"] for source in sources] == [1, 2]
     assert sources[0]["chunk_id"] == 1
     assert sources[0]["celex"] == "32023R1805"
@@ -82,11 +88,13 @@ def test_sources_event_carries_the_paragraph_text(client, two_results, monkeypat
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
 
-    sources = events[0][1]
+    sources = first_payload(events, "sources")
     assert sources[0]["text"] == "The greenhouse gas intensity of the energy used on board."
 
 
 def test_stream_failure_emits_an_error_event(client, monkeypatch):
+    """The step that was running when it failed still went out, so the trail says where."""
+
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
@@ -96,8 +104,8 @@ def test_stream_failure_emits_an_error_event(client, monkeypatch):
         assert response.status_code == 200
         events = read_events(response)
 
-    [(name, payload)] = events
-    assert name == "error"
+    assert [name for name, _ in events] == ["step", "error"]
+    payload = first_payload(events, "error")
     assert payload["error"] == "LLMError"
     assert payload["message"] == "embedding call failed"
     assert payload["request_id"] == response.headers["X-Request-ID"]
@@ -113,8 +121,8 @@ def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
 
-    [(name, payload)] = events
-    assert name == "error"
+    assert [name for name, _ in events] == ["step", "error"]
+    payload = first_payload(events, "error")
     assert payload["error"] == "InternalServerError"
     assert payload["message"] == "An unexpected error occurred"
     assert "secret internals" not in json.dumps(payload)
@@ -135,6 +143,7 @@ def test_the_frames_are_documented_as_an_event_stream(client):
     schema = content[media_type]["schema"]
     assert schema["discriminator"]["propertyName"] == "event"
     assert schema["discriminator"]["mapping"]["text"] == "#/components/schemas/TextEvent"
+    assert schema["discriminator"]["mapping"]["step"] == "#/components/schemas/StepEvent"
     text_event = spec["components"]["schemas"]["TextEvent"]
     assert text_event["properties"]["event"]["const"] == "text"
     assert set(text_event["required"]) == {"event", "data"}
@@ -151,9 +160,15 @@ def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
     with client.stream("POST", "/chat", json={"question": "best pizza topping?"}) as response:
         events = read_events(response)
 
-    assert events == [
-        ("sources", []),
-        ("text", REFUSAL_ANSWER),
-        ("done", {}),
+    assert [name for name, _ in events] == [
+        "step",
+        "step",
+        "sources",
+        "step",
+        "step",
+        "text",
+        "done",
     ]
+    assert first_payload(events, "sources") == []
+    assert first_payload(events, "text") == REFUSAL_ANSWER
     assert model.received == []
