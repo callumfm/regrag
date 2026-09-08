@@ -196,7 +196,9 @@ class DecomposeConfig(BaseConfig):
     """The decompose node, which splits a multi-part question into one search per part.
 
     DECOMPOSE_ENABLED: the node's off switch; off, retrieve searches the question as asked
-        and the run records no decompose step. Off until RRG-73's measurement sets it.
+        and the run records no decompose step. Off by default: over the 40-case golden
+        dataset (RRG-73) it moved multi_part recall 0.88 to 0.91 and changed 3 cases without
+        the trait, for 1.2x the latency and 1.2x the input tokens.
     DECOMPOSE_MODEL: which model splits the question, separate from the answer's and
         assess's on the one-setting-per-role rule.
     DECOMPOSE_MAX_PARTS: the most queries a question may split into; surplus parts are
