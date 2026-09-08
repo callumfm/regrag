@@ -27,7 +27,7 @@ Otherwise the assess loop runs. `assess` makes one blocking model call and answe
 
 Three bounds keep the loop honest. A search's hits face the same score bar `retrieve` holds its own to, so what the gate would refuse to answer from cannot arrive by the back door. The merge stops once the loop has added `ASSESS_EXTRA_CHUNKS` on top of what retrieval left. And each call runs on its own session, so one that fails on the database costs its own result and no other's.
 
-Every model call runs at `CHAT_TEMPERATURE`, which is 0 — an answer quoting law back gains nothing from sampling variety, and assess sampling differently changes the context the answer is built from, and decompose sampling differently changes which searches run.
+Every model call runs at `CHAT_TEMPERATURE`, which is 0 — an answer quoting law back gains nothing from sampling variety, and assess sampling differently changes the context the answer is built from. Decompose sampling differently changes which searches run.
 
 The loop is best-effort: a failed assess call or a failed tool call costs the answer that round's context, never the request. The diagram is hand-drawn, and a test holds the compiled graph to the edge list it was drawn from.
 

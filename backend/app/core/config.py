@@ -197,12 +197,17 @@ class DecomposeConfig(BaseConfig):
 
     DECOMPOSE_ENABLED: the node's off switch; off, retrieve searches the question as asked
         and the run records no decompose step. Off by default: over the 40-case golden
-        dataset (RRG-73) it moved multi_part recall 0.88 to 0.91 and changed 3 cases without
-        the trait, for 1.2x the latency and 1.2x the input tokens.
+        dataset (RRG-73) it moved multi_part recall 0.885 to 0.910, short of the 0.07 rise
+        the rule asks for, and wrongly split 2 single-part cases, for 1.2x the latency and
+        1.2x the input tokens.
     DECOMPOSE_MODEL: which model splits the question, separate from the answer's and
         assess's on the one-setting-per-role rule.
     DECOMPOSE_MAX_PARTS: the most queries a question may split into; surplus parts are
         dropped, not refused, so an over-eager split costs coverage rather than the request.
+        Each part searches CHAT_SOURCES hits and nothing caps the merged list, so a split
+        prompt can hold up to DECOMPOSE_MAX_PARTS times the context; keep the product at or
+        under CHAT_CONTEXT_CHUNKS, or expansion truncates the deepest hits instead of
+        widening them.
     """
 
     DECOMPOSE_ENABLED: bool = False

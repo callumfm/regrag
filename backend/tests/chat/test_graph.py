@@ -223,7 +223,7 @@ async def test_the_decompose_client_sends_the_output_format_and_the_node_records
     update = await decompose(ChatState(question="What are A and B?"))
 
     assert calls[0]["response_format"] is DecomposedQuestion
-    assert calls[0]["stream"] is not True
+    assert calls[0]["stream"] is False
     assert update["queries"] == ("what is A", "what is B")
     [step] = update["steps"]
     assert (step.input_tokens, step.output_tokens) == (120, 20)
@@ -602,7 +602,7 @@ class TestDecompose:
         update = await decompose(ChatState(question=QUESTION))
 
         assert update["queries"] == ()
-        assert "decompose call failed" in caplog.text
+        assert "decompose answered off its schema" in caplog.text
 
     async def test_a_failing_call_falls_back_to_the_question(self, monkeypatch, caplog):
         monkeypatch.setattr(

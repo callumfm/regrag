@@ -171,7 +171,8 @@ async def call_decompose_model(state: ChatState) -> dict[str, Any]:
     try:
         split = DecomposedQuestion.model_validate_json(response.text)
     except ValidationError as exc:
-        raise LLMError("decompose call failed") from exc
+        logger.warning("decompose answered off its schema: %s", exc)
+        raise LLMError("decompose answered off its schema") from exc
     queries = split.queries[: config.DECOMPOSE_MAX_PARTS]
     return {"queries": queries if len(queries) > 1 else (), "usage": response.usage_metadata}
 
