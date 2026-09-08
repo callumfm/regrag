@@ -1,12 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react"
 import { ThinkingOrb } from "thinking-orbs"
 import type { ChatStep } from "@/api/types"
-import {
-	formatDuration,
-	orbState,
-	runningStep,
-	stepLabel,
-} from "@/lib/chat-steps"
+import { formatDuration, stepLabel } from "@/lib/chat-steps"
 
 function StepIcon({ step, isRunning }: { step: ChatStep; isRunning: boolean }) {
 	if (step.status === "completed") {
@@ -55,7 +50,6 @@ export function RunSteps({
 	const [openedByReader, setOpenedByReader] = useState<boolean | null>(null)
 	const traceRef = useRef<HTMLOListElement>(null)
 	const [lineHeight, setLineHeight] = useState(0)
-	const running = runningStep(steps)
 	const isOpen = openedByReader ?? isRunning
 
 	useLayoutEffect(() => {
@@ -78,7 +72,12 @@ export function RunSteps({
 				onClick={() => setOpenedByReader(!isOpen)}
 				className="-mx-1.5 flex w-fit items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-muted"
 			>
-				<ThinkingOrb state={orbState(running)} size={20} paused={!isRunning} />
+				<ThinkingOrb
+					className="orb-tint"
+					state="solving"
+					size={20}
+					paused={!isRunning}
+				/>
 				<span role="status" className="contents">
 					{isRunning ? (
 						<span

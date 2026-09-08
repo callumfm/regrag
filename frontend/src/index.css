@@ -134,6 +134,14 @@
 	}
 }
 
+.orb-tint {
+	filter: url(#orb-tint);
+}
+
+.dark .orb-tint {
+	filter: none;
+}
+
 @keyframes shimmer-text {
 	to {
 		background-position: -200% 0;
