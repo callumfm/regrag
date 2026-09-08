@@ -1,10 +1,12 @@
 """Chat graph: retrieve corpus context, run the assess ⇄ tools loop, then synthesize a
 cited answer — or refuse, before any model call, a question the corpus does not cover."""
 
+import asyncio
 import functools
 import logging
 import time
 from collections.abc import Awaitable, Sequence
+from itertools import zip_longest
 from typing import Any, Protocol
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -30,7 +32,7 @@ from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import LLMError, llm_retry, wrap_provider_errors
 from app.retrieval.expand import expand_sections
-from app.retrieval.models import RetrievedChunk, SearchRequest
+from app.retrieval.models import RetrievedChunk, SearchRequest, SearchResult
 from app.retrieval.search import search
 from app.retrieval.thresholds import meets_thresholds
 
@@ -83,19 +85,46 @@ def chat_model(model: str, *, streaming: bool = True) -> ChatLiteLLM:
     )
 
 
+async def search_query(query: str) -> tuple[SearchResult, ...]:
+    """One query's hits from its own session, so the queries a question split into can
+    search at once rather than in turn."""
+    async with get_session(auto_commit=False) as session:
+        return await search(session, SearchRequest(query=query, limit=config.CHAT_SOURCES))
+
+
+def interleave_by_rank(
+    per_query: Sequence[Sequence[SearchResult]],
+) -> tuple[SearchResult, ...]:
+    """Every query's hits as one list, each query's first before any query's second, so no
+    part's best hit is pushed out by another part's depth; a chunk two queries both found
+    is kept once, at its earliest place."""
+    merged: list[SearchResult] = []
+    seen: set[int] = set()
+    for rank in zip_longest(*per_query):
+        for hit in rank:
+            if hit is None or hit.id in seen:
+                continue
+            seen.add(hit.id)
+            merged.append(hit)
+    return tuple(merged)
+
+
 @traced
 async def retrieve(state: ChatState) -> dict[str, Any]:
-    """The corpus's best answers, widened to their sections, from a node-scoped session
-    so no connection is held while the model streams. Nothing, when the corpus does not
-    cover the question: that empties the context, and the graph refuses instead — but what
-    search found stays on the state, so the refusal can be read against it."""
-    async with get_session(auto_commit=False) as session:
-        hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
-        if not meets_thresholds(hits):
-            return {"hits": hits, "sources": (), "retrieved_sources": 0}
-        sources: tuple[RetrievedChunk, ...] = hits
-        if config.EXPAND_SECTIONS:
-            sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
+    """The corpus's best answers to each query the question split into — or to the question
+    as asked — gated query by query, so an out-of-corpus part admits nothing, and widened to
+    their sections. hits keeps every query's hits, gated or not, so a refusal and a split
+    can be read against what search found."""
+    queries = state.queries or (state.question,)
+    per_query = await asyncio.gather(*(search_query(query) for query in queries))
+    hits = interleave_by_rank(per_query)
+    cleared = [found for found in per_query if meets_thresholds(found)]
+    if not cleared:
+        return {"hits": hits, "sources": (), "retrieved_sources": 0}
+    sources: tuple[RetrievedChunk, ...] = interleave_by_rank(cleared)
+    if config.EXPAND_SECTIONS:
+        async with get_session(auto_commit=False) as session:
+            sources = await expand_sections(session, sources, limit=config.CHAT_CONTEXT_CHUNKS)
     return {"hits": hits, "sources": sources, "retrieved_sources": len(sources)}
 
 
