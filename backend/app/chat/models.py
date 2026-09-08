@@ -51,12 +51,22 @@ class ToolCall(FrozenModel):
     args: dict[str, Any] = {}
 
 
+class DecomposedQuestion(FrozenModel):
+    """What decompose splits a question into: one search query per thing it asks, in the
+    order asked. One query means the question asked one thing."""
+
+    queries: tuple[str, ...]
+
+
 class ChatState(AppModel):
     """Everything one question produced: what the graph accumulates as it runs, then what
     only the stream's consumer knows once it ends — how long the request lived, and an error.
 
     steps: the path taken, each node appending its result as it returns and a tool round one
     per call; a sequence, since the loop visits a node more than once.
+    queries: the searches decompose split the question into, in the order asked; empty
+        when the node was skipped, found one part, or failed, so retrieve searches the
+        question as asked.
     hits: what search returned, before the gate and before expansion, kept through a refusal.
     sources: the context blocks that reached the prompt, which the [n] markers number.
     retrieved_sources: how many blocks retrieve left, the base the loop's growth is budgeted
@@ -65,6 +75,7 @@ class ChatState(AppModel):
     """
 
     question: str
+    queries: tuple[str, ...] = ()
     steps: Annotated[tuple[ChatStepResult, ...], operator.add] = ()
     hits: tuple[SearchResult, ...] = ()
     sources: tuple[RetrievedChunk, ...] = ()
@@ -101,9 +112,13 @@ class ChatState(AppModel):
 
     def log_fields(self) -> dict[str, Any]:
         """The run as the stats line logs it: everything but the content."""
-        exclude_fields = {"question", "hits", "sources", "answer", "pending_calls"}
+        exclude_fields = {"question", "queries", "hits", "sources", "answer", "pending_calls"}
         fields = self.model_dump(mode="json", exclude=exclude_fields)
-        return fields | {"hits": len(self.hits), "sources": len(self.sources)}
+        return fields | {
+            "hits": len(self.hits),
+            "sources": len(self.sources),
+            "queries": len(self.queries),
+        }
 
     def assess_rounds(self) -> int:
         """How many times assess has asked — what the loop's budget is spent against. Read

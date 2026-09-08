@@ -80,3 +80,14 @@ def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> st
     """The full assess turn: the same numbered blocks synthesize will cite, each with the
     addresses it cites, then the question."""
     return f"Context:\n\n{format_context(sources, cites=True)}\n\nQuestion: {question}"
+
+
+DECOMPOSE_SYSTEM_PROMPT = (
+    "You split a question about EU maritime regulation into the separate searches it "
+    "needs, one per distinct thing it asks. A question asking one thing, however long, "
+    "is one query: return it unchanged. Split only when the parts would be answered by "
+    "different provisions; never split a single obligation into its conditions, and "
+    "never rephrase, narrow or expand what was asked. Each query must stand alone, "
+    "naming the act or scheme the question names, so that searching it without the "
+    "others finds the right provision."
+)
