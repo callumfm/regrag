@@ -113,7 +113,7 @@ def test_check_reports_an_empty_dataset_without_a_traceback(monkeypatch, capsys)
 def test_check_never_touches_the_call_cache(fake_check, monkeypatch):
     """check only asks the corpus what it holds, so it makes no provider call to replay."""
     calls: list[bool] = []
-    monkeypatch.setattr(evals_cli, "enable_call_cache", lambda: calls.append(True))
+    monkeypatch.setattr(evals_cli, "enable_call_cache", lambda *a, **kw: calls.append(True))
 
     assert main(["check"]) == 0
     assert not calls

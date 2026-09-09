@@ -5,13 +5,12 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-import litellm
-
 from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
 from app.core.clock import elapsed_ms
 from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
 from app.core.exceptions import DomainError
+from app.core.llm.cache import call_cache_enabled
 from app.evals.dataset.models import EvalCase, EvalDataset
 from app.evals.judge.service import judge_results
 from app.evals.metrics import compute_metrics
@@ -70,7 +69,7 @@ async def evaluate_all_cases(
         selection=dataset.selection,
         corpus_version=corpus_version,
         stale_cases=stale_cases,
-        cached=litellm.cache is not None,
+        cached=call_cache_enabled(),
         judged=judge,
         settings=settings,
         metrics=compute_metrics(results),

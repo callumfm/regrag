@@ -3,11 +3,10 @@
 from collections.abc import Sequence
 from typing import Any
 
-import litellm
-
 from app.chat.graph.nodes.retrieve import retrieve
 from app.chat.models import ChatState
 from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
+from app.core.llm.cache import call_cache_enabled
 from app.evals.dataset.models import EvalCase, EvalDataset
 from app.evals.metrics import compute_metrics
 from app.evals.models import EvalMetrics, EvalResult
@@ -51,7 +50,7 @@ async def tune(dataset: EvalDataset, params: Sequence[TunableParam]) -> TuneRun:
     return TuneRun(
         dataset_sha=dataset.sha256,
         selection=dataset.selection,
-        cached=litellm.cache is not None,
+        cached=call_cache_enabled(),
         settings=settings,
         baseline=baseline,
         results=tuple(results),

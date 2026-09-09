@@ -17,7 +17,7 @@ def enabled(monkeypatch):
     so no test here installs a real cache: tune enables one by default, which would put a
     cache under the real data directory and leave it set for whatever runs next."""
     calls: list[bool] = []
-    monkeypatch.setattr(tune_cli, "enable_call_cache", lambda: calls.append(True))
+    monkeypatch.setattr(tune_cli, "enable_call_cache", lambda *a, **kw: calls.append(True))
     return calls
 
 

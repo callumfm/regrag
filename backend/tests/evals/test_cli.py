@@ -1,9 +1,12 @@
 """Evals CLI: exit codes and what `run` prints."""
 
+from pathlib import Path
+
 import pytest
 
-from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
+from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
 from app.evals import cli
+from app.evals.cache import CACHED_CALLS
 from app.evals.cli import main
 from app.evals.dataset.enums import DriftKind
 from app.evals.dataset.models import CaseReference, DriftedReference
@@ -127,16 +130,20 @@ def enabled(monkeypatch):
     """Record whether the command turned the call cache on, without turning it on. Autouse
     so no test here installs a real cache: `run` enables one by default, which would put a
     cache under the real data directory and leave it set for whatever runs next."""
-    calls: list[bool] = []
-    monkeypatch.setattr(cli, "enable_call_cache", lambda: calls.append(True))
-    return calls
+    enabled: list[tuple[Path, list[str]]] = []
+
+    def record(directory: Path, *, calls: list[str]) -> None:
+        enabled.append((directory, calls))
+
+    monkeypatch.setattr(cli, "enable_call_cache", record)
+    return enabled
 
 
 def test_run_replays_its_embed_and_rerank_calls_by_default(fake_run, enabled):
     fake_run.append(judged_result())
 
     assert main(["run"]) == 0
-    assert enabled
+    assert enabled == [(config.EVAL_CACHE_DIR, CACHED_CALLS)]
 
 
 def test_no_cache_makes_a_run_pay_for_its_calls_again(fake_run, enabled):
