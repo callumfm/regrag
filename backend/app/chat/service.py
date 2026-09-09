@@ -55,12 +55,16 @@ async def load_thread_history(session: AsyncSession, thread_id: UUID) -> tuple[C
     what a follow-up's prompts see, and how full the thread is."""
     stmt = (
         select(ChatRequest.question, ChatRequest.answer)
-        .where(ChatRequest.thread_id == thread_id, ChatRequest.outcome == ChatOutcome.DONE)
+        .where(
+            ChatRequest.thread_id == thread_id,
+            ChatRequest.outcome == ChatOutcome.DONE,
+            ChatRequest.answer.is_not(None),
+        )
         .order_by(ChatRequest.created_at.desc(), ChatRequest.id.desc())
         .limit(config.CHAT_THREAD_TURNS)
     )
     rows = (await session.execute(stmt)).all()
     return tuple(
-        ChatTurn(question=question, answer=strip_markers(answer or ""))
+        ChatTurn(question=question, answer=strip_markers(answer))
         for question, answer in reversed(rows)
     )

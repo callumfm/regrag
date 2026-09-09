@@ -10,8 +10,8 @@ curl -N localhost:8000/chat -H 'content-type: application/json' \
 ## The graph
 
 ```
-START ─┬→ rewrite ─┬→ decompose ─┐                       a follow-up; DECOMPOSE_ENABLED
-       │            └─────────────┤
+START ─┬→ rewrite ─┬→ decompose ──┐                      a follow-up; DECOMPOSE_ENABLED
+       │           └──────────────┤
        ├→ decompose ──────────────┤                       DECOMPOSE_ENABLED
        │                          ↓
        └──────────────────────→ retrieve ─┬→ refuse ──────────────→ END   nothing cleared the gate

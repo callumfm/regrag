@@ -20,15 +20,26 @@ SYSTEM_PROMPT = (
     "preamble such as 'Based on the context provided'. When several acts give the same "
     "answer, give it once and name the acts it holds for, then note only where they "
     "differ; do not repeat near-identical lists per act. Refer to an act by the number "
-    "the context gives it; never invent a name or title for it. "
-    "Earlier turns of the conversation may come before the context; read them only to "
-    "understand what the question refers to, and cite only this turn's numbered blocks."
+    "the context gives it; never invent a name or title for it."
 )
 
 REFUSAL_ANSWER = (
     "The corpus doesn't cover this. RegRag answers questions about the EU maritime "
     "regulation it has ingested; try asking about that."
 )
+
+THREAD_NOTE = (
+    " Earlier turns of the conversation come before the context; read them only to "
+    "understand what the question refers to. They are not context to answer from: cite "
+    "only this turn's numbered blocks."
+)
+
+
+def system_prompt(base: str, history: Sequence[ChatTurn]) -> str:
+    """The system prompt as one turn sends it: the base alone on a first question, and
+    with the thread note on a follow-up, so a first question's prompt is unchanged."""
+    return f"{base}{THREAD_NOTE}" if history else base
+
 
 MARKER = re.compile(r"\[(\d+)\]")
 """A citation marker as the system prompt asks for it, like [1] or the [2][3] of a pair."""
@@ -85,8 +96,6 @@ ASSESS_SYSTEM_PROMPT = (
     "that line's document number and division; search runs a fresh corpus search — "
     "use it when a needed concept is named without a citation, or a part of the "
     "question has no context at all, narrowing with celex when the act is known. "
-    "Earlier turns of the conversation may come before the context; they say what the "
-    "question refers to, and are not context to answer from. "
     "Never re-fetch what the context already shows. You never answer the question "
     "yourself: your output is tool calls, or nothing when the context suffices."
 )

@@ -182,6 +182,20 @@ async def test_a_threads_history_is_its_answered_turns_oldest_first_without_mark
     )
 
 
+async def test_an_answered_row_without_an_answer_is_left_out_of_the_history(
+    db_session: AsyncSession,
+):
+    """A DONE row can hold no answer text; passed through, an empty assistant turn is
+    rewritten by the provider into a placeholder line the thread never said."""
+    thread = uuid4()
+    await create_chat_request(db_session, turn("What is FuelEU?", "", thread_id=thread))
+    await create_chat_request(db_session, turn("Its penalties?", "Fines.[1]", thread_id=thread))
+
+    history = await load_thread_history(db_session, thread)
+
+    assert history == (ChatTurn(question="Its penalties?", answer="Fines."),)
+
+
 async def test_history_is_capped_to_the_latest_thread_turns(db_session: AsyncSession, monkeypatch):
     monkeypatch.setattr(config, "CHAT_THREAD_TURNS", 2)
     thread = uuid4()

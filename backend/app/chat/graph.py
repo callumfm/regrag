@@ -34,6 +34,7 @@ from app.chat.prompts import (
     build_assess_message,
     build_rewrite_message,
     build_user_message,
+    system_prompt,
     thread_messages,
 )
 from app.chat.tools import TOOL_DEFINITIONS, build_call_step, run_tool_call
@@ -122,9 +123,10 @@ def interleave_by_rank(
 @traced
 async def retrieve(state: ChatState) -> dict[str, Any]:
     """The corpus's best answers to each query the question split into — or to the question
-    as asked — gated query by query, so an out-of-corpus part admits nothing, and widened to
-    their sections. hits keeps every query's hits, gated or not, so a refusal and a split
-    can be read against what search found."""
+    as it will be searched, restated for a follow-up — gated query by query, so an
+    out-of-corpus part admits nothing, and widened to their sections. hits keeps every
+    query's hits, gated or not, so a refusal and a split can be read against what search
+    found."""
     queries = state.queries or (state.retrieval_question,)
     per_query = await asyncio.gather(*(search_query(query) for query in queries))
     hits = interleave_by_rank(per_query)
@@ -148,7 +150,7 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
     mid-stream restarts the answer, so its tokens reach the client twice.
     """
     messages = [
-        SystemMessage(SYSTEM_PROMPT),
+        SystemMessage(system_prompt(SYSTEM_PROMPT, state.history)),
         *thread_messages(state.history),
         HumanMessage(build_user_message(state.question, state.sources)),
     ]
@@ -246,7 +248,7 @@ async def call_assess_model(state: ChatState) -> dict[str, Any]:
     """One model turn asking what would fill the gaps in the context, capped to the
     calls a round may run — the rest dropped before state or the ledger sees them."""
     messages = [
-        SystemMessage(ASSESS_SYSTEM_PROMPT),
+        SystemMessage(system_prompt(ASSESS_SYSTEM_PROMPT, state.history)),
         *thread_messages(state.history),
         HumanMessage(build_assess_message(state.question, state.sources)),
     ]

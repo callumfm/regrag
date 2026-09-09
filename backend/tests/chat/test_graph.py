@@ -24,13 +24,17 @@ from app.chat.graph import (
     merge_sources,
     retrieve,
     rewrite,
+    rewrite_model,
 )
-from app.chat.models import ChatState, ChatTurn, DecomposedQuestion, ToolCall
+from app.chat.models import ChatState, ChatTurn, DecomposedQuestion, StandaloneQuestion, ToolCall
 from app.chat.prompts import (
     ASSESS_SYSTEM_PROMPT,
     DECOMPOSE_SYSTEM_PROMPT,
     REFUSAL_ANSWER,
     REWRITE_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    THREAD_NOTE,
+    system_prompt,
 )
 from app.core.config import config
 from app.core.llm import LLMError
@@ -649,6 +653,21 @@ def test_decompose_is_built_on_its_own_model_with_the_output_format_bound(monkey
     assert binding.kwargs["response_format"] is DecomposedQuestion
 
 
+def test_rewrite_is_built_on_its_own_model_with_the_output_format_bound(monkeypatch):
+    """The restatement is asked for in the StandaloneQuestion shape, on a model set apart
+    from the answer's and assess's, as one setting per role requires."""
+    monkeypatch.setattr(config, "CHAT_MODEL", "anthropic/answer-model")
+    monkeypatch.setattr(config, "REWRITE_MODEL", "anthropic/rewrite-model")
+
+    binding = rewrite_model()
+    assert isinstance(binding, RunnableBinding)
+    model = binding.bound
+    assert isinstance(model, ChatLiteLLM)
+    assert model.model == "anthropic/rewrite-model"
+    assert model.streaming is False
+    assert binding.kwargs["response_format"] is StandaloneQuestion
+
+
 class TestAssessLoop:
     async def test_no_tool_calls_goes_straight_to_synthesize(
         self, loop_on, one_result, answer_model, assess_turns
@@ -879,6 +898,7 @@ class TestRewriteInTheGraph:
         assert state.standalone_question == ""
         [messages] = answer_model.received
         assert [type(m) for m in messages] == [SystemMessage, HumanMessage]
+        assert messages[0].content == SYSTEM_PROMPT
 
     async def test_a_follow_up_is_restated_searched_and_answered_with_the_thread_in_view(
         self, answer_model, rewrite_turns, monkeypatch
@@ -903,6 +923,7 @@ class TestRewriteInTheGraph:
         assert rewrite_prompt[1].content.endswith(f"Latest question: {FOLLOW_UP}")
         [messages] = answer_model.received
         assert [type(m) for m in messages] == [SystemMessage, HumanMessage, AIMessage, HumanMessage]
+        assert messages[0].content == SYSTEM_PROMPT + THREAD_NOTE
         assert messages[1].content == "What is FuelEU Maritime?"
         assert messages[2].content == "A regulation on fuel."
         assert messages[3].content.endswith(f"Question: {FOLLOW_UP}")
@@ -965,7 +986,12 @@ class TestRewriteInTheGraph:
 
         [messages] = assess.received
         assert [type(m) for m in messages] == [SystemMessage, HumanMessage, AIMessage, HumanMessage]
+        assert messages[0].content == ASSESS_SYSTEM_PROMPT + THREAD_NOTE
         assert messages[3].content.endswith(f"Question: {FOLLOW_UP}")
+
+    def test_a_first_question_sends_the_base_prompt_and_a_follow_up_adds_the_thread_note(self):
+        assert system_prompt(SYSTEM_PROMPT, ()) == SYSTEM_PROMPT
+        assert system_prompt(SYSTEM_PROMPT, HISTORY) == SYSTEM_PROMPT + THREAD_NOTE
 
 
 def test_the_compiled_graph_has_the_edges_the_readme_draws():
