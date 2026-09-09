@@ -81,8 +81,9 @@ class ChatState(AppModel):
     retrieved_sources: how many blocks retrieve left, the base the loop's growth is budgeted
         against; sources grows each round, so the budget cannot be read off it.
     pending_calls: the tool calls assess asked for, not yet executed.
-    refusal_reason: why assess found nothing in the context bearing on the question, set
-        only when it refused; the gate's refusal leaves it None, having asked no model.
+    insufficiency: why assess found nothing in the context bearing on the question, set by
+        the tool round that ran its insufficient_context call; None until then, and on a
+        gate refusal, which asked no model.
     """
 
     question: str
@@ -92,7 +93,7 @@ class ChatState(AppModel):
     sources: tuple[RetrievedChunk, ...] = ()
     retrieved_sources: int = 0
     pending_calls: tuple[ToolCall, ...] = ()
-    refusal_reason: str | None = None
+    insufficiency: str | None = None
     answer: str = ""
     total_ms: int | None = None
     error: str | None = None
@@ -144,14 +145,18 @@ class ChatState(AppModel):
     @property
     def context_settled(self) -> bool:
         """Whether the context is final: retrieval ended with the loop off or the gate
-        shut, assess asked for nothing, or the last round consumed the budget."""
+        shut, assess asked for nothing, or the last round consumed the budget or found the
+        context insufficient."""
         match self.last_step:
             case ChatNode.RETRIEVE:
                 return not self.sources or not config.ASSESS_ENABLED
             case ChatNode.ASSESS:
                 return not self.pending_calls
             case ToolStep():
-                return self.assess_rounds() >= config.ASSESS_MAX_ROUNDS
+                return (
+                    self.insufficiency is not None
+                    or self.assess_rounds() >= config.ASSESS_MAX_ROUNDS
+                )
             case _:
                 return False
 

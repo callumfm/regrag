@@ -106,10 +106,10 @@ def test_a_case_assess_refused_shows_its_reason_beneath_it():
     line, reason = format_case_lines((assess_refused_result(),))
 
     assert "refused" in line
-    assert reason == "    refused: no block concerns the question"
+    assert reason == "    insufficient context: no block concerns the question"
 
 
 def test_a_gate_refusal_prints_no_reason_line():
     [line] = format_case_lines((refused_result(),))
 
-    assert "refused:" not in line
+    assert "insufficient context:" not in line

@@ -135,3 +135,15 @@ class TestContextSettled:
             sources=(search_result(),),
         )
         assert state.context_settled is True
+
+    def test_an_insufficient_context_step_is_settled_whatever_the_budget(self, monkeypatch):
+        """Nothing bearing on the question is final: the refusal follows, and the sources
+        it was read against go out first."""
+        monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 3)
+        state = ChatState(
+            question="q",
+            steps=visited(ChatNode.RETRIEVE, ChatNode.ASSESS, ToolStep.INSUFFICIENT_CONTEXT),
+            sources=(search_result(),),
+            insufficiency="no block concerns the question",
+        )
+        assert state.context_settled is True

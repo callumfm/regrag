@@ -174,10 +174,13 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
 async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_refusal(
     loop_on, one_result, monkeypatch, recorded_requests
 ):
-    """The context settled when assess spoke, so the sources go out as on any answered
-    question; the one text frame is the fixed refusal, and the ledger says refused."""
+    """The tool step carries the reason, the context settled when it ran, so the sources go
+    out as on any answered question; the one text frame is the fixed refusal, and the ledger
+    says refused."""
     assess = ToolCallStreamingModel(
-        messages=iter([tool_call_message("refuse", {"reason": "nothing bears on it"})]),
+        messages=iter(
+            [tool_call_message("insufficient_context", {"reason": "nothing bears on it"})]
+        ),
         usage=USAGE,
     )
     monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
@@ -186,10 +189,11 @@ async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_ref
 
     events = [event async for event in stream_chat_events("q")]
 
-    assert [e.data.step for e in events if isinstance(e, StepEvent)][::2] == [
-        ChatNode.RETRIEVE,
-        ChatNode.ASSESS,
-        ChatNode.REFUSE,
+    assert step_frames(events)[4:] == [
+        (ToolStep.INSUFFICIENT_CONTEXT, ChatStepStatus.RUNNING, "nothing bears on it"),
+        (ToolStep.INSUFFICIENT_CONTEXT, ChatStepStatus.COMPLETED, "nothing bears on it"),
+        (ChatNode.REFUSE, ChatStepStatus.RUNNING, None),
+        (ChatNode.REFUSE, ChatStepStatus.COMPLETED, None),
     ]
     [sources] = [e for e in events if isinstance(e, SourcesEvent)]
     assert [source.chunk_id for source in sources.data] == [1]
@@ -197,7 +201,7 @@ async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_ref
     assert model.received == []
     [state] = recorded_requests
     assert state.outcome is ChatOutcome.REFUSED
-    assert state.refusal_reason == "nothing bears on it"
+    assert state.insufficiency == "nothing bears on it"
 
 
 def step_frames(events) -> list[tuple]:

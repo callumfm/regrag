@@ -934,16 +934,17 @@ class TestFollowsOfBlocksAlreadyShown:
         assert run_calls == [ToolCall(name="follow_reference", args=whole)]
 
 
-class TestAssessRefusal:
+class TestInsufficientContext:
     """Assess may answer that nothing in the context bears on the question and no fetch would
-    change that: that call alone routes to the fixed refusal, with no answer written."""
+    change that: that call alone runs as a tool step and routes to the fixed refusal, with
+    no answer written."""
 
-    REFUSE = {"reason": "no block concerns airline luggage"}
+    INSUFFICIENT = {"reason": "no block concerns airline luggage"}
 
-    async def test_refuse_alone_ends_in_the_fixed_refusal_without_an_answer_call(
+    async def test_the_call_alone_ends_in_the_fixed_refusal_without_an_answer_call(
         self, loop_on, one_result, answer_model, assess_turns
     ):
-        assess_turns(tool_call_message("refuse", self.REFUSE))
+        assess_turns(tool_call_message("insufficient_context", self.INSUFFICIENT))
 
         state = await run_graph()
 
@@ -952,20 +953,22 @@ class TestAssessRefusal:
         assert [r.step for r in state.steps] == [
             ChatNode.RETRIEVE,
             ChatNode.ASSESS,
+            ToolStep.INSUFFICIENT_CONTEXT,
             ChatNode.REFUSE,
         ]
 
-    async def test_a_refusal_keeps_the_context_it_was_read_against(
+    async def test_the_refusal_keeps_the_context_it_was_read_against_and_the_reason(
         self, loop_on, one_result, answer_model, assess_turns
     ):
-        assess_turns(tool_call_message("refuse", self.REFUSE))
+        assess_turns(tool_call_message("insufficient_context", self.INSUFFICIENT))
 
         state = await run_graph()
 
         assert tuple(chunk.id for chunk in state.sources) == (1,)
-        assert state.refusal_reason == "no block concerns airline luggage"
+        assert state.insufficiency == "no block concerns airline luggage"
+        assert state.steps[2].subject == "no block concerns airline luggage"
 
-    async def test_a_refuse_beside_a_fetch_is_dropped_and_the_fetch_runs(
+    async def test_the_call_beside_a_fetch_is_dropped_and_the_fetch_runs(
         self, loop_on, one_result, answer_model, assess_turns, tool_results
     ):
         """A hedged turn is read as a fetch: the bias is toward answering."""
@@ -973,7 +976,12 @@ class TestAssessRefusal:
             AIMessage(
                 content="",
                 tool_calls=[
-                    {"name": "refuse", "args": self.REFUSE, "id": "call_1", "type": "tool_call"},
+                    {
+                        "name": "insufficient_context",
+                        "args": self.INSUFFICIENT,
+                        "id": "call_1",
+                        "type": "tool_call",
+                    },
                     {"name": "search", "args": {"query": "a"}, "id": "call_2", "type": "tool_call"},
                 ],
             ),
@@ -985,18 +993,31 @@ class TestAssessRefusal:
 
         assert run_calls == [ToolCall(name="search", args={"query": "a"})]
         assert state.answer == "Answered [1]."
-        assert state.refusal_reason is None
+        assert state.insufficiency is None
         assert ChatNode.REFUSE not in {r.step for r in state.steps}
 
-    async def test_a_refuse_without_a_reason_still_refuses(
+    async def test_the_call_without_a_reason_still_refuses(
         self, loop_on, one_result, answer_model, assess_turns
     ):
-        assess_turns(tool_call_message("refuse", {}))
+        assess_turns(tool_call_message("insufficient_context", {}))
 
         state = await run_graph()
 
         assert state.answer == REFUSAL_ANSWER
-        assert state.refusal_reason == ""
+        assert state.insufficiency == ""
+
+    async def test_the_refusal_still_comes_with_rounds_left_in_the_budget(
+        self, loop_on, one_result, answer_model, assess_turns, monkeypatch
+    ):
+        """Nothing bearing on the question is final: a second round would only read the
+        same context again."""
+        monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 3)
+        assess_turns(tool_call_message("insufficient_context", self.INSUFFICIENT))
+
+        state = await run_graph()
+
+        assert state.answer == REFUSAL_ANSWER
+        assert state.assess_rounds() == 1
 
     def test_the_tool_is_offered_only_while_the_switch_is_on(self, monkeypatch):
         def offered() -> list[str]:
@@ -1005,12 +1026,12 @@ class TestAssessRefusal:
             return [tool["function"]["name"] for tool in binding.kwargs["tools"]]
 
         monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", True)
-        assert offered() == ["search", "follow_reference", "refuse"]
+        assert offered() == ["search", "follow_reference", "insufficient_context"]
 
         monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", False)
         assert offered() == ["search", "follow_reference"]
 
-    async def test_the_prompt_tells_assess_when_to_refuse_while_the_switch_is_on(
+    async def test_the_prompt_tells_assess_when_to_call_it_while_the_switch_is_on(
         self, loop_on, one_result, answer_model, assess_turns, monkeypatch
     ):
         monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", True)
@@ -1020,9 +1041,9 @@ class TestAssessRefusal:
 
         (prompt,) = assess.received
         assert prompt[0].content == build_assess_system_prompt(may_refuse=True)
-        assert "refuse" in prompt[0].content
+        assert "insufficient_context" in prompt[0].content
 
-    async def test_the_prompt_says_nothing_of_refusing_while_the_switch_is_off(
+    async def test_the_prompt_says_nothing_of_it_while_the_switch_is_off(
         self, loop_on, one_result, answer_model, assess_turns, monkeypatch
     ):
         monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", False)
@@ -1032,4 +1053,4 @@ class TestAssessRefusal:
 
         (prompt,) = assess.received
         assert prompt[0].content == ASSESS_SYSTEM_PROMPT
-        assert "refuse" not in prompt[0].content
+        assert "insufficient_context" not in prompt[0].content

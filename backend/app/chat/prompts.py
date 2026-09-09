@@ -76,20 +76,21 @@ ASSESS_SYSTEM_PROMPT = (
     "yourself: your output is tool calls, or nothing when the context suffices."
 )
 
-ASSESS_REFUSE_INSTRUCTION = (
+ASSESS_INSUFFICIENT_CONTEXT_INSTRUCTION = (
     " If no block bears on the question and no search or fetch of this corpus of EU "
     "maritime regulation could — it asks about another regime, about a named company, "
     "ship or event, for a statistic or a figure no provision states, or about a topic "
-    "outside the corpus — call refuse, alone, saying why. Blocks on the subject the "
-    "question touches that do not answer it are not a part answer. Never refuse a "
-    "question the context answers in part, or one a search or fetch might yet answer."
+    "outside the corpus — call insufficient_context, alone, saying why. Blocks on the "
+    "subject the question touches that do not answer it are not a part answer. Never call "
+    "it on a question the context answers in part, or one a search or fetch might yet "
+    "answer."
 )
 
 
 def build_assess_system_prompt(*, may_refuse: bool) -> str:
-    """The assess system prompt, telling the model when to refuse only when it is offered
-    the tool to do it with."""
-    return ASSESS_SYSTEM_PROMPT + (ASSESS_REFUSE_INSTRUCTION if may_refuse else "")
+    """The assess system prompt, telling the model when to declare the context insufficient
+    only when it is offered the tool to do it with."""
+    return ASSESS_SYSTEM_PROMPT + (ASSESS_INSUFFICIENT_CONTEXT_INSTRUCTION if may_refuse else "")
 
 
 def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> str:

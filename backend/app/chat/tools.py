@@ -62,28 +62,24 @@ async def run_follow_reference(
     return chunks[: config.ASSESS_FOLLOW_LIMIT]
 
 
-class RefuseArgs(FrozenModel):
+class InsufficientContextArgs(FrozenModel):
     """Assess's word that nothing in the context bears on the question and no fetch would:
     the one call that ends the question in the fixed refusal rather than an answer."""
 
     reason: str
 
 
-def tool_definition(name: str, description: str, args_model: type[FrozenModel]) -> dict:
-    """A tool as bind_tools wants it: an openai function-tool dictionary."""
-    return {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": description,
-            "parameters": args_model.model_json_schema(),
-        },
-    }
+async def run_insufficient_context(
+    session: AsyncSession, args: InsufficientContextArgs
+) -> tuple[RetrievedChunk, ...]:
+    """Nothing to fetch: the call is its own result, and the tools node reads the reason off
+    it. Run like the others so the round records it as a step, timed and named."""
+    return ()
 
 
 class ToolSpec(NamedTuple):
-    """One tool the model may call to grow the context: how it is named and described to
-    the model, the arguments it takes, what runs it, and the step a call to it records."""
+    """One tool the model may call: how it is named and described to the model, the
+    arguments it takes, what runs it, and the step a call to it records."""
 
     name: str
     step: ToolStep
@@ -92,7 +88,15 @@ class ToolSpec(NamedTuple):
     description: str
 
     def definition(self) -> dict:
-        return tool_definition(self.name, self.description, self.args_model)
+        """The tool as bind_tools wants it: an openai function-tool dictionary."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.args_model.model_json_schema(),
+            },
+        }
 
 
 TOOL_SURFACE = {
@@ -115,32 +119,35 @@ TOOL_SURFACE = {
             "Fetch the full text of one cited division: an article (optionally one paragraph) "
             "or an annex of an act (celex). Use the addresses on the context's cites lines.",
         ),
+        ToolSpec(
+            "insufficient_context",
+            ToolStep.INSUFFICIENT_CONTEXT,
+            InsufficientContextArgs,
+            run_insufficient_context,
+            "Declare that nothing in the context bears on the question and no search or "
+            "fetch of this corpus could change that. Call it alone, never beside a search "
+            "or fetch.",
+        ),
     )
 }
 
-FETCH_TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
-"""The tools that grow the context, as the model is shown them: built once, since they
-depend on nothing at call time."""
+INSUFFICIENT_CONTEXT = "insufficient_context"
+"""The one tool that grows nothing: assess's word that the question cannot be answered."""
 
-REFUSE_TOOL_NAME = "refuse"
-REFUSE_TOOL_DEFINITION = tool_definition(
-    REFUSE_TOOL_NAME,
-    "Declare that nothing in the context bears on the question and no search or fetch of "
-    "this corpus could change that. Call it alone, never beside a search or fetch.",
-    RefuseArgs,
-)
+
+def is_insufficient_context(call: ToolCall) -> bool:
+    """Whether the call is assess's word that the context cannot answer, rather than a fetch."""
+    return call.name == INSUFFICIENT_CONTEXT
 
 
 def tool_definitions() -> list[dict]:
-    """The surface as assess is shown it: the fetch tools, and refuse while it is allowed."""
-    if config.ASSESS_MAY_REFUSE:
-        return [*FETCH_TOOL_DEFINITIONS, REFUSE_TOOL_DEFINITION]
-    return list(FETCH_TOOL_DEFINITIONS)
-
-
-def is_refusal(call: ToolCall) -> bool:
-    """Whether the call is assess's refusal rather than a fetch."""
-    return call.name == REFUSE_TOOL_NAME
+    """The surface as assess is shown it: the fetch tools, and insufficient_context while
+    refusing is allowed."""
+    return [
+        spec.definition()
+        for spec in TOOL_SURFACE.values()
+        if spec.name != INSUFFICIENT_CONTEXT or config.ASSESS_MAY_REFUSE
+    ]
 
 
 def already_in_context(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:

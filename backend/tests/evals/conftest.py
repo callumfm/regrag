@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from app.chat.enums import ChatNode
+from app.chat.enums import ChatNode, ToolStep
 from app.chat.models import ChatState, ChatStepResult
 from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
@@ -147,9 +147,11 @@ def refused_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
 ASSESS_REFUSED_PATH = (
     ChatStepResult(step=ChatNode.RETRIEVE, ms=80),
     ChatStepResult(step=ChatNode.ASSESS, ms=900, input_tokens=1500, output_tokens=40),
+    ChatStepResult(step=ToolStep.INSUFFICIENT_CONTEXT, ms=0),
     ChatStepResult(step=ChatNode.REFUSE, ms=0),
 )
-"""The path assess's refusal leaves: the gate passed, assess read the context and refused."""
+"""The path assess's refusal leaves: the gate passed, assess read the context and found it
+insufficient, and the graph refused."""
 
 
 def assess_refused_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
@@ -158,7 +160,7 @@ def assess_refused_result(case: EvalCase | None = None, **state: Any) -> EvalRes
         "steps": ASSESS_REFUSED_PATH,
         "hits": (search_result(),),
         "sources": (retrieved_chunk(),),
-        "refusal_reason": "no block concerns the question",
+        "insufficiency": "no block concerns the question",
         "answer": REFUSAL_ANSWER,
         "total_ms": 985,
     }
