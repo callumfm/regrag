@@ -75,15 +75,18 @@ class Refusal(FrozenModel):
 
 
 class ChatState(AppModel):
-    """Everything one question produced: what the graph accumulates as it runs, then what
-    only the stream's consumer knows once it ends — how long the request lived, and an error.
+    """Everything one question produced, in the order it is produced: what was asked, what
+    retrieval built from it, the path the graph took, and how it ended — the last including
+    what only the stream's consumer knows once the graph is done, how long the request
+    lived and whether it raised.
+
+    Each field is one graph channel, since a node returns only the fields it sets and the
+    graph merges them by name; they are grouped here, not nested, for that reason.
 
     thread_id: the thread the question belongs to, minted here when the caller sent none.
     history: the thread's earlier answered turns, oldest first; empty on a first question.
     standalone_question: the question as rewrite restated it for retrieval, or empty when
         there was nothing to restate or the call failed, so the question as asked is searched.
-    steps: the path taken, each node appending its result as it returns and a tool round one
-    per call; a sequence, since the loop visits a node more than once.
     queries: the searches decompose split the question into, in the order asked; empty
         when the node was skipped, found one part, or failed, so retrieve searches the
         question as asked.
@@ -92,23 +95,32 @@ class ChatState(AppModel):
     retrieved_sources: how many blocks retrieve left, the base the loop's growth is budgeted
         against; sources grows each round, so the budget cannot be read off it.
     pending_calls: the tool calls assess asked for, not yet executed.
+    steps: the path taken, each node appending its result as it returns and a tool round one
+        per call; a sequence, since the loop visits a node more than once.
     refusal: why the question ended without an answer, set by the tool round that ran
         assess's refuse call, and by the refuse node itself when nothing was retrieved to
         assess; None on any run that has not refused.
     """
 
+    # What was asked
     question: str
     thread_id: UUID = Field(default_factory=uuid4)
     history: tuple[ChatTurn, ...] = ()
     standalone_question: str = ""
+
+    # What retrieval built
     queries: tuple[str, ...] = ()
-    steps: Annotated[tuple[ChatStepResult, ...], operator.add] = ()
     hits: tuple[SearchResult, ...] = ()
     sources: tuple[RetrievedChunk, ...] = ()
     retrieved_sources: int = 0
     pending_calls: tuple[ToolCall, ...] = ()
-    refusal: Refusal | None = None
+
+    # The path
+    steps: Annotated[tuple[ChatStepResult, ...], operator.add] = ()
+
+    # How it ended
     answer: str = ""
+    refusal: Refusal | None = None
     total_ms: int | None = None
     error: str | None = None
 
@@ -151,8 +163,8 @@ class ChatState(AppModel):
             "queries",
             "hits",
             "sources",
-            "answer",
             "pending_calls",
+            "answer",
         )
         exclude_fields: dict[str, Any] = {field: True for field in content} | {
             "steps": {"__all__": {"status", "subject"}}
