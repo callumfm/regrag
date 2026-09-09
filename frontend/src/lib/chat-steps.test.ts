@@ -27,6 +27,13 @@ describe("stepLabel", () => {
 		const unknown = "rerank" as ChatStep["step"]
 		expect(stepLabel(step(unknown))).toBe("rerank")
 	})
+
+	it("names the rewrite step by what it does", () => {
+		expect(stepLabel(step("rewrite", 0, "running"))).toBe(
+			"Rewriting the question",
+		)
+		expect(stepLabel(step("rewrite"))).toBe("Rewrote the question")
+	})
 })
 
 describe("formatDuration", () => {

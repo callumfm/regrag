@@ -3,7 +3,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
 import { Message, MessageContent } from "@/components/ui/message"
-import { isTurnRunning, type ChatTurn as Turn } from "@/lib/chat-turns"
+import {
+	isThreadFull,
+	isTurnRunning,
+	type ChatTurn as Turn,
+} from "@/lib/chat-turns"
 import { Answer } from "./answer"
 import { CitedSourcesLine } from "./cited-sources-line"
 import { RunSteps } from "./run-steps"
@@ -33,17 +37,21 @@ export const ChatTurn = memo(function ChatTurn({
 					<RunSteps steps={turn.steps} isRunning={isTurnRunning(turn)} />
 					{turn.status === "failed" ? (
 						<Alert variant="destructive">
-							<AlertTitle>Request failed</AlertTitle>
-							<AlertDescription>{turn.error}</AlertDescription>
-							<Button
-								variant="outline"
-								size="sm"
-								className="mt-2"
-								disabled={isBusy}
-								onClick={onRetry}
-							>
-								Retry
-							</Button>
+							<AlertTitle>
+								{isThreadFull(turn) ? "Thread full" : "Request failed"}
+							</AlertTitle>
+							<AlertDescription>{turn.error?.message}</AlertDescription>
+							{!isThreadFull(turn) && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="mt-2"
+									disabled={isBusy}
+									onClick={onRetry}
+								>
+									Retry
+								</Button>
+							)}
 						</Alert>
 					) : (
 						<>

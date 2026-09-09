@@ -1,5 +1,7 @@
 import type { ChatSource, ChatStep, ChatStreamEvent } from "@/api/types"
 
+export type ChatError = { name: string; message: string }
+
 export type ChatTurn = {
 	id: string
 	question: string
@@ -7,7 +9,7 @@ export type ChatTurn = {
 	sources: ChatSource[]
 	steps: ChatStep[]
 	status: "pending" | "streaming" | "settled" | "failed"
-	error: string | null
+	error: ChatError | null
 }
 
 /** Whether the run behind a turn is still under way: asked and not yet answering, or answering. */
@@ -15,10 +17,16 @@ export function isTurnRunning(turn: ChatTurn): boolean {
 	return turn.status === "pending" || turn.status === "streaming"
 }
 
+/** Whether the thread turned the question away for holding all the turns it may. */
+export function isThreadFull(turn: ChatTurn): boolean {
+	return turn.error?.name === "ThreadFullError"
+}
+
 export type ChatAction =
 	| { type: "ask"; id: string; question: string }
 	| { type: "settle" }
-	| { type: "fail"; message: string }
+	| { type: "fail"; error: ChatError }
+	| { type: "clear" }
 	| ChatStreamEvent
 
 /** The trail with this step in it: a starting step joins the end, and a finished one settles
@@ -59,7 +67,7 @@ function applyToTurn(turn: ChatTurn, action: ChatAction): ChatTurn {
 					...turn,
 					steps: finishedSteps(turn.steps),
 					status: "failed",
-					error: action.data.message,
+					error: { name: action.data.error, message: action.data.message },
 				}
 		}
 	}
@@ -73,7 +81,7 @@ function applyToTurn(turn: ChatTurn, action: ChatAction): ChatTurn {
 				...turn,
 				steps: finishedSteps(turn.steps),
 				status: "failed",
-				error: action.message,
+				error: action.error,
 			}
 		default:
 			return turn
@@ -81,6 +89,7 @@ function applyToTurn(turn: ChatTurn, action: ChatAction): ChatTurn {
 }
 
 export function chatReducer(turns: ChatTurn[], action: ChatAction): ChatTurn[] {
+	if ("type" in action && action.type === "clear") return []
 	if ("type" in action && action.type === "ask") {
 		return [
 			...turns,

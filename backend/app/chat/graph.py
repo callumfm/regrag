@@ -1,6 +1,6 @@
-"""Chat graph: split a multi-part question, retrieve corpus context, run the assess ⇄
-tools loop, then synthesize a cited answer — or refuse, before any model call, a question
-the corpus does not cover."""
+"""Chat graph: restate a follow-up, split a multi-part question, retrieve corpus context,
+run the assess ⇄ tools loop, then synthesize a cited answer — or refuse, before any model
+call, a question the corpus does not cover."""
 
 import asyncio
 import functools
@@ -18,14 +18,24 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import ValidationError
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatState, ChatStepResult, DecomposedQuestion, ToolCall
+from app.chat.models import (
+    ChatState,
+    ChatStepResult,
+    DecomposedQuestion,
+    StandaloneQuestion,
+    ToolCall,
+)
 from app.chat.prompts import (
     ASSESS_SYSTEM_PROMPT,
     DECOMPOSE_SYSTEM_PROMPT,
     REFUSAL_ANSWER,
+    REWRITE_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     build_assess_message,
+    build_rewrite_message,
     build_user_message,
+    system_prompt,
+    thread_messages,
 )
 from app.chat.tools import TOOL_DEFINITIONS, already_in_context, build_call_step, run_tool_call
 from app.core.clock import elapsed_ms
@@ -113,10 +123,11 @@ def interleave_by_rank(
 @traced
 async def retrieve(state: ChatState) -> dict[str, Any]:
     """The corpus's best answers to each query the question split into — or to the question
-    as asked — gated query by query, so an out-of-corpus part admits nothing, and widened to
-    their sections. hits keeps every query's hits, gated or not, so a refusal and a split
-    can be read against what search found."""
-    queries = state.queries or (state.question,)
+    as it will be searched, restated for a follow-up — gated query by query, so an
+    out-of-corpus part admits nothing, and widened to their sections. hits keeps every
+    query's hits, gated or not, so a refusal and a split can be read against what search
+    found."""
+    queries = state.queries or (state.retrieval_question,)
     per_query = await asyncio.gather(*(search_query(query) for query in queries))
     hits = interleave_by_rank(per_query)
     cleared = [found for found in per_query if meets_thresholds(found)]
@@ -139,7 +150,8 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
     mid-stream restarts the answer, so its tokens reach the client twice.
     """
     messages = [
-        SystemMessage(SYSTEM_PROMPT),
+        SystemMessage(system_prompt(SYSTEM_PROMPT, state.history)),
+        *thread_messages(state.history),
         HumanMessage(build_user_message(state.question, state.sources)),
     ]
     response = await chat_model(config.CHAT_MODEL).ainvoke(messages)
@@ -166,7 +178,7 @@ async def call_decompose_model(state: ChatState) -> dict[str, Any]:
     """One model turn splitting the question into the searches it needs, capped to the
     parts allowed. One part means the question asked one thing, and queries stays empty
     so retrieve searches the question as asked; an answer off the schema is a failed call."""
-    messages = [SystemMessage(DECOMPOSE_SYSTEM_PROMPT), HumanMessage(state.question)]
+    messages = [SystemMessage(DECOMPOSE_SYSTEM_PROMPT), HumanMessage(state.retrieval_question)]
     response = await decompose_model().ainvoke(messages)
     try:
         split = DecomposedQuestion.model_validate_json(response.text)
@@ -188,6 +200,43 @@ async def decompose(state: ChatState) -> dict[str, Any]:
         return {"queries": ()}
 
 
+def rewrite_model() -> Runnable:
+    """The rewrite model as rewrite calls it: one blocking turn, answering in the
+    StandaloneQuestion shape."""
+    return chat_model(config.REWRITE_MODEL, streaming=False).bind(
+        response_format=StandaloneQuestion
+    )
+
+
+@llm_retry
+@wrap_provider_errors("rewrite call")
+async def call_rewrite_model(state: ChatState) -> dict[str, Any]:
+    """One model turn restating the follow-up so it can be searched on its own; an answer
+    off the schema is a failed call."""
+    messages = [
+        SystemMessage(REWRITE_SYSTEM_PROMPT),
+        HumanMessage(build_rewrite_message(state.question, state.history)),
+    ]
+    response = await rewrite_model().ainvoke(messages)
+    try:
+        restated = StandaloneQuestion.model_validate_json(response.text)
+    except ValidationError as exc:
+        logger.warning("rewrite answered off its schema: %s", exc)
+        raise LLMError("rewrite answered off its schema") from exc
+    return {"standalone_question": restated.question, "usage": response.usage_metadata}
+
+
+@traced
+async def rewrite(state: ChatState) -> dict[str, Any]:
+    """The follow-up restated for retrieval — or left as asked when the call fails, which
+    costs the restatement rather than the request."""
+    try:
+        return await call_rewrite_model(state)
+    except LLMError as exc:
+        logger.warning("rewrite call failed, searching the question as asked: %s", exc)
+        return {"standalone_question": ""}
+
+
 def assess_model() -> Runnable:
     """The assess model as assess calls it: one blocking turn, the tool surface bound."""
     return chat_model(config.ASSESS_MODEL, streaming=False).bind_tools(TOOL_DEFINITIONS)
@@ -200,7 +249,8 @@ async def call_assess_model(state: ChatState) -> dict[str, Any]:
     only re-fetch a division the context already shows is dropped, then the rest are capped
     to the calls a round may run — neither reaches state or the ledger."""
     messages = [
-        SystemMessage(ASSESS_SYSTEM_PROMPT),
+        SystemMessage(system_prompt(ASSESS_SYSTEM_PROMPT, state.history)),
+        *thread_messages(state.history),
         HumanMessage(build_assess_message(state.question, state.sources)),
     ]
     response = await assess_model().ainvoke(messages)
@@ -281,9 +331,18 @@ def decompose_or_retrieve(state: ChatState) -> ChatNode:
     return ChatNode.DECOMPOSE if config.DECOMPOSE_ENABLED else ChatNode.RETRIEVE
 
 
+def rewrite_or_decompose_or_retrieve(state: ChatState) -> ChatNode:
+    """At the start: restate a follow-up first, since the thread is what its pronouns
+    mean; a first question takes the edge decompose_or_retrieve would."""
+    return ChatNode.REWRITE if state.history else decompose_or_retrieve(state)
+
+
 GRAPH_EDGES = (
+    (START, ChatNode.REWRITE),
     (START, ChatNode.DECOMPOSE),
     (START, ChatNode.RETRIEVE),
+    (ChatNode.REWRITE, ChatNode.DECOMPOSE),
+    (ChatNode.REWRITE, ChatNode.RETRIEVE),
     (ChatNode.DECOMPOSE, ChatNode.RETRIEVE),
     (ChatNode.RETRIEVE, ChatNode.ASSESS),
     (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE),
@@ -300,8 +359,10 @@ this, so an edge added here without redrawing the README fails before it is merg
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:
-    """The compiled (decompose →) retrieve → (assess ⇄ tools) → (synthesize | refuse) graph."""
+    """The compiled (rewrite →) (decompose →) retrieve → (assess ⇄ tools) →
+    (synthesize | refuse) graph."""
     graph = StateGraph(ChatState)
+    graph.add_node(ChatNode.REWRITE, rewrite)
     graph.add_node(ChatNode.DECOMPOSE, decompose)
     graph.add_node(ChatNode.RETRIEVE, retrieve)
     graph.add_node(ChatNode.ASSESS, assess)
@@ -309,7 +370,12 @@ def build_graph() -> CompiledStateGraph[ChatState]:
     graph.add_node(ChatNode.SYNTHESIZE, synthesize)
     graph.add_node(ChatNode.REFUSE, refuse)
     graph.add_conditional_edges(
-        START, decompose_or_retrieve, [ChatNode.DECOMPOSE, ChatNode.RETRIEVE]
+        START,
+        rewrite_or_decompose_or_retrieve,
+        [ChatNode.REWRITE, ChatNode.DECOMPOSE, ChatNode.RETRIEVE],
+    )
+    graph.add_conditional_edges(
+        ChatNode.REWRITE, decompose_or_retrieve, [ChatNode.DECOMPOSE, ChatNode.RETRIEVE]
     )
     graph.add_edge(ChatNode.DECOMPOSE, ChatNode.RETRIEVE)
     graph.add_conditional_edges(

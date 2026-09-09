@@ -151,6 +151,10 @@ class ChatConfig(BaseConfig):
         nothing here is served by sampling variety. Anthropic's frontier models reject the
         parameter outright, so a move off Haiku means dropping this and reaching for
         `output_config.effort` instead — which Haiku in turn does not accept.
+    CHAT_THREAD_TURNS: the most answered turns a thread may hold, and so the history every
+        model call on a follow-up sees; the next question on a full thread is rejected.
+        Five, because a thread here is a question and a few follow-ups, and five turns of
+        answers cost about a third of one turn's context blocks.
     """
 
     ANTHROPIC_API_KEY: SecretStr = SecretStr("")
@@ -160,6 +164,7 @@ class ChatConfig(BaseConfig):
     CHAT_TEMPERATURE: float = Field(default=0.0, ge=0.0, le=1.0)
     CHAT_SOURCES: int = Field(default=5, ge=1)
     CHAT_CONTEXT_CHUNKS: int = Field(default=15, ge=1)
+    CHAT_THREAD_TURNS: int = Field(default=5, ge=1)
 
 
 class AssessConfig(BaseConfig):
@@ -209,6 +214,18 @@ class DecomposeConfig(BaseConfig):
     DECOMPOSE_ENABLED: bool = False
     DECOMPOSE_MODEL: str = "anthropic/claude-haiku-4-5"
     DECOMPOSE_MAX_PARTS: int = Field(default=3, ge=2)
+
+
+class RewriteConfig(BaseConfig):
+    """The rewrite node, which restates a follow-up question so retrieval can search it
+    on its own.
+
+    REWRITE_MODEL: which model restates the question, separate from the answer's and
+        assess's on the one-setting-per-role rule. No switch: the node runs only on a
+        follow-up, and a follow-up searched as typed is what the gate refuses.
+    """
+
+    REWRITE_MODEL: str = "anthropic/claude-haiku-4-5"
 
 
 class IngestConfig(BaseConfig):
@@ -308,6 +325,7 @@ class Config(
     ChatConfig,
     AssessConfig,
     DecomposeConfig,
+    RewriteConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,
@@ -327,6 +345,7 @@ _CONFIG_SECTIONS = (
     ChatConfig,
     AssessConfig,
     DecomposeConfig,
+    RewriteConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,
