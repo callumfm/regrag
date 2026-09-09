@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 from app.chat.prompts import format_context_block
-from app.evals.metrics import find_cited_sources
+from app.core.citations import find_cited_sources
 from app.retrieval.models import RetrievedChunk
 
 CORRECTNESS_PROMPT = (

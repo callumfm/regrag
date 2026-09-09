@@ -1,7 +1,6 @@
 """The wording more than one node shares: the thread note, and the numbered-context
 formatting a citation marker refers to."""
 
-import re
 from collections.abc import Sequence
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -21,16 +20,6 @@ def system_prompt(base: str, history: Sequence[ChatTurn]) -> str:
     """The system prompt as one turn sends it: the base alone on a first question, and
     with the thread note on a follow-up, so a first question's prompt is unchanged."""
     return f"{base}{THREAD_NOTE}" if history else base
-
-
-MARKER = re.compile(r"\[(\d+)\]")
-"""A citation marker as the system prompt asks for it, like [1] or the [2][3] of a pair."""
-
-
-def strip_markers(text: str) -> str:
-    """The text without its citation markers: an earlier answer carried into a later turn
-    numbered blocks that turn will not have."""
-    return MARKER.sub("", text)
 
 
 def _reference_addresses(source: RetrievedChunk) -> list[str]:

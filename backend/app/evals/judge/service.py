@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
+from app.core.citations import find_cited_sources
 from app.core.concurrency import run_concurrently
 from app.core.config import config
 from app.core.llm import LLMError, llm_retry, wrap_provider_errors
@@ -29,7 +30,6 @@ from app.evals.judge.prompts import (
     build_faithfulness_message,
     build_refusal_message,
 )
-from app.evals.metrics import find_cited_sources
 from app.evals.models import EvalResult
 
 logger = logging.getLogger(__name__)
