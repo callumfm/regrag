@@ -8,7 +8,7 @@ from app.chat.toolbox.service import run_tool_call
 from app.core.config import config
 from app.core.llm.errors import LLMError
 from app.retrieval.models import SearchFilters, SearchRequest
-from tests.conftest import search_result
+from tests.conftest import junk_result, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -59,7 +59,7 @@ async def test_hits_below_the_retrieval_bar_are_not_added_to_the_context(monkeyp
     """The gate refuses to answer from junk; the loop may not smuggle the same junk in."""
 
     async def junk_search(session, request):
-        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+        return (junk_result(),)
 
     monkeypatch.setattr("app.chat.toolbox.tools.search.search", junk_search)
     call = ToolCall(name="search", args={"query": "best pizza topping"})

@@ -15,24 +15,24 @@ from app.chat.graph.nodes.rewrite import (
 )
 from app.chat.graph.nodes.synthesize import SYSTEM_PROMPT
 from app.chat.graph.service import chat_graph
-from app.chat.models import ChatState
+from app.chat.models import ChatState, ChatTurn
 from app.chat.prompts import THREAD_NOTE, system_prompt
 from app.core.config import config
 from app.retrieval.models import SearchRequest
 from tests.chat.conftest import (
-    FOLLOW_UP,
-    HISTORY,
-    RESTATED,
-    TOKEN_USAGE,
     FailingModel,
     hits_for,
     restated_message,
     run_graph,
     split_message,
 )
-from tests.conftest import search_result
+from tests.conftest import TOKEN_USAGE, search_result
 
 pytestmark = pytest.mark.anyio
+
+FOLLOW_UP = "What penalties does it impose?"
+RESTATED = "What penalties does FuelEU Maritime impose?"
+HISTORY = (ChatTurn(question="What is FuelEU Maritime?", answer="A regulation on fuel."),)
 
 
 def test_rewrite_is_built_on_its_own_model_with_the_output_format_bound(monkeypatch):
@@ -66,8 +66,7 @@ class TestRewriteInTheGraph:
         self, answer_model, rewrite_turns, monkeypatch
     ):
         rewrite = rewrite_turns(restated_message(RESTATED))
-        fake_search, requests = hits_for(**{RESTATED: (search_result(),)})
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
+        requests = hits_for(monkeypatch, **{RESTATED: (search_result(),)})
 
         state = ChatState(question=FOLLOW_UP, history=HISTORY)
         state.sync_from_snapshot(await chat_graph.ainvoke(state))

@@ -6,9 +6,9 @@ from collections.abc import Sequence
 
 import litellm
 
+from app.chat.citations import find_cited_sources
 from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
-from app.core.citations import find_cited_sources
 from app.core.concurrency import run_concurrently
 from app.core.config import config
 from app.core.llm.errors import LLMError, llm_retry, parse_model_answer, wrap_provider_errors

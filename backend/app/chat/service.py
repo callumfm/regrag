@@ -7,10 +7,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chat.citations import strip_markers
 from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState, ChatTurn
 from app.chat.schemas import ChatRequest, ChatRequestStep
-from app.core.citations import strip_markers
 from app.core.config import config
 from app.core.db.crud import create_record
 from app.core.logger import request_id_var

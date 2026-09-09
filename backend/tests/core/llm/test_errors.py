@@ -1,6 +1,5 @@
 """The provider error contract: what an LLMError carries, and how the wrap point names a call."""
 
-import httpx
 import openai
 import pytest
 from pydantic import BaseModel
@@ -11,6 +10,7 @@ from app.core.llm.errors import (
     parse_model_answer,
     wrap_provider_errors,
 )
+from tests.conftest import provider_error
 
 pytestmark = pytest.mark.anyio
 
@@ -22,9 +22,7 @@ def test_llm_error_status_code():
 async def test_wrap_provider_errors_names_the_call_by_its_label_not_its_function():
     @wrap_provider_errors("frobnicate call")
     async def _internal_helper_name() -> None:
-        raise openai.APIConnectionError(
-            message="upstream", request=httpx.Request("POST", "http://provider.example")
-        )
+        raise provider_error(openai.APIConnectionError, message="upstream")
 
     with pytest.raises(LLMError, match="^frobnicate call failed$"):
         await _internal_helper_name()

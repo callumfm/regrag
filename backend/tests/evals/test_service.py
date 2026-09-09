@@ -13,7 +13,7 @@ from app.evals import service
 from app.evals.dataset.enums import EvalTrait
 from app.evals.service import evaluate_all_cases, evaluate_case
 from tests.chat.conftest import fake_chat_model
-from tests.conftest import install_chat_model, search_result
+from tests.conftest import install_chat_model, install_search, search_result
 from tests.evals.conftest import eval_case, eval_dataset
 
 pytestmark = pytest.mark.anyio
@@ -31,8 +31,8 @@ def answering_graph(monkeypatch: pytest.MonkeyPatch) -> None:
         return (search_result(),)
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
-    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
-    install_chat_model(monkeypatch, lambda *_: fake_chat_model("Half of it [1]."))
+    install_search(monkeypatch, fake_search)
+    install_chat_model(monkeypatch, fake_chat_model("Half of it [1]."))
 
 
 async def test_a_case_runs_through_the_graph_and_keeps_the_state_it_ended_in(
@@ -58,7 +58,7 @@ async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", failing_search)
+    install_search(monkeypatch, failing_search)
 
     with caplog.at_level(logging.WARNING):
         result = await evaluate_case(eval_case())

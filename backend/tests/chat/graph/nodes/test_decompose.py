@@ -1,7 +1,9 @@
 """decompose: the split it makes, the model it is bound to, and its best-effort failure."""
 
 import json
+from typing import Any
 
+import litellm
 import pytest
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.runnables import RunnableBinding
@@ -23,17 +25,31 @@ from app.core.llm.models import TokenUsage
 from app.retrieval.models import SearchRequest
 from tests.chat.conftest import (
     QUESTION,
-    TOKEN_USAGE,
     FailingModel,
-    fake_chat_model,
     hits_for,
-    litellm_completion,
     run_graph,
     split_message,
 )
-from tests.conftest import install_chat_model, search_result
+from tests.conftest import TOKEN_USAGE, junk_result, search_result
 
 pytestmark = pytest.mark.anyio
+
+
+def litellm_completion(monkeypatch, content: str, usage: dict[str, int]) -> list[dict[str, Any]]:
+    """Stand litellm's completion call in for one blocking answer, returning the calls made."""
+    calls: list[dict[str, Any]] = []
+
+    async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
+            ],
+            "usage": usage,
+        }
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    return calls
 
 
 async def test_the_decompose_client_sends_the_output_format_and_the_node_records_usage(
@@ -70,10 +86,10 @@ class TestDecomposeInTheGraph:
         self, decompose_on, answer_model, decompose_turns, monkeypatch
     ):
         decompose_turns(split_message("what is A", "what is B"))
-        fake_search, requests = hits_for(
-            **{"what is A": (search_result(id=1),), "what is B": (search_result(id=2),)}
+        requests = hits_for(
+            monkeypatch,
+            **{"what is A": (search_result(id=1),), "what is B": (search_result(id=2),)},
         )
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
 
         state = ChatState(question="What are A and B?")
         state.sync_from_snapshot(await chat_graph.ainvoke(state))
@@ -106,19 +122,15 @@ class TestDecomposeInTheGraph:
         assert state.queries == ()
 
     async def test_on_a_split_whose_every_part_misses_the_bar_is_refused(
-        self, decompose_on, decompose_turns, monkeypatch
+        self, decompose_on, decompose_turns, answer_model, monkeypatch
     ):
         decompose_turns(split_message("pizza", "pasta"))
-        junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
-        fake_search, _ = hits_for(pizza=(junk,), pasta=(junk,))
-        model = fake_chat_model()
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
-        install_chat_model(monkeypatch, lambda *_: model)
+        hits_for(monkeypatch, pizza=(junk_result(),), pasta=(junk_result(),))
 
         state = await chat_graph.ainvoke(ChatState(question="Best pizza and pasta?"))
 
         assert state["answer"] == REFUSAL_ANSWER
-        assert model.received == []
+        assert answer_model.received == []
 
 
 class TestDecompose:

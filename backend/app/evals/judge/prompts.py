@@ -2,8 +2,8 @@
 
 from collections.abc import Sequence
 
+from app.chat.citations import find_cited_sources
 from app.chat.prompts import format_context_block
-from app.core.citations import find_cited_sources
 from app.retrieval.models import RetrievedChunk
 
 CORRECTNESS_PROMPT = (

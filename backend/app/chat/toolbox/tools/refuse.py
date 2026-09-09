@@ -22,17 +22,8 @@ async def run_refusal(session: AsyncSession, args: RefuseArgs) -> tuple[Retrieve
     return ()
 
 
-REFUSE_TOOL = "refuse"
-"""The one tool that grows nothing: assess's word that the question cannot be answered."""
-
-
-def is_refusal(call: ToolCall) -> bool:
-    """Whether the call is assess's word that the context cannot answer, rather than a fetch."""
-    return call.name == REFUSE_TOOL
-
-
 REFUSE = ToolSpec(
-    name=REFUSE_TOOL,
+    name="refuse",
     step=ToolStep.REFUSE,
     args_model=RefuseArgs,
     run=run_refusal,
@@ -40,3 +31,9 @@ REFUSE = ToolSpec(
     "or fetch of this corpus could change that. Call it alone, never beside a "
     "search or fetch.",
 )
+"""The one tool that grows nothing: assess's word that the question cannot be answered."""
+
+
+def is_refusal(call: ToolCall) -> bool:
+    """Whether the call is assess's word that the context cannot answer, rather than a fetch."""
+    return call.name == REFUSE.name

@@ -5,8 +5,6 @@ from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import httpx
-import litellm
 import openai
 import pytest
 from langchain_core.language_models import GenericFakeChatModel
@@ -16,16 +14,18 @@ from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
 from app.chat.graph.service import chat_graph
-from app.chat.models import ChatState, ChatTurn
+from app.chat.models import ChatState
 from app.chat.toolbox.models import ToolCall
 from app.core.config import config
-from app.core.llm.models import TokenUsage
 from app.retrieval.models import RetrievedChunk, SearchRequest
-from tests.conftest import install_chat_model, search_result
-
-USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
-TOKEN_USAGE = TokenUsage(input_tokens=1500, output_tokens=40)
-"""USAGE as a step records it."""
+from tests.conftest import (
+    USAGE,
+    install_chat_model,
+    install_search,
+    junk_result,
+    provider_error,
+    search_result,
+)
 
 
 class RecordingChatModel(GenericFakeChatModel):
@@ -96,7 +96,7 @@ def one_result(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
         calls.append(request)
         return (search_result(),)
 
-    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
+    install_search(monkeypatch, fake_search)
     return calls
 
 
@@ -105,7 +105,21 @@ def two_results(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_search(session, request):
         return (search_result(), search_result(id=2, citation="Article 5(1)"))
 
-    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
+    install_search(monkeypatch, fake_search)
+
+
+@pytest.fixture
+def one_junk_result(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
+    """Search finds one chunk below the bar, so nothing clears the gate; the returned list
+    collects what it was asked for."""
+    calls: list[SearchRequest] = []
+
+    async def fake_search(session, request):
+        calls.append(request)
+        return (junk_result(),)
+
+    install_search(monkeypatch, fake_search)
+    return calls
 
 
 @pytest.fixture(autouse=True)
@@ -249,13 +263,6 @@ def recorded_requests(monkeypatch: pytest.MonkeyPatch) -> list[ChatState]:
 QUESTION = "What is the GHG intensity limit?"
 
 
-def rate_limited() -> openai.RateLimitError:
-    request = httpx.Request("POST", "https://api.anthropic.example")
-    return openai.RateLimitError(
-        message="provider said no", response=httpx.Response(429, request=request), body=None
-    )
-
-
 class FailingModel(RecordingChatModel):
     """Refuses the first `failures` prompts as a rate limit, then answers."""
 
@@ -264,59 +271,14 @@ class FailingModel(RecordingChatModel):
     def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> ChatResult:
         if len(self.received) < self.failures:
             self.received.append(list(messages))
-            raise rate_limited()
+            raise provider_error(openai.RateLimitError, 429)
         return super()._generate(messages, *args, **kwargs)
-
-
-def streamed_text(data: Any) -> str:
-    """The text of one messages-mode stream item, a (chunk, metadata) pair."""
-    chunk, _ = data
-    return chunk.text
-
-
-def litellm_stream(
-    monkeypatch, *deltas: dict[str, Any], usage: dict[str, int] | None = None
-) -> list[dict[str, Any]]:
-    """Stand litellm's completion call in with these deltas — and, as litellm reports it
-    when asked, a trailing usage-only chunk; the calls made are returned."""
-    calls: list[dict[str, Any]] = []
-
-    async def fake_acompletion(**kwargs: Any) -> AsyncIterator[dict[str, Any]]:
-        calls.append(kwargs)
-
-        async def chunks() -> AsyncIterator[dict[str, Any]]:
-            for delta in deltas:
-                yield {"choices": [{"delta": delta, "finish_reason": None}]}
-            if usage:
-                yield {"choices": [], "usage": usage}
-
-        return chunks()
-
-    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
-    return calls
-
-
-def litellm_completion(monkeypatch, content: str, usage: dict[str, int]) -> list[dict[str, Any]]:
-    """Stand litellm's completion call in for one blocking answer, returning the calls made."""
-    calls: list[dict[str, Any]] = []
-
-    async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
-        calls.append(kwargs)
-        return {
-            "choices": [
-                {"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
-            ],
-            "usage": usage,
-        }
-
-    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
-    return calls
 
 
 @pytest.fixture
 def answer_model(monkeypatch):
     model = fake_chat_model("Answered [1].")
-    install_chat_model(monkeypatch, lambda *_: model)
+    install_chat_model(monkeypatch, model)
     return model
 
 
@@ -327,17 +289,14 @@ async def run_graph() -> ChatState:
     return state
 
 
-def hits_for(**per_query: tuple) -> tuple[Callable, list[SearchRequest]]:
-    """A search answering each query with its own hits, recording the requests made."""
+def hits_for(monkeypatch: pytest.MonkeyPatch, **per_query: tuple) -> list[SearchRequest]:
+    """Install a search answering each query with its own hits, and hand back the list the
+    requests it receives accumulate in."""
     requests: list[SearchRequest] = []
 
     async def fake_search(session, request):
         requests.append(request)
         return per_query[request.query]
 
-    return fake_search, requests
-
-
-FOLLOW_UP = "What penalties does it impose?"
-RESTATED = "What penalties does FuelEU Maritime impose?"
-HISTORY = (ChatTurn(question="What is FuelEU Maritime?", answer="A regulation on fuel."),)
+    install_search(monkeypatch, fake_search)
+    return requests

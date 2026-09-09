@@ -1,5 +1,9 @@
 """synthesize: the prompt it assembles, the client it streams through, and its retries."""
 
+from collections.abc import AsyncIterator
+from typing import Any
+
+import litellm
 import pytest
 from langchain_core.messages import SystemMessage
 
@@ -12,15 +16,46 @@ from tests.chat.conftest import (
     ANSWER,
     QUESTION,
     THINKING,
-    TOKEN_USAGE,
     FailingModel,
     fake_chat_model,
-    litellm_stream,
-    streamed_text,
 )
-from tests.conftest import install_chat_model, retrieved_chunk, search_result
+from tests.conftest import (
+    TOKEN_USAGE,
+    install_chat_model,
+    install_search,
+    retrieved_chunk,
+    search_result,
+)
 
 pytestmark = pytest.mark.anyio
+
+
+def streamed_text(data: Any) -> str:
+    """The text of one messages-mode stream item, a (chunk, metadata) pair."""
+    chunk, _ = data
+    return chunk.text
+
+
+def litellm_stream(
+    monkeypatch, *deltas: dict[str, Any], usage: dict[str, int] | None = None
+) -> list[dict[str, Any]]:
+    """Stand litellm's completion call in with these deltas — and, as litellm reports it
+    when asked, a trailing usage-only chunk; the calls made are returned."""
+    calls: list[dict[str, Any]] = []
+
+    async def fake_acompletion(**kwargs: Any) -> AsyncIterator[dict[str, Any]]:
+        calls.append(kwargs)
+
+        async def chunks() -> AsyncIterator[dict[str, Any]]:
+            for delta in deltas:
+                yield {"choices": [{"delta": delta, "finish_reason": None}]}
+            if usage:
+                yield {"choices": [], "usage": usage}
+
+        return chunks()
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    return calls
 
 
 async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
@@ -28,8 +63,8 @@ async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
         return (search_result(text="A very specific clause."),)
 
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
-    install_chat_model(monkeypatch, lambda *_: model)
+    install_search(monkeypatch, fake_search)
+    install_chat_model(monkeypatch, model)
 
     await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -41,7 +76,7 @@ async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
 
 async def test_a_transient_provider_failure_is_retried(one_result, monkeypatch):
     model = FailingModel(messages=iter(["Second time lucky [1]."]), failures=1)
-    install_chat_model(monkeypatch, lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -51,7 +86,7 @@ async def test_a_transient_provider_failure_is_retried(one_result, monkeypatch):
 
 async def test_a_persistent_provider_failure_becomes_a_transient_llm_error(one_result, monkeypatch):
     model = FailingModel(messages=iter([]), failures=10)
-    install_chat_model(monkeypatch, lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     with pytest.raises(LLMError) as exc_info:
         await chat_graph.ainvoke(ChatState(question=QUESTION))

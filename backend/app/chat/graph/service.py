@@ -16,11 +16,6 @@ from app.chat.models import ChatState
 from app.core.config import config
 
 
-def assess_or_synthesize(state: ChatState) -> ChatNode:
-    """Review again while budget remains, else answer with what there is."""
-    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
-
-
 def tools_or_synthesize(state: ChatState) -> ChatNode:
     """After assess: run what it asked for, or answer when it asked for nothing."""
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS_TOOLS
@@ -28,10 +23,11 @@ def tools_or_synthesize(state: ChatState) -> ChatNode:
 
 def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
     """After retrieve or a tool round: refuse for want of context — none cleared the gate,
-    or assess found what there is bears on nothing — else review or answer."""
+    or assess found what there is bears on nothing — else review again while budget
+    remains, or answer with what there is."""
     if not state.sources or state.refusal is not None:
         return ChatNode.REFUSE
-    return assess_or_synthesize(state)
+    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
 
 
 def decompose_or_retrieve(state: ChatState) -> ChatNode:

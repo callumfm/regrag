@@ -19,14 +19,12 @@ from app.chat.stream import stream_chat_events
 from app.core.config import config
 from app.core.llm.errors import LLMError
 from tests.chat.conftest import (
-    TOKEN_USAGE,
-    USAGE,
     RecordingChatModel,
     fake_chat_model,
     restated_message,
     tool_call_message,
 )
-from tests.conftest import install_chat_model, search_result
+from tests.conftest import TOKEN_USAGE, USAGE, install_chat_model, install_search, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -35,7 +33,7 @@ async def test_finished_stream_records_timings_sources_and_usage(
     two_results, monkeypatch, recorded_requests
 ):
     model = fake_chat_model("Two words [1].")
-    install_chat_model(monkeypatch, lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     async for _ in stream_chat_events(ChatQuery(question="q")):
         pass
@@ -57,7 +55,7 @@ async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_reque
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", failing_search)
+    install_search(monkeypatch, failing_search)
 
     async for _ in stream_chat_events(ChatQuery(question="q")):
         pass
@@ -78,7 +76,7 @@ async def test_unexpected_failure_is_recorded_by_its_type_and_sent_as_the_generi
     async def exploding_search(session, request):
         raise RuntimeError("pool exhausted")
 
-    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", exploding_search)
+    install_search(monkeypatch, exploding_search)
 
     events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
@@ -91,7 +89,7 @@ async def test_unexpected_failure_is_recorded_by_its_type_and_sent_as_the_generi
 
 async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded_requests):
     model = fake_chat_model()
-    install_chat_model(monkeypatch, lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     events = stream_chat_events(ChatQuery(question="q"))
     async for event in events:
@@ -108,7 +106,7 @@ async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded
 async def test_failed_write_is_logged_not_raised(two_results, monkeypatch, caplog):
     """The ledger write failing after the answer went out is a log line, not a broken stream."""
     model = fake_chat_model()
-    install_chat_model(monkeypatch, lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     async def broken_create_chat_request(session, state):
         raise OperationalError("insert", {}, ConnectionRefusedError("database away"))
@@ -128,7 +126,7 @@ async def test_cancelled_stream_still_records(two_results, monkeypatch, recorded
     leaves once the sources are out, so the run has reached something worth recording; the
     fake write yields once, so an unshielded await there would be cancelled, not run."""
     model = fake_chat_model()
-    install_chat_model(monkeypatch, lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     async def yielding_create_chat_request(session, state):
         await anyio.sleep(0)
@@ -151,18 +149,10 @@ async def test_cancelled_stream_still_records(two_results, monkeypatch, recorded
 
 
 async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
-    monkeypatch, recorded_requests
+    one_junk_result, answer_model, recorded_requests
 ):
     """No context, so no model call: an empty sources event, the refusal as the one text frame,
     done — and the ledger says refused, with nothing spent past retrieval."""
-
-    async def junk_search(session, request):
-        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
-
-    model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", junk_search)
-    install_chat_model(monkeypatch, lambda *_: model)
-
     events = [
         event async for event in stream_chat_events(ChatQuery(question="best pizza topping?"))
     ]
@@ -175,7 +165,7 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
     ]
     assert [e for e in events if isinstance(e, SourcesEvent)] == [SourcesEvent(data=())]
     assert [e for e in events if isinstance(e, TextEvent)] == [TextEvent(data=REFUSAL_ANSWER)]
-    assert model.received == []
+    assert answer_model.received == []
     [state] = recorded_requests
     assert state.outcome is ChatOutcome.REFUSED
     assert [result.step for result in state.steps] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
@@ -195,7 +185,7 @@ async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_ref
     )
     monkeypatch.setattr("app.chat.graph.nodes.assess.assess_model", lambda: assess)
     model = fake_chat_model()
-    install_chat_model(monkeypatch, lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
@@ -226,12 +216,10 @@ def step_frames(events) -> list[tuple]:
 
 
 async def test_each_step_is_announced_as_it_starts_and_again_once_it_finishes(
-    two_results, monkeypatch
+    two_results, answer_model
 ):
     """A trail that only reported finished work would name a step at the moment it stopped
     being true; the running frame is what the reader is actually waiting on."""
-    install_chat_model(monkeypatch, lambda *_: fake_chat_model())
-
     events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     assert step_frames(events) == [
@@ -242,9 +230,7 @@ async def test_each_step_is_announced_as_it_starts_and_again_once_it_finishes(
     ]
 
 
-async def test_retrieve_is_running_before_the_sources_it_finds_arrive(two_results, monkeypatch):
-    install_chat_model(monkeypatch, lambda *_: fake_chat_model())
-
+async def test_retrieve_is_running_before_the_sources_it_finds_arrive(two_results, answer_model):
     events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     first_step = next(i for i, e in enumerate(events) if isinstance(e, StepEvent))
@@ -254,11 +240,9 @@ async def test_retrieve_is_running_before_the_sources_it_finds_arrive(two_result
 
 
 async def test_a_running_step_reports_no_timing_and_the_ledger_never_sees_one(
-    two_results, monkeypatch, recorded_requests
+    two_results, answer_model, recorded_requests
 ):
     """Timing belongs to work that has happened; the path the ledger keeps is finished work."""
-    install_chat_model(monkeypatch, lambda *_: fake_chat_model())
-
     events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     steps = [event.data for event in events if isinstance(event, StepEvent)]
@@ -314,10 +298,8 @@ class TestLoopStreaming:
         monkeypatch.setattr("app.chat.graph.nodes.assess.run_tool_call", fake_run_tool_call)
 
     async def test_sources_arrive_once_with_the_merged_context(
-        self, loop_on, one_result, one_assess_round, monkeypatch
+        self, loop_on, one_result, one_assess_round, answer_model
     ):
-        install_chat_model(monkeypatch, lambda *_: fake_chat_model())
-
         events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
         sources_events = [e for e in events if isinstance(e, SourcesEvent)]
@@ -330,7 +312,7 @@ class TestLoopStreaming:
     async def test_assess_turns_leak_no_text_events(
         self, loop_on, one_result, one_assess_round, monkeypatch
     ):
-        install_chat_model(monkeypatch, lambda *_: fake_chat_model("The answer [1]."))
+        install_chat_model(monkeypatch, fake_chat_model("The answer [1]."))
 
         events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
@@ -338,12 +320,10 @@ class TestLoopStreaming:
         assert text == "The answer [1]."
 
     async def test_a_tool_round_names_its_calls_before_it_runs_them(
-        self, loop_on, one_result, one_assess_round, monkeypatch
+        self, loop_on, one_result, one_assess_round, answer_model
     ):
         """The round announces one step per call assess asked for, each carrying the query,
         so the reader sees what is being searched for while it is being searched for."""
-        install_chat_model(monkeypatch, lambda *_: fake_chat_model())
-
         events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
         running, completed = ChatStepStatus.RUNNING, ChatStepStatus.COMPLETED
@@ -378,9 +358,8 @@ def history_of(*turns: ChatTurn):
 
 class TestThreads:
     async def test_a_first_question_mints_a_thread_and_returns_it_on_done(
-        self, two_results, monkeypatch, recorded_requests
+        self, two_results, answer_model, monkeypatch, recorded_requests
     ):
-        install_chat_model(monkeypatch, lambda *_: fake_chat_model())
         fake_load, asked = history_of()
         monkeypatch.setattr("app.chat.stream.load_thread_history", fake_load)
 
@@ -398,7 +377,7 @@ class TestThreads:
     ):
         rewrite_turns(restated_message("What penalties does FuelEU impose?"))
         model = fake_chat_model("Fines [1].")
-        install_chat_model(monkeypatch, lambda *_: model)
+        install_chat_model(monkeypatch, model)
         prior = ChatTurn(question="What is FuelEU?", answer="A regulation.")
         fake_load, asked = history_of(prior)
         monkeypatch.setattr("app.chat.stream.load_thread_history", fake_load)
@@ -407,7 +386,7 @@ class TestThreads:
             assert request.query == "What penalties does FuelEU impose?"
             return (search_result(),)
 
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
+        install_search(monkeypatch, fake_search)
 
         query = ChatQuery(question="What penalties does it impose?", thread_id=THREAD_ID)
         events = [event async for event in stream_chat_events(query)]
@@ -428,7 +407,7 @@ class TestThreads:
         fake_load, _ = history_of(*turns)
         monkeypatch.setattr("app.chat.stream.load_thread_history", fake_load)
         model = fake_chat_model()
-        install_chat_model(monkeypatch, lambda *_: model)
+        install_chat_model(monkeypatch, model)
 
         query = ChatQuery(question="one more?", thread_id=THREAD_ID)
         events = [event async for event in stream_chat_events(query)]

@@ -7,13 +7,15 @@ from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
 from app.core.config import config
 from app.retrieval.models import SearchRequest
-from tests.chat.conftest import QUESTION, fake_chat_model, hits_for
-from tests.conftest import install_chat_model, search_result
+from tests.chat.conftest import QUESTION, hits_for
+from tests.conftest import junk_result, search_result
 
 pytestmark = pytest.mark.anyio
 
 
-async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, monkeypatch):
+async def test_retrieve_widens_what_search_found_to_whole_sections(
+    one_result, answer_model, monkeypatch
+):
     """The graph hands search's hits to expansion, so the prompt sees whole sections."""
     widened = (search_result(id=2, citation="Article 4(2)", text="The limit is 91,16 gCO2e/MJ."),)
 
@@ -24,7 +26,6 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, m
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
     monkeypatch.setattr("app.chat.graph.nodes.retrieve.expand_sections", fake_expand)
-    install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -32,14 +33,15 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, m
     assert state["hits"] == (search_result(),)
 
 
-async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, monkeypatch):
+async def test_retrieve_leaves_search_alone_when_expansion_is_off(
+    one_result, answer_model, monkeypatch
+):
     """The off switch skips the widening query, not just its result."""
 
     async def refuse(session, chunks, *, limit):
         raise AssertionError("expansion ran with EXPAND_SECTIONS off")
 
     monkeypatch.setattr("app.chat.graph.nodes.retrieve.expand_sections", refuse)
-    install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -79,10 +81,9 @@ class TestInterleaveByRank:
 
 class TestRetrieveOverQueries:
     async def test_each_query_is_searched_and_the_hits_interleaved(self, monkeypatch):
-        fake_search, requests = hits_for(
-            a=(search_result(id=1), search_result(id=2)), b=(search_result(id=3),)
+        requests = hits_for(
+            monkeypatch, a=(search_result(id=1), search_result(id=2)), b=(search_result(id=3),)
         )
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -95,9 +96,7 @@ class TestRetrieveOverQueries:
     async def test_a_query_below_the_bar_keeps_its_hits_but_adds_no_sources(self, monkeypatch):
         """The out-of-corpus part cannot admit sub-bar hits to the context, yet what search
         found for it stays on the state so the split can be read against it."""
-        junk = search_result(id=9, cosine_similarity=0.2, reranker_relevance=0.3)
-        fake_search, _ = hits_for(a=(search_result(id=1),), b=(junk,))
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
+        hits_for(monkeypatch, a=(search_result(id=1),), b=(junk_result(id=9),))
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -105,9 +104,8 @@ class TestRetrieveOverQueries:
         assert tuple(chunk.id for chunk in update["sources"]) == (1,)
 
     async def test_no_query_clearing_the_bar_leaves_the_context_empty(self, monkeypatch):
-        junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
-        fake_search, _ = hits_for(a=(junk,), b=(junk,))
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
+        junk = junk_result()
+        hits_for(monkeypatch, a=(junk,), b=(junk,))
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -122,7 +120,7 @@ class TestRetrieveOverQueries:
         assert update["sources"] == (search_result(),)
 
     async def test_expansion_widens_the_interleaved_survivors(self, monkeypatch):
-        fake_search, _ = hits_for(a=(search_result(id=1),), b=(search_result(id=2),))
+        hits_for(monkeypatch, a=(search_result(id=1),), b=(search_result(id=2),))
         widened: list[tuple[int, ...]] = []
 
         async def fake_expand(session, chunks, *, limit):
@@ -130,7 +128,6 @@ class TestRetrieveOverQueries:
             return (*chunks, search_result(id=3))
 
         monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
         monkeypatch.setattr("app.chat.graph.nodes.retrieve.expand_sections", fake_expand)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))

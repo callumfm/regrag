@@ -19,8 +19,7 @@ from app.evals.judge.models import (
     RefusalVerdict,
 )
 from app.evals.models import EvalResult
-from tests.chat.conftest import TOKEN_USAGE
-from tests.conftest import retrieved_chunk, search_result
+from tests.conftest import TOKEN_USAGE, retrieved_chunk, search_result
 
 REFERENCE = CaseReference(celex="32023R1805", article="4")
 

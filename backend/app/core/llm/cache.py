@@ -1,28 +1,22 @@
 """Replay repeated provider calls from disk, so only the first run pays for them."""
 
-from collections.abc import Sequence
 from pathlib import Path
 
 import litellm
 from litellm.caching import Cache
-from litellm.types.caching import CachingSupportedCallTypes, LiteLLMCacheType
-
-RETRIEVAL_CALLS: list[CachingSupportedCallTypes] = ["aembedding", "arerank"]
-"""The paid calls retrieval makes, and the ones safe to replay: a completion replayed from
-disk would measure the cache rather than the model."""
+from litellm.types.caching import LiteLLMCacheType
 
 
-def enable_call_cache(
-    directory: Path, *, calls: Sequence[CachingSupportedCallTypes] = RETRIEVAL_CALLS
-) -> None:
-    """Serve repeated calls of the named kinds, retrieval's by default, from the directory,
-    keyed on each call's own request parameters, a provider's own included (see the key
-    tests). Deleting the directory invalidates the lot."""
+def enable_call_cache(directory: Path) -> None:
+    """Serve repeated embed and rerank calls from the directory, keyed on each call's own
+    request parameters, a provider's own included (see the key tests). A completion is
+    never replayed: served from disk it would measure the cache rather than the model.
+    Deleting the directory invalidates the lot."""
     litellm.enable_caching_on_provider_specific_optional_params = True
     litellm.cache = Cache(
         type=LiteLLMCacheType.DISK,
         disk_cache_dir=str(directory),
-        supported_call_types=list(calls),
+        supported_call_types=["aembedding", "arerank"],
     )
 
 

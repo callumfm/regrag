@@ -1,6 +1,6 @@
 """Citation markers: how an answer's [n] markers are read, stripped, and bound to blocks."""
 
-from app.core.citations import find_cited_markers, find_cited_sources, strip_markers
+from app.chat.citations import find_cited_markers, find_cited_sources, strip_markers
 
 
 def test_strip_markers_removes_every_citation_marker_and_nothing_else() -> None:

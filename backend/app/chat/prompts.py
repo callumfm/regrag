@@ -4,10 +4,9 @@ formatting a citation marker refers to."""
 from collections.abc import Sequence
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from pydantic import ValidationError
 
 from app.chat.models import ChatTurn
-from app.retrieval.models import ReferenceTarget, RetrievedChunk
+from app.retrieval.models import RetrievedChunk
 
 THREAD_NOTE = (
     " Earlier turns of the conversation come before the context; read them only to "
@@ -22,35 +21,16 @@ def system_prompt(base: str, history: Sequence[ChatTurn]) -> str:
     return f"{base}{THREAD_NOTE}" if history else base
 
 
-def _reference_addresses(source: RetrievedChunk) -> list[str]:
-    """Each followable address once, as 'celex division': a reference naming no division is
-    skipped, on the same rule follow_reference's target enforces, and several points of one
-    article are the one address."""
-    addresses = []
-    for reference in source.references:
-        try:
-            target = ReferenceTarget.from_reference(reference, citing=source.celex)
-        except ValidationError:
-            continue
-        addresses.append(f"{target.celex} {target.citation}")
-    return list(dict.fromkeys(addresses))
-
-
 def format_context_block(marker: int, source: RetrievedChunk) -> str:
     """One chunk as the numbered block a citation marker refers to."""
     return f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
 
 
-def format_context(sources: Sequence[RetrievedChunk], *, cites: bool = False) -> str:
-    """The retrieved chunks as numbered blocks the citation markers refer to, each block
-    followed by the addresses it cites when the caller asks for them."""
-    blocks = []
-    for marker, source in enumerate(sources, start=1):
-        block = format_context_block(marker, source)
-        if cites and (addresses := _reference_addresses(source)):
-            block += f"\ncites: {', '.join(addresses)}"
-        blocks.append(block)
-    return "\n\n".join(blocks)
+def format_context(sources: Sequence[RetrievedChunk]) -> str:
+    """The retrieved chunks as the numbered blocks the citation markers refer to."""
+    return "\n\n".join(
+        format_context_block(marker, source) for marker, source in enumerate(sources, start=1)
+    )
 
 
 def thread_messages(history: Sequence[ChatTurn]) -> list[BaseMessage]:

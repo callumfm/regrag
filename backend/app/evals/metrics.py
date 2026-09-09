@@ -3,8 +3,8 @@ and the run's measures, each a plain function over its results."""
 
 from collections.abc import Sequence
 
+from app.chat.citations import find_cited_markers, find_cited_sources
 from app.chat.enums import ChatOutcome, RefusalReason
-from app.core.citations import find_cited_markers, find_cited_sources
 from app.core.llm.models import TokenUsage
 from app.evals.dataset.enums import EvalKind
 from app.evals.judge.models import CaseJudgement

@@ -4,7 +4,6 @@ the wrap point stamps on each failure."""
 import json
 import subprocess
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -12,13 +11,12 @@ import litellm
 import openai
 import pytest
 
-from app.core.config import config
+from app.core.config import BACKEND_ROOT, config
 from app.core.llm.embed import EmbedInput, embed
 from app.core.llm.errors import LLMError
+from tests.conftest import provider_error
 
 pytestmark = pytest.mark.anyio
-
-BACKEND_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _response(vectors: list[list[float]]) -> SimpleNamespace:
@@ -129,9 +127,7 @@ async def test_embed_wraps_provider_error_without_leaking_provider_text(monkeypa
     provider_message = "connection refused by voyageai.com upstream"
 
     async def fake_aembedding(**kwargs):
-        raise openai.APIConnectionError(
-            message=provider_message, request=httpx.Request("POST", "http://voyageai.example")
-        )
+        raise provider_error(openai.APIConnectionError, message=provider_message)
 
     monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
@@ -142,8 +138,9 @@ async def test_embed_wraps_provider_error_without_leaking_provider_text(monkeypa
     assert str(exc_info.value) == "embedding call failed"
 
 
-def test_importing_llm_without_cost_map_pin_makes_no_network_connection():
-    """Regression guard for the offline pin: unset it and prove no socket connect happens."""
+def test_importing_litellm_without_cost_map_pin_makes_no_network_connection():
+    """Regression guard for the offline pin: unset it and prove no socket connect happens,
+    even from a module that imports litellm before anything of ours."""
     script = """
 import os
 import socket
@@ -160,7 +157,7 @@ def _tracking_connect(self, address):
 
 socket.socket.connect = _tracking_connect
 
-import app.core.llm  # noqa: E402
+import app.retrieval.rerank  # noqa: E402
 
 print(len(attempts))
 """
@@ -218,20 +215,6 @@ async def test_embed_sends_voyage_request_body_and_auth_header(monkeypatch):
     )
 
     litellm.in_memory_llm_clients_cache.flush_cache()
-
-
-REQUEST = httpx.Request("POST", "https://api.voyageai.com/v1/embeddings")
-
-
-def provider_error(exc_type, status_code: int | None = None):
-    """Build an openai exception the way litellm surfaces one."""
-    if status_code is None:
-        return exc_type(request=REQUEST)
-    return exc_type(
-        message="provider said no",
-        response=httpx.Response(status_code, request=REQUEST),
-        body=None,
-    )
 
 
 @pytest.mark.parametrize(

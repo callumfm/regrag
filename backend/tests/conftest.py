@@ -11,15 +11,21 @@ from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages.ai import UsageMetadata
 from sqlalchemy import URL, create_engine, delete, make_url, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
+from app.chat.graph.nodes.assess import call_assess_model
+from app.chat.graph.nodes.decompose import call_decompose_model
+from app.chat.graph.nodes.rewrite import call_rewrite_model
 from app.chat.graph.nodes.synthesize import synthesize
 from app.core.clock import utc_now
 from app.core.config import BACKEND_ROOT, EMBED_DIMENSIONS, R2Config, config
 from app.core.db.session import async_session_factory
+from app.core.llm.models import TokenUsage
 from app.core.storage import LocalObjectStore
 from app.evals.judge.service import call_judge_model
 from app.ingestion.chunk.models import Chunk
@@ -41,6 +47,9 @@ RETRIED = (
     run_acts_by_topic_query,
     _download_version_html,
     embed_batch,
+    call_rewrite_model,
+    call_decompose_model,
+    call_assess_model,
     synthesize,
     call_judge_model,
 )
@@ -399,11 +408,36 @@ def retrieved_chunk(**overrides: Any) -> RetrievedChunk:
     return RetrievedChunk(**{**RETRIEVED_CHUNK, **overrides})
 
 
-def install_chat_model(monkeypatch: pytest.MonkeyPatch, build: Callable[..., Any]) -> None:
+USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
+"""What a faked model reports spending, as langchain carries it."""
+TOKEN_USAGE = TokenUsage(input_tokens=USAGE["input_tokens"], output_tokens=USAGE["output_tokens"])
+"""USAGE as a step records it."""
+
+PROVIDER_REQUEST = httpx.Request("POST", "https://api.provider.example")
+
+
+def provider_error(exc_type, status_code: int | None = None, *, message: str | None = None):
+    """An openai exception as litellm surfaces one: on a status when given, else as a
+    connection failure, which carries the message only when one is given."""
+    if status_code is None:
+        return exc_type(request=PROVIDER_REQUEST, **({"message": message} if message else {}))
+    return exc_type(
+        message=message or "provider said no",
+        response=httpx.Response(status_code, request=PROVIDER_REQUEST),
+        body=None,
+    )
+
+
+def install_chat_model(monkeypatch: pytest.MonkeyPatch, model: BaseChatModel) -> None:
     """Point every node that calls a model at one fake. Each node imports chat_model by
     name, so the fake is set on each node module rather than on the one it came from."""
     for node in ("rewrite", "decompose", "assess", "synthesize"):
-        monkeypatch.setattr(f"app.chat.graph.nodes.{node}.chat_model", build)
+        monkeypatch.setattr(f"app.chat.graph.nodes.{node}.chat_model", lambda *_: model)
+
+
+def install_search(monkeypatch: pytest.MonkeyPatch, fake_search: Callable[..., Any]) -> None:
+    """Point retrieve at a fake search; the node imports it by name, so it is set there."""
+    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
 
 
 def search_result(**overrides: Any) -> SearchResult:
@@ -416,3 +450,8 @@ def search_result(**overrides: Any) -> SearchResult:
         "cosine_similarity": 0.8,
     }
     return SearchResult(**{**defaults, **overrides})
+
+
+def junk_result(**overrides: Any) -> SearchResult:
+    """A hit below both retrieval bars, which the gate keeps out of the context."""
+    return search_result(**{"cosine_similarity": 0.2, "reranker_relevance": 0.3, **overrides})

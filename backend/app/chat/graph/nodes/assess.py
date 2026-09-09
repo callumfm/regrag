@@ -7,11 +7,12 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
+from pydantic import ValidationError
 
 from app.chat.enums import RefusalReason
 from app.chat.graph.node import chat_model, traced
 from app.chat.models import ChatState, ChatStepResult, Refusal
-from app.chat.prompts import format_context, system_prompt, thread_messages
+from app.chat.prompts import format_context_block, system_prompt, thread_messages
 from app.chat.toolbox.models import ToolCall
 from app.chat.toolbox.service import build_call_step, run_tool_call, tool_definitions
 from app.chat.toolbox.tools.follow_reference import already_in_context
@@ -19,7 +20,7 @@ from app.chat.toolbox.tools.refuse import is_refusal
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.llm.errors import LLMError, llm_retry, wrap_provider_errors
-from app.retrieval.models import RetrievedChunk
+from app.retrieval.models import ReferenceTarget, RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +55,35 @@ def build_assess_system_prompt(*, may_refuse: bool) -> str:
     return ASSESS_SYSTEM_PROMPT + (ASSESS_REFUSAL_INSTRUCTION if may_refuse else "")
 
 
+def reference_addresses(source: RetrievedChunk) -> list[str]:
+    """Each followable address once, as 'celex division': a reference naming no division is
+    skipped, on the same rule follow_reference's target enforces, and several points of one
+    article are the one address."""
+    addresses = []
+    for reference in source.references:
+        try:
+            target = ReferenceTarget.from_reference(reference, citing=source.celex)
+        except ValidationError:
+            continue
+        addresses.append(f"{target.celex} {target.citation}")
+    return list(dict.fromkeys(addresses))
+
+
+def format_context_with_cites(sources: Sequence[RetrievedChunk]) -> str:
+    """The same numbered blocks synthesize will cite, each followed by the addresses it
+    cites, so follow_reference can be pointed at one."""
+    blocks = []
+    for marker, source in enumerate(sources, start=1):
+        block = format_context_block(marker, source)
+        if addresses := reference_addresses(source):
+            block += f"\ncites: {', '.join(addresses)}"
+        blocks.append(block)
+    return "\n\n".join(blocks)
+
+
 def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> str:
-    """The full assess turn: the same numbered blocks synthesize will cite, each with the
-    addresses it cites, then the question."""
-    return f"Context:\n\n{format_context(sources, cites=True)}\n\nQuestion: {question}"
+    """The full assess turn: the context with its cites lines, then the question."""
+    return f"Context:\n\n{format_context_with_cites(sources)}\n\nQuestion: {question}"
 
 
 def assess_model() -> Runnable:

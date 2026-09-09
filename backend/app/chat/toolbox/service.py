@@ -10,7 +10,7 @@ from app.chat.enums import ChatStepStatus, ToolStep
 from app.chat.models import ChatStepResult
 from app.chat.toolbox.models import ToolCall
 from app.chat.toolbox.tools.follow_reference import FOLLOW_REFERENCE
-from app.chat.toolbox.tools.refuse import REFUSE, REFUSE_TOOL
+from app.chat.toolbox.tools.refuse import REFUSE
 from app.chat.toolbox.tools.search import SEARCH
 from app.core.config import config
 from app.core.db.session import get_session
@@ -29,7 +29,7 @@ def tool_definitions() -> list[dict]:
     return [
         spec.definition()
         for spec in TOOLS.values()
-        if spec.name != REFUSE_TOOL or config.ASSESS_MAY_REFUSE
+        if spec is not REFUSE or config.ASSESS_MAY_REFUSE
     ]
 
 
@@ -40,19 +40,18 @@ def describe_call(call: ToolCall) -> str | None:
     return " · ".join(given) or None
 
 
-def tool_step(name: str) -> ToolStep:
-    """The step a call to this tool records; a tool the surface does not have records that."""
-    spec = TOOLS.get(name)
-    return spec.step if spec else ToolStep.UNKNOWN
-
-
 def build_call_step(
     call: ToolCall, *, ms: int = 0, status: ChatStepStatus = ChatStepStatus.COMPLETED
 ) -> ChatStepResult:
     """The step a call records, as announced when it starts and as settled once it has run:
-    built in one place so the two frames the client pairs up cannot disagree."""
+    built in one place so the two frames the client pairs up cannot disagree. A tool the
+    surface does not have records as unknown."""
+    spec = TOOLS.get(call.name)
     return ChatStepResult(
-        step=tool_step(call.name), ms=ms, status=status, subject=describe_call(call)
+        step=spec.step if spec else ToolStep.UNKNOWN,
+        ms=ms,
+        status=status,
+        subject=describe_call(call),
     )
 
 

@@ -16,17 +16,16 @@ from app.chat.graph.nodes.assess import (
 from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
 from app.chat.models import Refusal
 from app.chat.toolbox.models import ToolCall
+from app.chat.toolbox.service import tool_definitions
 from app.core.config import config
 from app.ingestion.chunk.models import Reference
 from tests.chat.conftest import (
     QUESTION,
-    TOKEN_USAGE,
-    USAGE,
     FailingModel,
     run_graph,
     tool_call_message,
 )
-from tests.conftest import search_result
+from tests.conftest import TOKEN_USAGE, USAGE, install_search, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -219,7 +218,7 @@ class TestAssessLoop:
         async def empty_search(session, request):
             return ()
 
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", empty_search)
+        install_search(monkeypatch, empty_search)
 
         state = await run_graph()
 
@@ -330,7 +329,7 @@ class TestFollowsOfBlocksAlreadyShown:
         async def fake_search(session, request):
             return (search_result(part=1, parts=2),)
 
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
+        install_search(monkeypatch, fake_search)
         assess_turns(tool_call_message("follow_reference", self.SHOWN_ARGS), AIMessage(content=""))
         run_calls = tool_results()
 
@@ -347,7 +346,7 @@ class TestFollowsOfBlocksAlreadyShown:
         async def fake_search(session, request):
             return (search_result(citation="Article 4", article="4"),)
 
-        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
+        install_search(monkeypatch, fake_search)
         whole = {"celex": "32023R1805", "article": "4"}
         assess_turns(tool_call_message("follow_reference", whole), AIMessage(content=""))
         run_calls = tool_results()
@@ -445,17 +444,14 @@ class TestRefuseTool:
         assert state.answer == REFUSAL_ANSWER
         assert state.assess_rounds() == 1
 
-    def test_the_tool_is_offered_only_while_the_switch_is_on(self, monkeypatch):
-        def offered() -> list[str]:
-            binding = assess_model()
-            assert isinstance(binding, RunnableBinding)
-            return [tool["function"]["name"] for tool in binding.kwargs["tools"]]
-
-        monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", True)
-        assert offered() == ["search", "follow_reference", "refuse"]
-
+    def test_assess_binds_the_surface_as_the_toolbox_offers_it(self, monkeypatch):
+        """Which tools that is, switch on or off, the toolbox says and its tests hold."""
         monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", False)
-        assert offered() == ["search", "follow_reference"]
+
+        binding = assess_model()
+
+        assert isinstance(binding, RunnableBinding)
+        assert binding.kwargs["tools"] == tool_definitions()
 
     async def test_the_prompt_tells_assess_when_to_call_it_while_the_switch_is_on(
         self, loop_on, one_result, answer_model, assess_turns, monkeypatch
