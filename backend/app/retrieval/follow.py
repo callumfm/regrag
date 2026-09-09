@@ -34,7 +34,10 @@ def _targeted(stmt: Select, target: ReferenceTarget) -> Select:
         stmt = stmt.where(
             or_(
                 DocumentChunk.paragraph == target.paragraph,
-                and_(DocumentChunk.paragraph.is_(None), DocumentChunk.text.regexp_match(point)),
+                and_(
+                    DocumentChunk.paragraph.is_(None),
+                    DocumentChunk.text.regexp_match(point, flags="i"),
+                ),
             )
         )
     if target.annex is not None:

@@ -12,10 +12,10 @@ from app.ingestion import celex
 from app.ingestion.chunk.models import Reference, format_citation
 
 ORDINALS = ("first", "second", "third", "fourth", "fifth", "last")
-SUBDIVISION = rf"point\s+\([0-9a-z]+\)|(?:{'|'.join(ORDINALS)})\s+subparagraph"
+SUBDIVISION = rf"(?:point\s+\([0-9a-z]+\)|(?:{'|'.join(ORDINALS)})\s+subparagraph)"
 """A part named after the division it belongs to: 'point (e)', 'second subparagraph'."""
 
-QUALIFIER = re.compile(rf"^(?:,\s*(?:{SUBDIVISION}),?)?\s+(?:of|to|in)\s+(?:that\s+|the\s+)?$")
+QUALIFIER = re.compile(rf"^(?:,\s*{SUBDIVISION},?)?\s+(?:of|to|in)\s+(?:that\s+|the\s+)?$")
 """What may sit between a division and the instrument qualifying it: the qualifier alone, or
 a point or subparagraph of the division first — 'Article 3, point (e), of Regulation X'."""
 
@@ -27,7 +27,8 @@ class Mention(FrozenModel):
     end: int
 
     def is_qualified_by(self, other: "Mention", text: str) -> bool:
-        """True when nothing but a qualifier ('of', 'to', 'in') separates this mention from it."""
+        """True when only a qualifier ('of', 'to', 'in') separates this mention from it,
+        after a point or subparagraph of it where the citation names one."""
         return other.start >= self.end and QUALIFIER.match(text[self.end : other.start]) is not None
 
 

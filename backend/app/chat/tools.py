@@ -29,15 +29,6 @@ class SearchArgs(FrozenModel):
     celex: str | None = None
 
 
-class FollowReferenceArgs(FrozenModel):
-    """A cited division to fetch outright, addressed as the citation addresses it."""
-
-    celex: str
-    article: str | None = None
-    paragraph: str | None = None
-    annex: str | None = None
-
-
 async def run_search(session: AsyncSession, args: SearchArgs) -> tuple[RetrievedChunk, ...]:
     """A call's hits, or nothing when they miss the bar retrieval holds its own hits to:
     what the gate refuses to answer from, the loop may not add to the context either."""
@@ -51,13 +42,10 @@ async def run_search(session: AsyncSession, args: SearchArgs) -> tuple[Retrieved
 
 
 async def run_follow_reference(
-    session: AsyncSession, args: FollowReferenceArgs
+    session: AsyncSession, target: ReferenceTarget
 ) -> tuple[RetrievedChunk, ...]:
     """The division's text from the top, capped: a long article or annex would otherwise
     spend the round's whole budget on one call. No score to gate on — the context cited it."""
-    target = ReferenceTarget(
-        celex=args.celex, article=args.article, paragraph=args.paragraph, annex=args.annex
-    )
     chunks = await follow_reference(session, target)
     return chunks[: config.ASSESS_FOLLOW_LIMIT]
 
@@ -99,7 +87,7 @@ TOOL_SURFACE = {
         ToolSpec(
             "follow_reference",
             ToolStep.FOLLOW_REFERENCE,
-            FollowReferenceArgs,
+            ReferenceTarget,
             run_follow_reference,
             "Fetch the full text of one cited division: an article (optionally one paragraph) "
             "or an annex of an act (celex). Use the addresses on the context's cites lines.",
@@ -109,24 +97,6 @@ TOOL_SURFACE = {
 
 TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
 """The surface as the model is shown it, built once: it depends on nothing at call time."""
-
-
-def already_in_context(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:
-    """Whether the call would only fetch a paragraph the context already shows in full, so
-    running it could add nothing. A whole article or annex is never known to be shown in
-    full: its chapeau's parts say nothing about what sits under it. A call the surface cannot
-    read is left to run_tool_call to reject."""
-    if call.name != "follow_reference":
-        return False
-    try:
-        target = ReferenceTarget.model_validate(call.args)
-    except ValidationError:
-        return False
-    if target.paragraph is None:
-        return False
-    citation = target.citation.lower()
-    shown = [s for s in sources if s.celex == target.celex and s.citation.lower() == citation]
-    return bool(shown) and len({s.part for s in shown}) == shown[0].parts
 
 
 def describe_call(call: ToolCall) -> str | None:
@@ -140,6 +110,26 @@ def tool_step(name: str) -> ToolStep:
     """The step a call to this tool records; a tool the surface does not have records that."""
     spec = TOOL_SURFACE.get(name)
     return spec.step if spec else ToolStep.UNKNOWN
+
+
+def already_in_context(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:
+    """Whether the call would only re-fetch a paragraph the context already shows in full.
+    An article or annex never counts: its chapeau's parts say nothing about what sits under it."""
+    if tool_step(call.name) is not ToolStep.FOLLOW_REFERENCE:
+        return False
+    try:
+        target = ReferenceTarget.model_validate(call.args)
+    except ValidationError:
+        return False
+    if target.paragraph is None:
+        return False
+    citation = target.citation.lower()
+    shown = [
+        chunk
+        for chunk in sources
+        if chunk.celex == target.celex and chunk.citation.lower() == citation
+    ]
+    return bool(shown) and len({chunk.part for chunk in shown}) == shown[0].parts
 
 
 def build_call_step(

@@ -73,15 +73,10 @@ async def test_follow_reference_returns_paragraphs_in_reading_order_not_text_ord
 async def test_follow_reference_puts_a_split_chapeau_in_part_order(
     db_session: AsyncSession, corpus: list[DocumentChunk]
 ) -> None:
-    """A RetrievedChunk carries no part, so the order is checked against the rows' own parts."""
     found = await follow_reference(db_session, ReferenceTarget(celex="32015R0757", article="3"))
 
-    parts = select(DocumentChunk.id, DocumentChunk.part).where(
-        DocumentChunk.celex == "32015R0757", DocumentChunk.article == "3"
-    )
-    part_of = {id_: part for id_, part in await db_session.execute(parts)}
     assert [chunk.citation for chunk in found] == ["Article 3", "Article 3"]
-    assert [part_of[chunk.id] for chunk in found] == [1, 2]
+    assert [chunk.part for chunk in found] == [1, 2]
 
 
 async def test_follow_reference_matches_the_article_number_case_insensitively(
@@ -251,6 +246,62 @@ async def test_a_chunk_citing_nothing_carries_no_references(
     assert [chunk.references for chunk in found] == [()]
 
 
+@pytest.mark.parametrize(("point", "part"), [("e", 1), ("k", 2), ("E", 1)])
+async def test_a_point_of_a_definitions_article_reaches_the_part_that_defines_it(
+    db_session: AsyncSession, corpus: list[DocumentChunk], point: str, part: int
+) -> None:
+    """MRV Article 3 numbers no paragraphs, so a citation's point is found in the text —
+    cased as the article number is, since a citation's case is no more trustworthy here."""
+    found = await follow_reference(
+        db_session, ReferenceTarget(celex="32015R0757", article="3", paragraph=point)
+    )
+
+    assert [chunk.part for chunk in found] == [part]
+
+
+async def test_a_point_no_part_defines_returns_nothing_rather_than_the_whole_article(
+    db_session: AsyncSession, corpus: list[DocumentChunk]
+) -> None:
+    found = await follow_reference(
+        db_session, ReferenceTarget(celex="32015R0757", article="3", paragraph="z")
+    )
+
+    assert found == ()
+
+
+async def test_a_point_numbered_rather_than_lettered_reaches_its_part_the_same_way(
+    db_session: AsyncSession,
+    corpus: list[DocumentChunk],
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    """The numbering no fixture act's definitions article uses: '(15)' opening a line."""
+    for index, text in enumerate(
+        ["(1) ‘ship’ means a seagoing vessel;", "(15) ‘ship at berth’ means a moored ship;"]
+    ):
+        db_session.add(
+            make_chunk_row(
+                ingest_run,
+                celex=INVENTED_CELEX,
+                article="3",
+                paragraph=None,
+                part=index + 1,
+                parts=2,
+                position=index,
+                citation="Article 3",
+                text=text,
+                content_hash=f"{index:064d}",
+            )
+        )
+    await db_session.flush()
+
+    found = await follow_reference(
+        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", paragraph="15")
+    )
+
+    assert [chunk.part for chunk in found] == [2]
+
+
 # The chunk hashes covering a division, for stamping a golden case against it
 
 
@@ -285,64 +336,3 @@ async def test_a_division_with_no_stored_chunks_hashes_to_nothing(
     target = ReferenceTarget(celex=INVENTED_CELEX, article="404")
 
     assert await division_content_hashes(db_session, target) == ()
-
-
-DEFINITIONS_PARTS = (
-    "For the purposes of this Regulation:\n(a) ‘ship’ means a seagoing vessel;",
-    "(e) ‘gross tonnage’ means the tonnage on the certificate;\n(f) ‘verifier’ means a body;",
-    "(15) ‘ship at berth’ means a moored ship;\n(16) ‘ship at anchorage’ means a ship not moored;",
-)
-
-
-async def store_definitions_article(
-    session: AsyncSession, ingest_run: IngestRun, make_chunk_row: Callable[..., DocumentChunk]
-) -> None:
-    """A definitions article as the chunker stores one: no paragraph, split into parts."""
-    for part, text in enumerate(DEFINITIONS_PARTS, start=1):
-        session.add(
-            make_chunk_row(
-                ingest_run,
-                celex=INVENTED_CELEX,
-                article="3",
-                paragraph=None,
-                part=part,
-                parts=len(DEFINITIONS_PARTS),
-                position=part,
-                citation="Article 3",
-                text=text,
-                content_hash=f"{part:064d}",
-            )
-        )
-    await session.flush()
-
-
-@pytest.mark.parametrize(("point", "part"), [("e", 2), ("16", 3)])
-async def test_a_point_of_a_definitions_article_reaches_the_part_that_defines_it(
-    db_session: AsyncSession,
-    ingest_run: IngestRun,
-    make_chunk_row: Callable[..., DocumentChunk],
-    point: str,
-    part: int,
-) -> None:
-    """A definitions article numbers no paragraphs, so a citation's point is found in the text."""
-    await store_definitions_article(db_session, ingest_run, make_chunk_row)
-
-    found = await follow_reference(
-        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", paragraph=point)
-    )
-
-    assert [chunk.part for chunk in found] == [part]
-
-
-async def test_a_point_no_part_defines_returns_nothing_rather_than_the_whole_article(
-    db_session: AsyncSession,
-    ingest_run: IngestRun,
-    make_chunk_row: Callable[..., DocumentChunk],
-) -> None:
-    await store_definitions_article(db_session, ingest_run, make_chunk_row)
-
-    found = await follow_reference(
-        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", paragraph="z")
-    )
-
-    assert found == ()

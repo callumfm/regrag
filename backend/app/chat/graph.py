@@ -196,19 +196,16 @@ def assess_model() -> Runnable:
 @llm_retry
 @wrap_provider_errors("assess call")
 async def call_assess_model(state: ChatState) -> dict[str, Any]:
-    """One model turn asking what would fill the gaps in the context. A call that would
-    only re-fetch a division the context already shows is dropped, then the rest are capped
-    to the calls a round may run — neither reaches state or the ledger."""
+    """One model turn asking what would fill the gaps in the context. A call that would only
+    re-fetch a paragraph the context already shows is dropped, then the rest are capped to the
+    calls a round may run — neither reaches state or the ledger."""
     messages = [
         SystemMessage(ASSESS_SYSTEM_PROMPT),
         HumanMessage(build_assess_message(state.question, state.sources)),
     ]
     response = await assess_model().ainvoke(messages)
-    useful = [
-        call
-        for call in (ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls)
-        if not already_in_context(call, state.sources)
-    ]
+    asked = [ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls]
+    useful = [call for call in asked if not already_in_context(call, state.sources)]
     calls = tuple(useful[: config.ASSESS_MAX_CALLS])
     return {"pending_calls": calls, "usage": response.usage_metadata}
 
