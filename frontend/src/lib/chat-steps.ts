@@ -1,6 +1,7 @@
 import type { ChatStep } from "@/api/types"
 
 const LABELS: Record<ChatStep["step"], { running: string; done: string }> = {
+	rewrite: { running: "Rewriting the question", done: "Rewrote the question" },
 	decompose: { running: "Splitting the question", done: "Split the question" },
 	retrieve: { running: "Searching the corpus", done: "Searched the corpus" },
 	assess: { running: "Reviewing the evidence", done: "Reviewed the evidence" },

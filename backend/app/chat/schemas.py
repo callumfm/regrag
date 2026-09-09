@@ -1,6 +1,8 @@
 """Chat request tracking: one row per handled question, the ledger a spend cap sums over,
 and one row per step it ran through."""
 
+import uuid
+
 from sqlalchemy import ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -9,8 +11,8 @@ from app.core.db.schema import BaseSchema
 
 
 class ChatRequest(BaseSchema):
-    """One handled question: how it ended, how long it lived, what it cost, and what failed;
-    its path, step by step, is in chat_request_steps. The index serves the spend cap's window."""
+    """One handled question: its thread, how it ended, its answer, how long it lived, what it cost,
+    and what failed; its path is in chat_request_steps. The index serves the spend cap's window."""
 
     __tablename__ = "chat_requests"
     __table_args__ = (Index("ix_chat_requests_created_at", "created_at"),)
@@ -18,6 +20,8 @@ class ChatRequest(BaseSchema):
     id: Mapped[int] = mapped_column(primary_key=True)
     request_id: Mapped[str | None]
     question: Mapped[str]
+    thread_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    answer: Mapped[str | None]
     outcome: Mapped[ChatOutcome]
     model: Mapped[str]
     total_ms: Mapped[int]

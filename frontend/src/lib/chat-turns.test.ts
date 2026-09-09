@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import type { ChatStep } from "@/api/types"
-import { type ChatAction, type ChatTurn, chatReducer } from "./chat-turns"
+import {
+	type ChatAction,
+	type ChatTurn,
+	chatReducer,
+	isThreadFull,
+} from "./chat-turns"
 
 function asked(): ChatTurn[] {
 	return chatReducer([], { type: "ask", id: "t1", question: "q" })
@@ -108,5 +113,28 @@ describe("chatReducer", () => {
 
 	it("starts a turn with no steps", () => {
 		expect(asked()[0].steps).toEqual([])
+	})
+
+	it("keeps the error's name beside its message", () => {
+		const turn = run({
+			event: "error",
+			data: { error: "LLMError", message: "boom", request_id: null },
+		})
+
+		expect(turn.error).toEqual({ name: "LLMError", message: "boom" })
+		expect(isThreadFull(turn)).toBe(false)
+	})
+
+	it("knows a turn the thread refused for being full", () => {
+		const turn = run({
+			event: "error",
+			data: { error: "ThreadFullError", message: "full", request_id: null },
+		})
+
+		expect(isThreadFull(turn)).toBe(true)
+	})
+
+	it("clears every turn when a new thread starts", () => {
+		expect(chatReducer(asked(), { type: "clear" })).toEqual([])
 	})
 })

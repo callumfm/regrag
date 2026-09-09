@@ -13,6 +13,7 @@ function createTurnId(): string {
 export function useChatStream() {
 	const [turns, dispatch] = useReducer(chatReducer, [])
 	const abort = useRef<AbortController | null>(null)
+	const threadId = useRef<string | null>(null)
 
 	const ask = useCallback(async (question: string) => {
 		abort.current?.abort()
@@ -20,7 +21,9 @@ export function useChatStream() {
 		abort.current = controller
 		dispatch({ type: "ask", id: createTurnId(), question })
 		try {
-			for await (const event of streamChat({ question }, controller.signal)) {
+			const query = { question, thread_id: threadId.current }
+			for await (const event of streamChat(query, controller.signal)) {
+				if (event.event === "done") threadId.current = event.data.thread_id
 				dispatch(event)
 			}
 			dispatch({ type: "settle" })
@@ -28,7 +31,11 @@ export function useChatStream() {
 			if (controller.signal.aborted) return
 			dispatch({
 				type: "fail",
-				message: error instanceof Error ? error.message : "Chat request failed",
+				error: {
+					name: error instanceof Error ? error.name : "Error",
+					message:
+						error instanceof Error ? error.message : "Chat request failed",
+				},
 			})
 		}
 	}, [])
@@ -36,6 +43,13 @@ export function useChatStream() {
 	const stop = useCallback(() => {
 		abort.current?.abort()
 		dispatch({ type: "settle" })
+	}, [])
+
+	/** Drops the thread and its turns: the next question starts a thread of its own. */
+	const newThread = useCallback(() => {
+		abort.current?.abort()
+		threadId.current = null
+		dispatch({ type: "clear" })
 	}, [])
 
 	useEffect(() => {
@@ -49,6 +63,7 @@ export function useChatStream() {
 		turns,
 		ask,
 		stop,
+		newThread,
 		isBusy: current !== undefined && isTurnRunning(current),
 	}
 }

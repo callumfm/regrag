@@ -32,7 +32,8 @@ export interface paths {
         put?: never;
         /**
          * Chat
-         * @description Stream a cited answer to the question over SSE: sources, tokens, done; or error.
+         * @description Stream a cited answer to the question over SSE: steps, sources, tokens, done with the
+         *     thread id; or error.
          */
         post: operations["chat_chat_post"];
         delete?: never;
@@ -50,14 +51,17 @@ export interface components {
          * @description The graph's nodes, as astream keys their updates.
          * @enum {string}
          */
-        ChatNode: "decompose" | "retrieve" | "assess" | "tools" | "synthesize" | "refuse";
+        ChatNode: "rewrite" | "decompose" | "retrieve" | "assess" | "tools" | "synthesize" | "refuse";
         /**
          * ChatQuery
-         * @description The question a caller asks.
+         * @description The question a caller asks, and the thread it continues — none on a first question,
+         *     when the server mints one and returns it on the done frame.
          */
         ChatQuery: {
             /** Question */
             question: string;
+            /** Thread Id */
+            thread_id?: string | null;
         };
         /**
          * ChatSource
@@ -110,8 +114,19 @@ export interface components {
          */
         ChatStepStatus: "running" | "completed";
         /**
+         * ChatThread
+         * @description The thread a turn was recorded under, which a follow-up sends back.
+         */
+        ChatThread: {
+            /**
+             * Thread Id
+             * Format: uuid
+             */
+            thread_id: string;
+        };
+        /**
          * DoneEvent
-         * @description The last event of a completed stream.
+         * @description The last event of a completed stream: the thread the turn belongs to.
          */
         DoneEvent: {
             /**
@@ -119,10 +134,7 @@ export interface components {
              * @enum {string}
              */
             event: "done";
-            /** Data */
-            data: {
-                [key: string]: unknown;
-            };
+            data: components["schemas"]["ChatThread"];
         };
         /**
          * ErrorEvent
