@@ -6,6 +6,7 @@ from enum import StrEnum
 class ChatNode(StrEnum):
     """The graph's nodes, as astream keys their updates."""
 
+    DECOMPOSE = "decompose"
     RETRIEVE = "retrieve"
     ASSESS = "assess"
     TOOLS = "tools"
@@ -24,10 +25,18 @@ class ToolStep(StrEnum):
     for one is worth seeing, and because a round that ran must leave a step behind."""
 
 
+class ChatStepStatus(StrEnum):
+    """Where a step is: announced as it starts, then reported again once it has finished."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+
+
 class ChatEventName(StrEnum):
     """The events a chat stream carries, as the SSE frames name them."""
 
     SOURCES = "sources"
+    STEP = "step"
     TEXT = "text"
     DONE = "done"
     ERROR = "error"

@@ -1,6 +1,7 @@
 """Chat graph: state flow, search passthrough, prompt assembly, error wrapping."""
 
-from collections.abc import AsyncIterator
+import json
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import httpx
@@ -13,9 +14,18 @@ from langchain_core.runnables import RunnableBinding
 from langchain_litellm import ChatLiteLLM
 
 from app.chat.enums import ChatNode, ToolStep
-from app.chat.graph import GRAPH_EDGES, assess_model, chat_graph, merge_sources
-from app.chat.models import ChatState, ToolCall
-from app.chat.prompts import ASSESS_SYSTEM_PROMPT, REFUSAL_ANSWER
+from app.chat.graph import (
+    GRAPH_EDGES,
+    assess_model,
+    chat_graph,
+    decompose,
+    decompose_model,
+    interleave_by_rank,
+    merge_sources,
+    retrieve,
+)
+from app.chat.models import ChatState, DecomposedQuestion, ToolCall
+from app.chat.prompts import ASSESS_SYSTEM_PROMPT, DECOMPOSE_SYSTEM_PROMPT, REFUSAL_ANSWER
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
@@ -25,6 +35,7 @@ from tests.chat.conftest import (
     USAGE,
     RecordingChatModel,
     fake_chat_model,
+    split_message,
     tool_call_message,
 )
 from tests.conftest import search_result
@@ -179,6 +190,43 @@ async def test_the_chat_client_asks_litellm_for_usage_and_the_node_records_it(
     assert calls[0]["stream_options"] == {"include_usage": True}
     [_retrieve, synthesize] = state.steps
     assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
+
+
+def litellm_completion(monkeypatch, content: str, usage: dict[str, int]) -> list[dict[str, Any]]:
+    """Stand litellm's completion call in for one blocking answer, returning the calls made."""
+    calls: list[dict[str, Any]] = []
+
+    async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
+            ],
+            "usage": usage,
+        }
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    return calls
+
+
+async def test_the_decompose_client_sends_the_output_format_and_the_node_records_usage(
+    monkeypatch,
+):
+    """The format is bound on the client and must reach litellm as response_format; the
+    blocking answer carries usage on the message, which becomes the step's tokens."""
+    calls = litellm_completion(
+        monkeypatch,
+        json.dumps({"queries": ["what is A", "what is B"]}),
+        usage={"prompt_tokens": 120, "completion_tokens": 20, "total_tokens": 140},
+    )
+
+    update = await decompose(ChatState(question="What are A and B?"))
+
+    assert calls[0]["response_format"] is DecomposedQuestion
+    assert calls[0]["stream"] is False
+    assert update["queries"] == ("what is A", "what is B")
+    [step] = update["steps"]
+    assert (step.input_tokens, step.output_tokens) == (120, 20)
 
 
 async def test_the_chat_client_answers_with_the_text_of_a_reasoning_response(
@@ -346,6 +394,252 @@ class TestMergeSources:
         merged = merge_sources(existing, [search_result(id=3)], cap=2)
 
         assert tuple(chunk.id for chunk in merged) == (1, 2)
+
+
+class TestInterleaveByRank:
+    def test_takes_every_querys_first_hit_before_any_querys_second(self):
+        first = (search_result(id=1), search_result(id=2))
+        second = (search_result(id=3), search_result(id=4))
+
+        merged = interleave_by_rank([first, second])
+
+        assert tuple(chunk.id for chunk in merged) == (1, 3, 2, 4)
+
+    def test_a_chunk_two_queries_found_is_kept_once_at_its_earliest_place(self):
+        first = (search_result(id=1), search_result(id=2))
+        second = (search_result(id=2), search_result(id=3))
+
+        merged = interleave_by_rank([first, second])
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2, 3)
+
+    def test_a_shorter_list_runs_out_without_ending_the_longer(self):
+        first = (search_result(id=1),)
+        second = (search_result(id=2), search_result(id=3), search_result(id=4))
+
+        merged = interleave_by_rank([first, second])
+
+        assert tuple(chunk.id for chunk in merged) == (1, 2, 3, 4)
+
+    def test_one_list_comes_back_as_it_was(self):
+        only = (search_result(id=1), search_result(id=2))
+
+        assert interleave_by_rank([only]) == only
+
+
+def hits_for(**per_query: tuple) -> tuple[Callable, list[SearchRequest]]:
+    """A search answering each query with its own hits, recording the requests made."""
+    requests: list[SearchRequest] = []
+
+    async def fake_search(session, request):
+        requests.append(request)
+        return per_query[request.query]
+
+    return fake_search, requests
+
+
+class TestRetrieveOverQueries:
+    async def test_each_query_is_searched_and_the_hits_interleaved(self, monkeypatch):
+        fake_search, requests = hits_for(
+            a=(search_result(id=1), search_result(id=2)), b=(search_result(id=3),)
+        )
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+        update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
+
+        assert {r.query for r in requests} == {"a", "b"}
+        assert all(r.limit == config.CHAT_SOURCES for r in requests)
+        assert tuple(chunk.id for chunk in update["hits"]) == (1, 3, 2)
+        assert tuple(chunk.id for chunk in update["sources"]) == (1, 3, 2)
+        assert update["retrieved_sources"] == 3
+
+    async def test_a_query_below_the_bar_keeps_its_hits_but_adds_no_sources(self, monkeypatch):
+        """The out-of-corpus part cannot admit sub-bar hits to the context, yet what search
+        found for it stays on the state so the split can be read against it."""
+        junk = search_result(id=9, cosine_similarity=0.2, reranker_relevance=0.3)
+        fake_search, _ = hits_for(a=(search_result(id=1),), b=(junk,))
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+        update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
+
+        assert tuple(chunk.id for chunk in update["hits"]) == (1, 9)
+        assert tuple(chunk.id for chunk in update["sources"]) == (1,)
+
+    async def test_no_query_clearing_the_bar_leaves_the_context_empty(self, monkeypatch):
+        junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
+        fake_search, _ = hits_for(a=(junk,), b=(junk,))
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+        update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
+
+        assert update["sources"] == ()
+        assert update["retrieved_sources"] == 0
+        assert update["hits"] == (junk,)
+
+    async def test_no_queries_searches_the_question_as_asked(self, one_result):
+        update = await retrieve(ChatState(question=QUESTION))
+
+        assert one_result == [SearchRequest(query=QUESTION, limit=config.CHAT_SOURCES)]
+        assert update["sources"] == (search_result(),)
+
+    async def test_expansion_widens_the_interleaved_survivors(self, monkeypatch):
+        fake_search, _ = hits_for(a=(search_result(id=1),), b=(search_result(id=2),))
+        widened: list[tuple[int, ...]] = []
+
+        async def fake_expand(session, chunks, *, limit):
+            widened.append(tuple(chunk.id for chunk in chunks))
+            return (*chunks, search_result(id=3))
+
+        monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.expand_sections", fake_expand)
+
+        update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
+
+        assert widened == [(1, 2)]
+        assert tuple(chunk.id for chunk in update["sources"]) == (1, 2, 3)
+
+
+class TestDecomposeInTheGraph:
+    async def test_off_records_no_decompose_step_and_searches_the_question(
+        self, one_result, answer_model
+    ):
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [ChatNode.RETRIEVE, ChatNode.SYNTHESIZE]
+        assert one_result == [SearchRequest(query=QUESTION, limit=config.CHAT_SOURCES)]
+        assert state.queries == ()
+
+    async def test_on_a_split_question_searches_each_part_then_answers_the_whole(
+        self, decompose_on, answer_model, decompose_turns, monkeypatch
+    ):
+        decompose_turns(split_message("what is A", "what is B"))
+        fake_search, requests = hits_for(
+            **{"what is A": (search_result(id=1),), "what is B": (search_result(id=2),)}
+        )
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+        state = ChatState(question="What are A and B?")
+        state.sync_from_snapshot(await chat_graph.ainvoke(state))
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.DECOMPOSE,
+            ChatNode.RETRIEVE,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert state.queries == ("what is A", "what is B")
+        assert {r.query for r in requests} == {"what is A", "what is B"}
+        assert tuple(chunk.id for chunk in state.sources) == (1, 2)
+        [messages] = answer_model.received
+        assert messages[1].content.endswith("Question: What are A and B?")
+
+    async def test_on_a_single_part_question_is_searched_as_asked(
+        self, decompose_on, one_result, answer_model, decompose_turns
+    ):
+        """The only difference from the switch being off is the recorded step."""
+        decompose_turns(split_message(QUESTION))
+
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.DECOMPOSE,
+            ChatNode.RETRIEVE,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert one_result == [SearchRequest(query=QUESTION, limit=config.CHAT_SOURCES)]
+        assert state.queries == ()
+
+    async def test_on_a_split_whose_every_part_misses_the_bar_is_refused(
+        self, decompose_on, decompose_turns, monkeypatch
+    ):
+        decompose_turns(split_message("pizza", "pasta"))
+        junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
+        fake_search, _ = hits_for(pizza=(junk,), pasta=(junk,))
+        model = fake_chat_model()
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+
+        state = await chat_graph.ainvoke(ChatState(question="Best pizza and pasta?"))
+
+        assert state["answer"] == REFUSAL_ANSWER
+        assert model.received == []
+
+
+class TestDecompose:
+    async def test_a_multi_part_question_becomes_one_query_per_part(self, decompose_turns):
+        model = decompose_turns(split_message("what is A", "what is B"))
+
+        update = await decompose(ChatState(question="What are A and B?"))
+
+        assert update["queries"] == ("what is A", "what is B")
+        [messages] = model.received
+        assert isinstance(messages[0], SystemMessage)
+        assert messages[0].content == DECOMPOSE_SYSTEM_PROMPT
+        assert messages[1].content == "What are A and B?"
+
+    async def test_a_single_part_question_leaves_queries_empty(self, decompose_turns):
+        """One query back means the question asked one thing; the original text is what
+        retrieve searches, so a lightly rephrased echo cannot change retrieval."""
+        decompose_turns(split_message("What is the GHG intensity limit, rephrased?"))
+
+        update = await decompose(ChatState(question=QUESTION))
+
+        assert update["queries"] == ()
+
+    async def test_surplus_parts_are_truncated_to_the_cap(self, decompose_turns, monkeypatch):
+        monkeypatch.setattr(config, "DECOMPOSE_MAX_PARTS", 2)
+        decompose_turns(split_message("a", "b", "c"))
+
+        update = await decompose(ChatState(question="a, b and c?"))
+
+        assert update["queries"] == ("a", "b")
+
+    async def test_an_answer_off_the_schema_falls_back_to_the_question(
+        self, decompose_turns, caplog
+    ):
+        decompose_turns(AIMessage(content="I'd split this into two."))
+
+        update = await decompose(ChatState(question=QUESTION))
+
+        assert update["queries"] == ()
+        assert "decompose answered off its schema" in caplog.text
+
+    async def test_a_failing_call_falls_back_to_the_question(self, monkeypatch, caplog):
+        monkeypatch.setattr(
+            "app.chat.graph.decompose_model", lambda: FailingModel(messages=iter([]), failures=9)
+        )
+
+        update = await decompose(ChatState(question=QUESTION))
+
+        assert update["queries"] == ()
+        assert "decompose call failed" in caplog.text
+
+    async def test_the_step_records_the_calls_usage(self, decompose_turns):
+        decompose_turns(split_message("what is A", "what is B"))
+
+        update = await decompose(ChatState(question="What are A and B?"))
+
+        [step] = update["steps"]
+        assert step.step is ChatNode.DECOMPOSE
+        assert (step.input_tokens, step.output_tokens) == (
+            USAGE["input_tokens"],
+            USAGE["output_tokens"],
+        )
+
+
+def test_decompose_is_built_on_its_own_model_with_the_output_format_bound(monkeypatch):
+    """The split is asked for in the DecomposedQuestion shape, on a model set apart from
+    the answer's and assess's, as one setting per role requires."""
+    monkeypatch.setattr(config, "CHAT_MODEL", "anthropic/answer-model")
+    monkeypatch.setattr(config, "DECOMPOSE_MODEL", "anthropic/decompose-model")
+
+    binding = decompose_model()
+    assert isinstance(binding, RunnableBinding)
+    model = binding.bound
+    assert isinstance(model, ChatLiteLLM)
+    assert model.model == "anthropic/decompose-model"
+    assert model.streaming is False
+    assert binding.kwargs["response_format"] is DecomposedQuestion
 
 
 class TestAssessLoop:

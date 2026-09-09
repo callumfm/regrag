@@ -10,8 +10,8 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk
 from sqlalchemy.exc import OperationalError
 
-from app.chat.enums import ChatNode, ChatOutcome
-from app.chat.models import DoneEvent, ErrorEvent, SourcesEvent, TextEvent
+from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, ToolStep
+from app.chat.models import DoneEvent, ErrorEvent, SourcesEvent, StepEvent, TextEvent
 from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.stream import stream_chat_events
 from app.core.llm import LLMError
@@ -84,7 +84,9 @@ async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
     events = stream_chat_events("q")
-    await anext(events)
+    async for event in events:
+        if isinstance(event, SourcesEvent):
+            break
     await events.aclose()
 
     [state] = recorded_requests
@@ -112,8 +114,9 @@ async def test_failed_write_is_logged_not_raised(two_results, monkeypatch, caplo
 
 
 async def test_cancelled_stream_still_records(two_results, monkeypatch, recorded_requests):
-    """A client leaving cancels the streaming task mid-stream; the record still lands.
-    The fake write yields once, so an unshielded await there would be cancelled, not run."""
+    """A client leaving cancels the streaming task mid-stream; the record still lands. It
+    leaves once the sources are out, so the run has reached something worth recording; the
+    fake write yields once, so an unshielded await there would be cancelled, not run."""
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
@@ -125,11 +128,12 @@ async def test_cancelled_stream_still_records(two_results, monkeypatch, recorded
 
     async with anyio.create_task_group() as tg:
 
-        async def consume_one_then_leave():
-            async for _ in stream_chat_events("q"):
-                tg.cancel_scope.cancel()
+        async def consume_until_sources_then_leave():
+            async for event in stream_chat_events("q"):
+                if isinstance(event, SourcesEvent):
+                    tg.cancel_scope.cancel()
 
-        tg.start_soon(consume_one_then_leave)
+        tg.start_soon(consume_until_sources_then_leave)
 
     [state] = recorded_requests
     assert state.outcome is ChatOutcome.ABORTED
@@ -151,17 +155,74 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
 
     events = [event async for event in stream_chat_events("best pizza topping?")]
 
-    assert events == [
-        SourcesEvent(data=()),
-        TextEvent(data=REFUSAL_ANSWER),
-        DoneEvent(),
+    assert step_frames(events) == [
+        (ChatNode.RETRIEVE, ChatStepStatus.RUNNING, None),
+        (ChatNode.RETRIEVE, ChatStepStatus.COMPLETED, None),
+        (ChatNode.REFUSE, ChatStepStatus.RUNNING, None),
+        (ChatNode.REFUSE, ChatStepStatus.COMPLETED, None),
     ]
+    assert [e for e in events if isinstance(e, SourcesEvent)] == [SourcesEvent(data=())]
+    assert [e for e in events if isinstance(e, TextEvent)] == [TextEvent(data=REFUSAL_ANSWER)]
     assert model.received == []
     [state] = recorded_requests
     assert state.outcome is ChatOutcome.REFUSED
     assert [result.step for result in state.steps] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
     assert state.sources == ()
     assert state.token_totals() == (None, None)
+
+
+def step_frames(events) -> list[tuple]:
+    """Every step frame as (step, status, subject) — the path as the client is told it."""
+    return [
+        (event.data.step, event.data.status, event.data.subject)
+        for event in events
+        if isinstance(event, StepEvent)
+    ]
+
+
+async def test_each_step_is_announced_as_it_starts_and_again_once_it_finishes(
+    two_results, monkeypatch
+):
+    """A trail that only reported finished work would name a step at the moment it stopped
+    being true; the running frame is what the reader is actually waiting on."""
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+
+    events = [event async for event in stream_chat_events("q")]
+
+    assert step_frames(events) == [
+        (ChatNode.RETRIEVE, ChatStepStatus.RUNNING, None),
+        (ChatNode.RETRIEVE, ChatStepStatus.COMPLETED, None),
+        (ChatNode.SYNTHESIZE, ChatStepStatus.RUNNING, None),
+        (ChatNode.SYNTHESIZE, ChatStepStatus.COMPLETED, None),
+    ]
+
+
+async def test_retrieve_is_running_before_the_sources_it_finds_arrive(two_results, monkeypatch):
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+
+    events = [event async for event in stream_chat_events("q")]
+
+    first_step = next(i for i, e in enumerate(events) if isinstance(e, StepEvent))
+    sources = next(i for i, e in enumerate(events) if isinstance(e, SourcesEvent))
+    assert first_step < sources
+    assert step_frames(events)[0] == (ChatNode.RETRIEVE, ChatStepStatus.RUNNING, None)
+
+
+async def test_a_running_step_reports_no_timing_and_the_ledger_never_sees_one(
+    two_results, monkeypatch, recorded_requests
+):
+    """Timing belongs to work that has happened; the path the ledger keeps is finished work."""
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+
+    events = [event async for event in stream_chat_events("q")]
+
+    steps = [event.data for event in events if isinstance(event, StepEvent)]
+    running = [step for step in steps if step.status is ChatStepStatus.RUNNING]
+    completed = [step for step in steps if step.status is ChatStepStatus.COMPLETED]
+    assert all(step.ms == 0 for step in running)
+    [state] = recorded_requests
+    assert len(completed) == len(state.steps)
+    assert all(step.status is ChatStepStatus.COMPLETED for step in state.steps)
 
 
 class ToolCallStreamingModel(RecordingChatModel):
@@ -232,3 +293,26 @@ class TestLoopStreaming:
 
         text = "".join(e.data for e in events if isinstance(e, TextEvent))
         assert text == "The answer [1]."
+
+    async def test_a_tool_round_names_its_calls_before_it_runs_them(
+        self, loop_on, one_result, one_assess_round, monkeypatch
+    ):
+        """The round announces one step per call assess asked for, each carrying the query,
+        so the reader sees what is being searched for while it is being searched for."""
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+
+        events = [event async for event in stream_chat_events("q")]
+
+        running, completed = ChatStepStatus.RUNNING, ChatStepStatus.COMPLETED
+        assert step_frames(events) == [
+            (ChatNode.RETRIEVE, running, None),
+            (ChatNode.RETRIEVE, completed, None),
+            (ChatNode.ASSESS, running, None),
+            (ChatNode.ASSESS, completed, None),
+            (ToolStep.SEARCH, running, "gap"),
+            (ToolStep.SEARCH, completed, "gap"),
+            (ChatNode.ASSESS, running, None),
+            (ChatNode.ASSESS, completed, None),
+            (ChatNode.SYNTHESIZE, running, None),
+            (ChatNode.SYNTHESIZE, completed, None),
+        ]

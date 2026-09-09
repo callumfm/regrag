@@ -1,10 +1,13 @@
-"""Chat graph: retrieve corpus context, run the assess ⇄ tools loop, then synthesize a
-cited answer — or refuse, before any model call, a question the corpus does not cover."""
+"""Chat graph: split a multi-part question, retrieve corpus context, run the assess ⇄
+tools loop, then synthesize a cited answer — or refuse, before any model call, a question
+the corpus does not cover."""
 
+import asyncio
 import functools
 import logging
 import time
 from collections.abc import Awaitable, Sequence
+from itertools import zip_longest
 from typing import Any, Protocol
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -12,23 +15,25 @@ from langchain_core.runnables import Runnable
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from pydantic import ValidationError
 
 from app.chat.enums import ChatNode
-from app.chat.models import ChatState, ChatStepResult, ToolCall
+from app.chat.models import ChatState, ChatStepResult, DecomposedQuestion, ToolCall
 from app.chat.prompts import (
     ASSESS_SYSTEM_PROMPT,
+    DECOMPOSE_SYSTEM_PROMPT,
     REFUSAL_ANSWER,
     SYSTEM_PROMPT,
     build_assess_message,
     build_user_message,
 )
-from app.chat.tools import TOOL_DEFINITIONS, already_in_context, run_tool_call, tool_step
+from app.chat.tools import TOOL_DEFINITIONS, already_in_context, build_call_step, run_tool_call
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import LLMError, llm_retry, wrap_provider_errors
 from app.retrieval.expand import expand_sections
-from app.retrieval.models import RetrievedChunk, SearchRequest
+from app.retrieval.models import RetrievedChunk, SearchRequest, SearchResult
 from app.retrieval.search import search
 from app.retrieval.thresholds import meets_thresholds
 
@@ -81,19 +86,46 @@ def chat_model(model: str, *, streaming: bool = True) -> ChatLiteLLM:
     )
 
 
+async def search_query(query: str) -> tuple[SearchResult, ...]:
+    """One query's hits from its own session, so the queries a question split into can
+    search at once rather than in turn."""
+    async with get_session(auto_commit=False) as session:
+        return await search(session, SearchRequest(query=query, limit=config.CHAT_SOURCES))
+
+
+def interleave_by_rank(
+    per_query: Sequence[Sequence[SearchResult]],
+) -> tuple[SearchResult, ...]:
+    """Every query's hits as one list, each query's first before any query's second, so no
+    part's best hit is pushed out by another part's depth; a chunk two queries both found
+    is kept once, at its earliest place."""
+    merged: list[SearchResult] = []
+    seen: set[int] = set()
+    for rank in zip_longest(*per_query):
+        for hit in rank:
+            if hit is None or hit.id in seen:
+                continue
+            seen.add(hit.id)
+            merged.append(hit)
+    return tuple(merged)
+
+
 @traced
 async def retrieve(state: ChatState) -> dict[str, Any]:
-    """The corpus's best answers, widened to their sections, from a node-scoped session
-    so no connection is held while the model streams. Nothing, when the corpus does not
-    cover the question: that empties the context, and the graph refuses instead — but what
-    search found stays on the state, so the refusal can be read against it."""
-    async with get_session(auto_commit=False) as session:
-        hits = await search(session, SearchRequest(query=state.question, limit=config.CHAT_SOURCES))
-        if not meets_thresholds(hits):
-            return {"hits": hits, "sources": (), "retrieved_sources": 0}
-        sources: tuple[RetrievedChunk, ...] = hits
-        if config.EXPAND_SECTIONS:
-            sources = await expand_sections(session, hits, limit=config.CHAT_CONTEXT_CHUNKS)
+    """The corpus's best answers to each query the question split into — or to the question
+    as asked — gated query by query, so an out-of-corpus part admits nothing, and widened to
+    their sections. hits keeps every query's hits, gated or not, so a refusal and a split
+    can be read against what search found."""
+    queries = state.queries or (state.question,)
+    per_query = await asyncio.gather(*(search_query(query) for query in queries))
+    hits = interleave_by_rank(per_query)
+    cleared = [found for found in per_query if meets_thresholds(found)]
+    if not cleared:
+        return {"hits": hits, "sources": (), "retrieved_sources": 0}
+    sources: tuple[RetrievedChunk, ...] = interleave_by_rank(cleared)
+    if config.EXPAND_SECTIONS:
+        async with get_session(auto_commit=False) as session:
+            sources = await expand_sections(session, sources, limit=config.CHAT_CONTEXT_CHUNKS)
     return {"hits": hits, "sources": sources, "retrieved_sources": len(sources)}
 
 
@@ -118,6 +150,42 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
 async def refuse(state: ChatState) -> dict[str, Any]:
     """The fixed refusal, in place of an answer, for a question without context."""
     return {"answer": REFUSAL_ANSWER}
+
+
+def decompose_model() -> Runnable:
+    """The decompose model as decompose calls it: one blocking turn, answering in the
+    DecomposedQuestion shape."""
+    return chat_model(config.DECOMPOSE_MODEL, streaming=False).bind(
+        response_format=DecomposedQuestion
+    )
+
+
+@llm_retry
+@wrap_provider_errors("decompose call")
+async def call_decompose_model(state: ChatState) -> dict[str, Any]:
+    """One model turn splitting the question into the searches it needs, capped to the
+    parts allowed. One part means the question asked one thing, and queries stays empty
+    so retrieve searches the question as asked; an answer off the schema is a failed call."""
+    messages = [SystemMessage(DECOMPOSE_SYSTEM_PROMPT), HumanMessage(state.question)]
+    response = await decompose_model().ainvoke(messages)
+    try:
+        split = DecomposedQuestion.model_validate_json(response.text)
+    except ValidationError as exc:
+        logger.warning("decompose answered off its schema: %s", exc)
+        raise LLMError("decompose answered off its schema") from exc
+    queries = split.queries[: config.DECOMPOSE_MAX_PARTS]
+    return {"queries": queries if len(queries) > 1 else (), "usage": response.usage_metadata}
+
+
+@traced
+async def decompose(state: ChatState) -> dict[str, Any]:
+    """The question split into its parts, or left whole when it has one — or when the
+    call fails, which costs the split rather than the request."""
+    try:
+        return await call_decompose_model(state)
+    except LLMError as exc:
+        logger.warning("decompose call failed, searching the question as asked: %s", exc)
+        return {"queries": ()}
 
 
 def assess_model() -> Runnable:
@@ -182,7 +250,7 @@ async def tools(state: ChatState) -> dict[str, Any]:
     for call in state.pending_calls:
         start = time.perf_counter()
         fetched.extend(await run_tool_call(call))
-        steps.append(ChatStepResult(step=tool_step(call.name), ms=elapsed_ms(start)))
+        steps.append(build_call_step(call, ms=elapsed_ms(start)))
 
     cap = state.retrieved_sources + config.ASSESS_EXTRA_CHUNKS
     return {
@@ -207,8 +275,16 @@ def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
     return ChatNode.REFUSE if not state.sources else assess_or_synthesize(state)
 
 
+def decompose_or_retrieve(state: ChatState) -> ChatNode:
+    """At the start: split the question when the node is on, else search it as asked. An
+    edge rather than a check inside the node, so a run with it off records no step."""
+    return ChatNode.DECOMPOSE if config.DECOMPOSE_ENABLED else ChatNode.RETRIEVE
+
+
 GRAPH_EDGES = (
+    (START, ChatNode.DECOMPOSE),
     (START, ChatNode.RETRIEVE),
+    (ChatNode.DECOMPOSE, ChatNode.RETRIEVE),
     (ChatNode.RETRIEVE, ChatNode.ASSESS),
     (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE),
     (ChatNode.RETRIEVE, ChatNode.REFUSE),
@@ -224,14 +300,18 @@ this, so an edge added here without redrawing the README fails before it is merg
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:
-    """The compiled retrieve → (assess ⇄ tools) → (synthesize | refuse) graph."""
+    """The compiled (decompose →) retrieve → (assess ⇄ tools) → (synthesize | refuse) graph."""
     graph = StateGraph(ChatState)
+    graph.add_node(ChatNode.DECOMPOSE, decompose)
     graph.add_node(ChatNode.RETRIEVE, retrieve)
     graph.add_node(ChatNode.ASSESS, assess)
     graph.add_node(ChatNode.TOOLS, tools)
     graph.add_node(ChatNode.SYNTHESIZE, synthesize)
     graph.add_node(ChatNode.REFUSE, refuse)
-    graph.add_edge(START, ChatNode.RETRIEVE)
+    graph.add_conditional_edges(
+        START, decompose_or_retrieve, [ChatNode.DECOMPOSE, ChatNode.RETRIEVE]
+    )
+    graph.add_edge(ChatNode.DECOMPOSE, ChatNode.RETRIEVE)
     graph.add_conditional_edges(
         ChatNode.RETRIEVE,
         assess_or_synthesize_or_refuse,

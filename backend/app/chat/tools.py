@@ -8,8 +8,8 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.enums import ToolStep
-from app.chat.models import ToolCall
+from app.chat.enums import ChatStepStatus, ToolStep
+from app.chat.models import ChatStepResult, ToolCall
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import LLMError
@@ -129,10 +129,27 @@ def already_in_context(call: ToolCall, sources: Sequence[RetrievedChunk]) -> boo
     return bool(shown) and len({s.part for s in shown}) == shown[0].parts
 
 
+def describe_call(call: ToolCall) -> str | None:
+    """What a call was for, as the trail shows it: the arguments it was given, in the order
+    the model gave them — a query, or a citation's address — and nothing when it gave none."""
+    given = [str(value) for value in call.args.values() if value]
+    return " · ".join(given) or None
+
+
 def tool_step(name: str) -> ToolStep:
     """The step a call to this tool records; a tool the surface does not have records that."""
     spec = TOOL_SURFACE.get(name)
     return spec.step if spec else ToolStep.UNKNOWN
+
+
+def build_call_step(
+    call: ToolCall, *, ms: int = 0, status: ChatStepStatus = ChatStepStatus.COMPLETED
+) -> ChatStepResult:
+    """The step a call records, as announced when it starts and as settled once it has run:
+    built in one place so the two frames the client pairs up cannot disagree."""
+    return ChatStepResult(
+        step=tool_step(call.name), ms=ms, status=status, subject=describe_call(call)
+    )
 
 
 async def run_tool_call(call: ToolCall) -> tuple[RetrievedChunk, ...]:

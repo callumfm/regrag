@@ -243,3 +243,13 @@ def test_assignment_is_validated_and_coerced_by_the_field():
     assert combined.CHAT_SOURCES == 3
     with pytest.raises(ValidationError):
         combined.CHAT_SOURCES = 0
+
+
+def test_the_eval_stamp_carries_the_decompose_settings():
+    """An eval run is compared across the decompose switch, so the stamp must say
+    which way it was set."""
+    settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
+
+    assert settings["DECOMPOSE_ENABLED"] is False
+    assert settings["DECOMPOSE_MODEL"] == "anthropic/claude-haiku-4-5"
+    assert settings["DECOMPOSE_MAX_PARTS"] == 3

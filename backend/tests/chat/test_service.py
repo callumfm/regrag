@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat import service
 from app.chat.enums import ChatNode, ChatOutcome
-from app.chat.models import ChatState, ChatStepResult
+from app.chat.models import ChatState, ChatStepResult, ToolCall
 from app.chat.schemas import ChatRequest, ChatRequestStep
 from app.chat.service import create_chat_request
+from app.chat.tools import build_call_step
 from app.core.config import config
 from app.core.logger import request_id_var
 from tests.chat.conftest import USAGE
@@ -91,7 +92,12 @@ async def test_failed_run_records_its_error_and_nulls_where_it_never_got(
 
 
 async def test_log_line_carries_the_stats_but_not_the_content(db_session: AsyncSession, caplog):
-    await create_chat_request(db_session, answered_state())
+    """A tool step's subject is the query the model wrote from the question: content, so the
+    line keeps the step and its timing and drops that."""
+    state = answered_state()
+    search = ToolCall(name="search", args={"query": "penalties for a missing monitoring plan"})
+    state.steps = (*state.steps, build_call_step(search, ms=80))
+    await create_chat_request(db_session, state)
 
     [record] = stats_lines(caplog)
     assert record.getMessage() == "chat done in 1500ms"
@@ -100,6 +106,7 @@ async def test_log_line_carries_the_stats_but_not_the_content(db_session: AsyncS
     assert record.__dict__["steps"] == [
         {"step": "retrieve", "ms": 120, "input_tokens": None, "output_tokens": None},
         {"step": "synthesize", "ms": 1300, "input_tokens": 1500, "output_tokens": 40},
+        {"step": "tool_search", "ms": 80, "input_tokens": None, "output_tokens": None},
     ]
     assert "question" not in record.__dict__
     assert "answer" not in record.__dict__

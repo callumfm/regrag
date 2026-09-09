@@ -33,6 +33,7 @@ async function apiFetch(path: string, init: RequestInit): Promise<Response> {
 function toStreamEvent(message: EventSourceMessage): ChatStreamEvent | null {
 	switch (message.event) {
 		case "sources":
+		case "step":
 		case "text":
 		case "done":
 		case "error":
