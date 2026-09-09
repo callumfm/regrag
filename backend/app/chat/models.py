@@ -104,7 +104,9 @@ class ChatState(AppModel):
     sources: the context blocks that reached the prompt, which the [n] markers number.
     retrieved_sources: how many blocks retrieve left, the base the loop's growth is budgeted
         against; sources grows each round, so the budget cannot be read off it.
-    pending_calls: the tool calls assess asked for, not yet executed.
+    pending_calls: the tool calls assess asked for, not yet executed. Only a tool round
+        starts holding any, since each round clears the calls it ran; the stream reads a
+        round off that.
     refusal: why the question ended without an answer, set by the tool round that ran
         assess's refuse call, and by the refuse node itself when nothing was retrieved to
         assess; None on any run that has not refused.
