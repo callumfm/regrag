@@ -1,10 +1,15 @@
-"""Chat request recording: one row per handled question, with a row per step it ran through."""
+"""Chat request recording — one row per handled question, with a row per step — and the
+thread history read back from those rows."""
 
 import logging
+from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.models import ChatState
+from app.chat.enums import ChatOutcome
+from app.chat.models import ChatState, ChatTurn
+from app.chat.prompts import strip_markers
 from app.chat.schemas import ChatRequest, ChatRequestStep
 from app.core.config import config
 from app.core.db.crud import create_record
@@ -43,3 +48,19 @@ async def create_chat_request(session: AsyncSession, state: ChatState) -> None:
         steps=steps,
     )
     await create_record(session, request)
+
+
+async def load_thread_history(session: AsyncSession, thread_id: UUID) -> tuple[ChatTurn, ...]:
+    """The thread's answered turns, oldest first, at most the turns a thread may hold:
+    what a follow-up's prompts see, and how full the thread is."""
+    stmt = (
+        select(ChatRequest.question, ChatRequest.answer)
+        .where(ChatRequest.thread_id == thread_id, ChatRequest.outcome == ChatOutcome.DONE)
+        .order_by(ChatRequest.created_at.desc(), ChatRequest.id.desc())
+        .limit(config.CHAT_THREAD_TURNS)
+    )
+    rows = (await session.execute(stmt)).all()
+    return tuple(
+        ChatTurn(question=question, answer=strip_markers(answer or ""))
+        for question, answer in reversed(rows)
+    )

@@ -1,5 +1,6 @@
 """The chat graph's fixed wording: system prompt, refusal, numbered-context formatting."""
 
+import re
 from collections.abc import Sequence
 
 from pydantic import ValidationError
@@ -24,6 +25,15 @@ REFUSAL_ANSWER = (
     "The corpus doesn't cover this. RegRag answers questions about the EU maritime "
     "regulation it has ingested; try asking about that."
 )
+
+MARKER = re.compile(r"\[(\d+)\]")
+"""A citation marker as the system prompt asks for it, like [1] or the [2][3] of a pair."""
+
+
+def strip_markers(text: str) -> str:
+    """The text without its citation markers: an earlier answer carried into a later turn
+    numbered blocks that turn will not have."""
+    return MARKER.sub("", text)
 
 
 def _reference_addresses(source: RetrievedChunk) -> list[str]:

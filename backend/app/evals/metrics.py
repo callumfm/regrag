@@ -1,11 +1,11 @@
 """Eval scoring: what counts as a retrieved reference and a grounded citation, per case;
 and the run's measures, each a plain function over its results."""
 
-import re
 from collections.abc import Sequence
 
 from app.chat.enums import ChatNode, ChatOutcome
 from app.chat.graph import assess_or_synthesize_or_refuse
+from app.chat.prompts import MARKER
 from app.evals.dataset.enums import EvalKind
 from app.evals.judge.models import CaseJudgement
 from app.evals.models import (
@@ -21,9 +21,6 @@ from app.evals.models import (
     UsageMetrics,
 )
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
-
-MARKER = re.compile(r"\[(\d+)\]")
-"""A citation marker as the system prompt asks for it, like [1] or the [2][3] of a pair."""
 
 
 def _division(item: ReferenceTarget | RetrievedChunk) -> tuple[str, str | None, str | None]:

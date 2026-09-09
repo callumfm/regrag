@@ -1,6 +1,12 @@
 """Context formatting: numbered blocks the citation markers bind to."""
 
-from app.chat.prompts import SYSTEM_PROMPT, build_assess_message, build_user_message, format_context
+from app.chat.prompts import (
+    SYSTEM_PROMPT,
+    build_assess_message,
+    build_user_message,
+    format_context,
+    strip_markers,
+)
 from app.ingestion.chunk.models import Reference
 from tests.conftest import retrieved_chunk, search_result
 
@@ -62,3 +68,10 @@ class TestBuildAssessMessage:
         message = build_assess_message("q", sources)
 
         assert "cites:" not in message
+
+
+def test_strip_markers_removes_every_citation_marker_and_nothing_else():
+    assert strip_markers("Ships must report.[1] Yearly.[2][3] Done.") == (
+        "Ships must report. Yearly. Done."
+    )
+    assert strip_markers("No markers here.") == "No markers here."
