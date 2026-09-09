@@ -7,11 +7,17 @@ import litellm
 from litellm.caching import Cache
 from litellm.types.caching import CachingSupportedCallTypes, LiteLLMCacheType
 
+RETRIEVAL_CALLS: list[CachingSupportedCallTypes] = ["aembedding", "arerank"]
+"""The paid calls retrieval makes, and the ones safe to replay: a completion replayed from
+disk would measure the cache rather than the model."""
 
-def enable_call_cache(directory: Path, *, calls: Sequence[CachingSupportedCallTypes]) -> None:
-    """Serve repeated calls of the named kinds from the directory, keyed on each call's own
-    request parameters, a provider's own included (see the key tests). Deleting the
-    directory invalidates the lot."""
+
+def enable_call_cache(
+    directory: Path, *, calls: Sequence[CachingSupportedCallTypes] = RETRIEVAL_CALLS
+) -> None:
+    """Serve repeated calls of the named kinds, retrieval's by default, from the directory,
+    keyed on each call's own request parameters, a provider's own included (see the key
+    tests). Deleting the directory invalidates the lot."""
     litellm.enable_caching_on_provider_specific_optional_params = True
     litellm.cache = Cache(
         type=LiteLLMCacheType.DISK,

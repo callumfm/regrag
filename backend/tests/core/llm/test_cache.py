@@ -24,8 +24,8 @@ def cache_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 @pytest.fixture
 def cache(cache_dir: Path) -> Cache:
-    """A cache installed for the two retrieval calls, as the evals CLI installs one."""
-    enable_call_cache(cache_dir, calls=["aembedding", "arerank"])
+    """A cache installed as the evals CLI installs one: for retrieval's calls."""
+    enable_call_cache(cache_dir)
     assert isinstance(litellm.cache, Cache)
     return litellm.cache
 
@@ -36,8 +36,15 @@ def test_enable_call_cache_caches_to_the_given_directory(cache_dir: Path, cache:
     assert cache.cache.disk_cache.directory == str(cache_dir)
 
 
-def test_enable_call_cache_caches_only_the_named_calls(cache: Cache) -> None:
+def test_enable_call_cache_caches_retrieval_s_calls_by_default(cache: Cache) -> None:
     assert set(cache.supported_call_types or ()) == {"aembedding", "arerank"}
+
+
+def test_a_caller_may_name_the_calls_to_replay(cache_dir: Path) -> None:
+    enable_call_cache(cache_dir, calls=["aembedding"])
+
+    assert isinstance(litellm.cache, Cache)
+    assert litellm.cache.supported_call_types == ["aembedding"]
 
 
 def test_nothing_is_cached_until_a_cache_is_enabled(cache_dir: Path) -> None:

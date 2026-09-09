@@ -7,7 +7,6 @@ from typing import Any
 from app.core.config import config
 from app.core.llm.cache import enable_call_cache
 from app.core.logger import setup_logging
-from app.evals.cache import CACHED_CALLS
 from app.evals.dataset.check import check_against_corpus, stale_case_ids
 from app.evals.dataset.cli import (
     add_selection_arguments,
@@ -63,7 +62,7 @@ def run_evals(
     drifted, corpus_version = asyncio.run(check_against_corpus(dataset))
 
     if cached:
-        enable_call_cache(config.EVAL_CACHE_DIR, calls=CACHED_CALLS)
+        enable_call_cache(config.EVAL_CACHE_DIR)
 
     run = asyncio.run(
         evaluate_all_cases(dataset, corpus_version, stale_case_ids(drifted), judge=judge)
