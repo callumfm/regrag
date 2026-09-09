@@ -62,6 +62,19 @@ async def run_follow_reference(
     return chunks[: config.ASSESS_FOLLOW_LIMIT]
 
 
+class RefuseArgs(FrozenModel):
+    """Assess's word that nothing in the context bears on the question and no fetch would:
+    the one call that ends the question in the fixed refusal rather than an answer."""
+
+    explanation: str
+
+
+async def run_refusal(session: AsyncSession, args: RefuseArgs) -> tuple[RetrievedChunk, ...]:
+    """Nothing to fetch: the call is its own result, and the tools node reads the explanation
+    off it. Run like the others so the round records it as a step, timed and named."""
+    return ()
+
+
 class ToolSpec(NamedTuple):
     """One tool the model may call: how it is named and described to the model, the
     arguments it takes, what runs it, and the step a call to it records."""
@@ -104,11 +117,35 @@ TOOL_SURFACE = {
             "Fetch the full text of one cited division: an article (optionally one paragraph) "
             "or an annex of an act (celex). Use the addresses on the context's cites lines.",
         ),
+        ToolSpec(
+            "refuse",
+            ToolStep.REFUSE,
+            RefuseArgs,
+            run_refusal,
+            "Refuse the question, because nothing in the context bears on it and no search "
+            "or fetch of this corpus could change that. Call it alone, never beside a "
+            "search or fetch.",
+        ),
     )
 }
 
-TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
-"""The surface as the model is shown it, built once: it depends on nothing at call time."""
+REFUSE_TOOL = "refuse"
+"""The one tool that grows nothing: assess's word that the question cannot be answered."""
+
+
+def is_refusal(call: ToolCall) -> bool:
+    """Whether the call is assess's word that the context cannot answer, rather than a fetch."""
+    return call.name == REFUSE_TOOL
+
+
+def tool_definitions() -> list[dict]:
+    """The surface as assess is shown it: the fetch tools, and refuse while refusing is
+    allowed."""
+    return [
+        spec.definition()
+        for spec in TOOL_SURFACE.values()
+        if spec.name != REFUSE_TOOL or config.ASSESS_MAY_REFUSE
+    ]
 
 
 def already_in_context(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:

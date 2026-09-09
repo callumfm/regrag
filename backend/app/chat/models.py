@@ -7,7 +7,14 @@ from uuid import UUID, uuid4
 from langchain_core.messages.ai import UsageMetadata
 from pydantic import ConfigDict, Field, computed_field
 
-from app.chat.enums import ChatEventName, ChatNode, ChatOutcome, ChatStepStatus, ToolStep
+from app.chat.enums import (
+    ChatEventName,
+    ChatNode,
+    ChatOutcome,
+    ChatStepStatus,
+    RefusalReason,
+    ToolStep,
+)
 from app.core.config import config
 from app.core.exceptions import DomainError
 from app.core.models import AppModel, ErrorResponse, FrozenModel
@@ -78,6 +85,14 @@ class ChatTurn(FrozenModel):
     answer: str
 
 
+class Refusal(FrozenModel):
+    """How a question ended when it ended without an answer: why the refusal was owed, and
+    the model's words for it — empty on a gate refusal, which asked no model."""
+
+    reason: RefusalReason
+    explanation: str = ""
+
+
 class StandaloneQuestion(FrozenModel):
     """What rewrite makes of a follow-up: the question restated so that it can be
     searched on its own, naming what the thread's pronouns and shorthand referred to."""
@@ -89,6 +104,10 @@ class ChatState(AppModel):
     """Everything one question produced: what the graph accumulates as it runs, then what
     only the stream's consumer knows once it ends — how long the request lived, and an error.
 
+    thread_id: the thread the question belongs to, minted here when the caller sent none.
+    history: the thread's earlier answered turns, oldest first; empty on a first question.
+    standalone_question: the question as rewrite restated it for retrieval, or empty when
+        there was nothing to restate or the call failed, so the question as asked is searched.
     steps: the path taken, each node appending its result as it returns and a tool round one
     per call; a sequence, since the loop visits a node more than once.
     queries: the searches decompose split the question into, in the order asked; empty
@@ -99,10 +118,9 @@ class ChatState(AppModel):
     retrieved_sources: how many blocks retrieve left, the base the loop's growth is budgeted
         against; sources grows each round, so the budget cannot be read off it.
     pending_calls: the tool calls assess asked for, not yet executed.
-    thread_id: the thread the question belongs to, minted here when the caller sent none.
-    history: the thread's earlier answered turns, oldest first; empty on a first question.
-    standalone_question: the question as rewrite restated it for retrieval, or empty when
-        there was nothing to restate or the call failed, so the question as asked is searched.
+    refusal: why the question ended without an answer, set by the tool round that ran
+        assess's refuse call, and by the refuse node itself when nothing was retrieved to
+        assess; None on any run that has not refused.
     """
 
     question: str
@@ -115,6 +133,7 @@ class ChatState(AppModel):
     sources: tuple[RetrievedChunk, ...] = ()
     retrieved_sources: int = 0
     pending_calls: tuple[ToolCall, ...] = ()
+    refusal: Refusal | None = None
     answer: str = ""
     total_ms: int | None = None
     error: str | None = None
@@ -181,14 +200,14 @@ class ChatState(AppModel):
     @property
     def context_settled(self) -> bool:
         """Whether the context is final: retrieval ended with the loop off or the gate
-        shut, assess asked for nothing, or the last round consumed the budget."""
+        shut, assess asked for nothing, or the last round consumed the budget or refused."""
         match self.last_step:
             case ChatNode.RETRIEVE:
                 return not self.sources or not config.ASSESS_ENABLED
             case ChatNode.ASSESS:
                 return not self.pending_calls
             case ToolStep():
-                return self.assess_rounds() >= config.ASSESS_MAX_ROUNDS
+                return self.refusal is not None or self.assess_rounds() >= config.ASSESS_MAX_ROUNDS
             case _:
                 return False
 

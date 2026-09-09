@@ -17,27 +17,34 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import ValidationError
 
-from app.chat.enums import ChatNode
+from app.chat.enums import ChatNode, RefusalReason
 from app.chat.models import (
     ChatState,
     ChatStepResult,
     DecomposedQuestion,
+    Refusal,
     StandaloneQuestion,
     ToolCall,
 )
 from app.chat.prompts import (
-    ASSESS_SYSTEM_PROMPT,
     DECOMPOSE_SYSTEM_PROMPT,
     REFUSAL_ANSWER,
     REWRITE_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     build_assess_message,
+    build_assess_system_prompt,
     build_rewrite_message,
     build_user_message,
     system_prompt,
     thread_messages,
 )
-from app.chat.tools import TOOL_DEFINITIONS, already_in_context, build_call_step, run_tool_call
+from app.chat.tools import (
+    already_in_context,
+    build_call_step,
+    is_refusal,
+    run_tool_call,
+    tool_definitions,
+)
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -160,8 +167,11 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
 
 @traced
 async def refuse(state: ChatState) -> dict[str, Any]:
-    """The fixed refusal, in place of an answer, for a question without context."""
-    return {"answer": REFUSAL_ANSWER}
+    """The fixed refusal, in place of an answer, for a question without context: assess's
+    own refusal where it made one, else the gate's, which nothing before this node records
+    — retrieve only found nothing, and a run cut short there refused nothing."""
+    refusal = state.refusal or Refusal(reason=RefusalReason.NOTHING_RETRIEVED)
+    return {"answer": REFUSAL_ANSWER, "refusal": refusal}
 
 
 def decompose_model() -> Runnable:
@@ -239,26 +249,35 @@ async def rewrite(state: ChatState) -> dict[str, Any]:
 
 def assess_model() -> Runnable:
     """The assess model as assess calls it: one blocking turn, the tool surface bound."""
-    return chat_model(config.ASSESS_MODEL, streaming=False).bind_tools(TOOL_DEFINITIONS)
+    return chat_model(config.ASSESS_MODEL, streaming=False).bind_tools(tool_definitions())
 
 
 @llm_retry
 @wrap_provider_errors("assess call")
 async def call_assess_model(state: ChatState) -> dict[str, Any]:
-    """One model turn asking what would fill the gaps in the context. A call that would
-    only re-fetch a division the context already shows is dropped, then the rest are capped
-    to the calls a round may run — neither reaches state or the ledger."""
+    """One model turn asking what would fill the gaps in the context — or, called alone,
+    saying nothing bears on the question. That call beside a fetch is dropped, the fetch
+    being the model's own doubt; a fetch that would only re-fetch a division the context
+    already shows is dropped too, then the rest are capped to the calls a round may run —
+    none of the dropped reaches state or the ledger."""
     messages = [
-        SystemMessage(system_prompt(ASSESS_SYSTEM_PROMPT, state.history)),
+        SystemMessage(
+            system_prompt(
+                build_assess_system_prompt(may_refuse=config.ASSESS_MAY_REFUSE), state.history
+            )
+        ),
         *thread_messages(state.history),
         HumanMessage(build_assess_message(state.question, state.sources)),
     ]
     response = await assess_model().ainvoke(messages)
-    useful = [
-        call
-        for call in (ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls)
-        if not already_in_context(call, state.sources)
-    ]
+    asked = [ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls]
+    refusals = [call for call in asked if is_refusal(call)]
+    fetches = [call for call in asked if not is_refusal(call)]
+    if refusals and not fetches:
+        return {"pending_calls": (refusals[0],), "usage": response.usage_metadata}
+    if refusals:
+        logger.info("assess hedged its refusal with a fetch, so the fetch runs")
+    useful = [call for call in fetches if not already_in_context(call, state.sources)]
     calls = tuple(useful[: config.ASSESS_MAX_CALLS])
     return {"pending_calls": calls, "usage": response.usage_metadata}
 
@@ -294,24 +313,32 @@ def merge_sources(
 
 async def tools(state: ChatState) -> dict[str, Any]:
     """The round's calls run and folded into the context: dedup by chunk id, earlier context
-    kept, growth capped. Each call is timed as its own step, so the path says what it cost."""
+    kept, growth capped. Each call is timed as its own step, so the path says what it cost.
+    A refuse call fetches nothing and leaves its refusal on the state, which is what routes
+    the round to the refusal."""
     fetched: list[RetrievedChunk] = []
     steps: list[ChatStepResult] = []
+    refusal = state.refusal
     for call in state.pending_calls:
         start = time.perf_counter()
         fetched.extend(await run_tool_call(call))
         steps.append(build_call_step(call, ms=elapsed_ms(start)))
+        if is_refusal(call):
+            explanation = str(call.args.get("explanation", ""))
+            refusal = Refusal(reason=RefusalReason.INSUFFICIENT_CONTEXT, explanation=explanation)
+            logger.info("assess refused for want of context: %s", explanation)
 
     cap = state.retrieved_sources + config.ASSESS_EXTRA_CHUNKS
     return {
         "sources": merge_sources(state.sources, fetched, cap=cap),
         "pending_calls": (),
+        "refusal": refusal,
         "steps": tuple(steps),
     }
 
 
 def assess_or_synthesize(state: ChatState) -> ChatNode:
-    """After tools: review again while budget remains, else answer with what there is."""
+    """Review again while budget remains, else answer with what there is."""
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
 
 
@@ -321,8 +348,11 @@ def tools_or_synthesize(state: ChatState) -> ChatNode:
 
 
 def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
-    """After retrieve: refuse for want of context, else pick up the loop as tools does."""
-    return ChatNode.REFUSE if not state.sources else assess_or_synthesize(state)
+    """After retrieve or tools: refuse for want of context — none cleared the gate, or
+    assess found what there is bears on nothing — else review or answer."""
+    if not state.sources or state.refusal is not None:
+        return ChatNode.REFUSE
+    return assess_or_synthesize(state)
 
 
 def decompose_or_retrieve(state: ChatState) -> ChatNode:
@@ -351,6 +381,7 @@ GRAPH_EDGES = (
     (ChatNode.ASSESS, ChatNode.SYNTHESIZE),
     (ChatNode.TOOLS, ChatNode.ASSESS),
     (ChatNode.TOOLS, ChatNode.SYNTHESIZE),
+    (ChatNode.TOOLS, ChatNode.REFUSE),
     (ChatNode.SYNTHESIZE, END),
     (ChatNode.REFUSE, END),
 )
@@ -387,7 +418,9 @@ def build_graph() -> CompiledStateGraph[ChatState]:
         ChatNode.ASSESS, tools_or_synthesize, [ChatNode.TOOLS, ChatNode.SYNTHESIZE]
     )
     graph.add_conditional_edges(
-        ChatNode.TOOLS, assess_or_synthesize, [ChatNode.ASSESS, ChatNode.SYNTHESIZE]
+        ChatNode.TOOLS,
+        assess_or_synthesize_or_refuse,
+        [ChatNode.ASSESS, ChatNode.SYNTHESIZE, ChatNode.REFUSE],
     )
     graph.add_edge(ChatNode.SYNTHESIZE, END)
     graph.add_edge(ChatNode.REFUSE, END)

@@ -6,6 +6,7 @@ from app.chat.prompts import REFUSAL_ANSWER
 from app.evals.judge.enums import JudgeVerdict
 from app.evals.judge.models import CaseJudgement, CorrectnessVerdict
 from app.evals.metrics import (
+    compute_assess_refusal_rate,
     compute_cited_references,
     compute_context_metrics,
     compute_correctness,
@@ -20,6 +21,7 @@ from app.evals.metrics import (
     compute_model_refusal_rate,
     compute_output_tokens,
     compute_raw_recall,
+    count_assess_false_refusals,
     count_errors,
     count_false_refusals,
     count_judged,
@@ -33,6 +35,7 @@ from app.evals.metrics import (
 from app.retrieval.models import ReferenceTarget
 from tests.conftest import retrieved_chunk, search_result
 from tests.evals.conftest import (
+    assess_refused_result,
     eval_case,
     eval_result,
     failed_judgement,
@@ -234,11 +237,41 @@ def test_an_in_corpus_refusal_over_hits_holding_the_reference_is_the_gate_too_ti
     assert count_refusals_of_a_found_reference((too_tight, genuine_miss)) == 1
 
 
-def test_a_refusal_is_read_off_empty_sources_not_the_refuse_node() -> None:
-    """A retrieval-only run never visits REFUSE; the gate's mark is the empty context."""
-    retrieval_only = refused_result(steps=(ChatStepResult(step=ChatNode.RETRIEVE, ms=80),))
+def test_a_run_cut_short_is_read_off_empty_sources_rather_than_a_refusal() -> None:
+    """A retrieval-only run stops before the graph routes, so it records no refusal to read;
+    the gate's mark is the empty context it left."""
+    retrieval_only = refused_result(
+        steps=(ChatStepResult(step=ChatNode.RETRIEVE, ms=80),), refusal=None, answer=""
+    )
 
     assert compute_gate_refusal_rate([retrieval_only]) == 1.0
+
+
+def test_a_refusal_after_assess_is_the_loops_not_the_gates() -> None:
+    """The gate acts before any model call; a refusal assess asked for is scored apart, so
+    the two rates say which of the two shut the question out."""
+    results = (assess_refused_result(),)
+
+    assert compute_gate_refusal_rate(results) == 0.0
+    assert compute_assess_refusal_rate(results) == 1.0
+
+
+def test_a_gate_refusal_is_not_the_loops() -> None:
+    results = (refused_result(),)
+
+    assert compute_assess_refusal_rate(results) == 0.0
+    assert count_assess_false_refusals((refused_result(eval_case()),)) == 0
+
+
+def test_an_in_corpus_case_assess_refused_is_a_false_refusal_of_the_loops() -> None:
+    results = (assess_refused_result(eval_case()),)
+
+    assert count_assess_false_refusals(results) == 1
+    assert count_false_refusals(results) == 0
+
+
+def test_the_loops_refusal_rate_is_unmeasured_without_out_of_corpus_cases() -> None:
+    assert compute_assess_refusal_rate((eval_result(),)) is None
 
 
 def test_citation_metrics_average_over_the_cases_that_measure() -> None:
@@ -282,6 +315,7 @@ def test_compute_metrics_assembles_every_block_of_the_run() -> None:
     )
     assert metrics.retrieval.raw_recall == 1.0
     assert metrics.gate.refusal_rate == 1.0
+    assert metrics.assess.refusal_rate == 0.0
     assert metrics.latency.mean_total_ms == 542
 
 

@@ -69,7 +69,7 @@ Each case is driven through the same graph the `/chat` endpoint runs, and ends i
 
 ## Metrics
 
-Scoring lives in `metrics.py`, each measure a plain function over the run's results. The run's `EvalMetrics` groups them into blocks — `counts`, `retrieval`, `context`, `gate`, `citations`, `judge`, `latency`, `usage`. A retrieval-only tune run fills the same model and leaves the blocks past the model call unmeasured.
+Scoring lives in `metrics.py`, each measure a plain function over the run's results. The run's `EvalMetrics` groups them into blocks — `counts`, `retrieval`, `context`, `gate`, `assess`, `citations`, `judge`, `latency`, `usage`. A retrieval-only tune run fills the same model and leaves the blocks past the model call unmeasured.
 
 | Metric | Scored over | What it measures |
 | ------ | ----------- | ---------------- |
@@ -84,6 +84,8 @@ Scoring lives in `metrics.py`, each measure a plain function over the run's resu
 | `gate.refusal_rate` | out-of-corpus | Share the pre-model gate refused |
 | `gate.false_refusals` | in-corpus | Cases the gate refused |
 | `gate.refused_a_found_reference` | in-corpus | Of those, the ones where search had already found a reference |
+| `assess.refusal_rate` | out-of-corpus | Share that passed the gate and assess refused |
+| `assess.false_refusals` | in-corpus | Cases assess refused |
 | `judge.correctness` | judged in-corpus | Share of answers stating what the reference answer states |
 | `judge.faithfulness` | judged answers citing anything | Mean share of an answer's claims its cited context backs |
 | `judge.refusal_rate` | judged out-of-corpus | Share that passed the gate and declined in the model's own words |

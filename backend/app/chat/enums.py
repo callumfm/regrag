@@ -21,6 +21,7 @@ class ToolStep(StrEnum):
 
     SEARCH = "tool_search"
     FOLLOW_REFERENCE = "tool_follow_reference"
+    REFUSE = "tool_refuse"
     UNKNOWN = "tool_unknown"
     """A call to a tool the surface does not have, kept in the path because a model asking
     for one is worth seeing, and because a round that ran must leave a step behind."""
@@ -51,3 +52,12 @@ class ChatOutcome(StrEnum):
     REFUSED = "refused"
     ERROR = "error"
     ABORTED = "aborted"
+
+
+class RefusalReason(StrEnum):
+    """Why a question ended in the fixed refusal rather than an answer: search found
+    nothing that cleared the gate, or assess read what it found and none of it bore on the
+    question."""
+
+    NOTHING_RETRIEVED = "nothing_retrieved"
+    INSUFFICIENT_CONTEXT = "insufficient_context"

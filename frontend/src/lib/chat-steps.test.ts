@@ -28,6 +28,15 @@ describe("stepLabel", () => {
 		expect(stepLabel(step(unknown))).toBe("rerank")
 	})
 
+	it("names the refuse step by what it found", () => {
+		expect(stepLabel(step("tool_refuse", 0, "running"))).toBe(
+			"Finding nothing that bears on the question",
+		)
+		expect(stepLabel(step("tool_refuse"))).toBe(
+			"Found nothing that bears on the question",
+		)
+	})
+
 	it("names the rewrite step by what it does", () => {
 		expect(stepLabel(step("rewrite", 0, "running"))).toBe(
 			"Rewriting the question",

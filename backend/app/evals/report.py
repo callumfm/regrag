@@ -60,9 +60,10 @@ def _format_critiques(judgement: CaseJudgement) -> list[str]:
 
 def format_case_lines(results: Sequence[EvalResult]) -> list[str]:
     """Every case as its own line, the id column sized to the longest id in the run, with
-    the queries decompose split it into and the judge's critiques under any case it did
-    not pass. A case that raised scores nothing, as the aggregate leaves it out; one
-    authoring no reference has no recall to measure, and prints a dash rather than a zero."""
+    the queries decompose split it into, assess's words for a refusal it asked for, and the
+    judge's critiques under any case it did not pass. A case that raised scores nothing, as the
+    aggregate leaves it out; one authoring no reference has no recall to measure, and prints
+    a dash rather than a zero."""
     if not results:
         return []
     width = max(len(result.case.id) for result in results)
@@ -71,6 +72,8 @@ def format_case_lines(results: Sequence[EvalResult]) -> list[str]:
         lines.append(_format_case_line(result, width))
         if result.state.queries:
             lines.append(INDENT + "split: " + " | ".join(result.state.queries))
+        if result.state.refusal is not None and result.state.refusal.explanation:
+            lines.append(INDENT + "refused: " + result.state.refusal.explanation)
         if result.judgement is not None:
             lines.extend(_format_critiques(result.judgement))
     return lines

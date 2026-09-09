@@ -11,12 +11,13 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk
 from sqlalchemy.exc import OperationalError
 
-from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, ToolStep
+from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, RefusalReason, ToolStep
 from app.chat.models import (
     ChatQuery,
     ChatTurn,
     DoneEvent,
     ErrorEvent,
+    Refusal,
     SourcesEvent,
     StepEvent,
     TextEvent,
@@ -187,6 +188,39 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
     assert [result.step for result in state.steps] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
     assert state.sources == ()
     assert state.token_totals() == (None, None)
+
+
+async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_refusal(
+    loop_on, one_result, monkeypatch, recorded_requests
+):
+    """The tool step carries the explanation, the context settled when it ran, so the sources go
+    out as on any answered question; the one text frame is the fixed refusal, and the ledger
+    says refused."""
+    assess = ToolCallStreamingModel(
+        messages=iter([tool_call_message("refuse", {"explanation": "nothing bears on it"})]),
+        usage=USAGE,
+    )
+    monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
+    model = fake_chat_model()
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+
+    events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
+
+    assert step_frames(events)[4:] == [
+        (ToolStep.REFUSE, ChatStepStatus.RUNNING, "nothing bears on it"),
+        (ToolStep.REFUSE, ChatStepStatus.COMPLETED, "nothing bears on it"),
+        (ChatNode.REFUSE, ChatStepStatus.RUNNING, None),
+        (ChatNode.REFUSE, ChatStepStatus.COMPLETED, None),
+    ]
+    [sources] = [e for e in events if isinstance(e, SourcesEvent)]
+    assert [source.chunk_id for source in sources.data] == [1]
+    assert [e for e in events if isinstance(e, TextEvent)] == [TextEvent(data=REFUSAL_ANSWER)]
+    assert model.received == []
+    [state] = recorded_requests
+    assert state.outcome is ChatOutcome.REFUSED
+    assert state.refusal == Refusal(
+        reason=RefusalReason.INSUFFICIENT_CONTEXT, explanation="nothing bears on it"
+    )
 
 
 def step_frames(events) -> list[tuple]:
