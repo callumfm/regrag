@@ -269,6 +269,39 @@ async def test_a_point_no_part_defines_returns_nothing_rather_than_the_whole_art
     assert found == ()
 
 
+@pytest.mark.parametrize("cited", ["1a", "1A"])
+async def test_a_numbered_paragraph_is_matched_however_the_citation_cases_its_letter(
+    db_session: AsyncSession,
+    corpus: list[DocumentChunk],
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+    cited: str,
+) -> None:
+    """The lettered paragraph no fixture act numbers: 'Article 6(1a)', inserted by an amendment.
+    The article beside it is already cased either way, and both halves come from one citation."""
+    db_session.add(
+        make_chunk_row(
+            ingest_run,
+            celex=INVENTED_CELEX,
+            article="6",
+            paragraph="1a",
+            part=1,
+            parts=1,
+            position=0,
+            citation="Article 6(1a)",
+            text="1a. The company shall report the inserted paragraph.",
+            content_hash=f"{6:064d}",
+        )
+    )
+    await db_session.flush()
+
+    found = await follow_reference(
+        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="6", paragraph=cited)
+    )
+
+    assert [chunk.citation for chunk in found] == ["Article 6(1a)"]
+
+
 async def test_a_point_numbered_rather_than_lettered_reaches_its_part_the_same_way(
     db_session: AsyncSession,
     corpus: list[DocumentChunk],

@@ -33,7 +33,7 @@ def _targeted(stmt: Select, target: ReferenceTarget) -> Select:
         point = rf"(^|\n)\({re.escape(target.paragraph)}\) "
         stmt = stmt.where(
             or_(
-                DocumentChunk.paragraph == target.paragraph,
+                func.lower(DocumentChunk.paragraph) == target.paragraph.lower(),
                 and_(
                     DocumentChunk.paragraph.is_(None),
                     DocumentChunk.text.regexp_match(point, flags="i"),

@@ -283,13 +283,17 @@ def test_resolves_a_bare_commission_regulation() -> None:
     )
 
 
-def test_attributes_an_article_cited_by_point_to_the_instrument_after_the_point() -> None:
+@pytest.mark.parametrize("point", ["e", "E"])
+def test_attributes_an_article_cited_by_point_to_the_instrument_after_the_point(
+    point: str,
+) -> None:
+    """Cased either way: an act writing 'point (E)' names the same part as 'point (e)'."""
     references = extract_references(
-        "means gross tonnage as defined in Article 3, point (e), of Regulation (EU) 2015/757"
+        f"means gross tonnage as defined in Article 3, point ({point}), of Regulation (EU) 2015/757"
     )
     assert references == (
         Reference(
-            raw="Article 3, point (e), of Regulation (EU) 2015/757",
+            raw=f"Article 3, point ({point}), of Regulation (EU) 2015/757",
             instrument="32015R0757",
             article="3",
         ),
