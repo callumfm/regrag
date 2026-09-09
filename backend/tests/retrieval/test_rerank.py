@@ -1,16 +1,15 @@
 """Rerank client: call contract, ordering, and degradation to the fused order."""
 
-import httpx
 import openai
 import pytest
 from litellm.types.rerank import RerankResponse
 from tenacity import stop_after_attempt
 
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.retrieval import rerank as rerank_module
 from app.retrieval.models import SearchResult
 from app.retrieval.rerank import _rerank, rerank_results
-from tests.conftest import search_result
+from tests.conftest import provider_error, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -68,9 +67,7 @@ async def test_rerank_wraps_provider_error_without_leaking_provider_text(monkeyp
     provider_message = "connection refused by voyageai.com upstream"
 
     async def fake_arerank(**kwargs):
-        raise openai.APIConnectionError(
-            message=provider_message, request=httpx.Request("POST", "http://voyageai.example")
-        )
+        raise provider_error(openai.APIConnectionError, message=provider_message)
 
     monkeypatch.setattr(rerank_module.litellm, "arerank", fake_arerank)
 

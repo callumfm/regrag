@@ -3,7 +3,8 @@
 import asyncio
 from typing import Any
 
-from app.evals.cache import enable_call_cache
+from app.core.config import config
+from app.core.llm.cache import enable_call_cache
 from app.evals.dataset.cli import add_selection_arguments
 from app.evals.dataset.models import CaseSelection, EvalDataset
 from app.evals.tune.params import TUNABLE_PARAMS
@@ -33,7 +34,7 @@ def run_tune(selection: CaseSelection, cached: bool = True) -> int:
     dataset = EvalDataset.load(selection=selection)
 
     if cached:
-        enable_call_cache()
+        enable_call_cache(config.EVAL_CACHE_DIR)
 
     run = asyncio.run(tune(dataset, params=TUNABLE_PARAMS))
     print(format_tune_table(run))

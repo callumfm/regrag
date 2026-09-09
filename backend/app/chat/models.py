@@ -17,6 +17,7 @@ from app.chat.enums import (
 )
 from app.core.config import config
 from app.core.exceptions import DomainError
+from app.core.llm.models import TokenUsage
 from app.core.models import AppModel, ErrorResponse, FrozenModel
 from app.retrieval.models import RetrievedChunk, SearchResult
 
@@ -31,7 +32,7 @@ class ChatQuery(AppModel):
 
 class ChatStepResult(FrozenModel):
     """One step of the path — a graph node, or one tool call a round ran: what it was, how
-    long it took, and the tokens it used if it called a model. The shape the ledger persists
+    long it took, and what it spent if it called a model. The shape the ledger persists
     per step, and the trace a run is read back from.
 
     status: whether the step has finished. Only the stream announces a running one; every step
@@ -43,8 +44,7 @@ class ChatStepResult(FrozenModel):
 
     step: ChatNode | ToolStep
     ms: int
-    input_tokens: int | None = None
-    output_tokens: int | None = None
+    usage: TokenUsage | None = None
     status: ChatStepStatus = ChatStepStatus.COMPLETED
     subject: str | None = None
 
@@ -53,14 +53,7 @@ class ChatStepResult(FrozenModel):
         cls, step: ChatNode | ToolStep, ms: int, usage: UsageMetadata | None
     ) -> "ChatStepResult":
         """The result of a step that reported usage, or none."""
-        if usage is None:
-            return cls(step=step, ms=ms)
-        return cls(
-            step=step,
-            ms=ms,
-            input_tokens=usage["input_tokens"],
-            output_tokens=usage["output_tokens"],
-        )
+        return cls(step=step, ms=ms, usage=TokenUsage.from_metadata(usage) if usage else None)
 
 
 class ToolCall(FrozenModel):
@@ -149,12 +142,10 @@ class ChatState(AppModel):
         question as asked."""
         return self.standalone_question or self.question
 
-    def token_totals(self) -> tuple[int | None, int | None]:
-        """Input and output tokens summed over the steps that reported usage — what the
-        request cost — or None for each when none did."""
-        inputs = [r.input_tokens for r in self.steps if r.input_tokens is not None]
-        outputs = [r.output_tokens for r in self.steps if r.output_tokens is not None]
-        return (sum(inputs) if inputs else None, sum(outputs) if outputs else None)
+    def token_usage(self) -> TokenUsage | None:
+        """What the request spent, summed over the steps that reported usage, or None when
+        none did."""
+        return TokenUsage.sum_reported(result.usage for result in self.steps)
 
     def sync_from_snapshot(self, snapshot: dict[str, Any]) -> None:
         """Update this state with the graph's latest snapshot, so one object holds the run

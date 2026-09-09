@@ -6,12 +6,12 @@ import pytest
 
 from app.chat.enums import ChatNode, ChatOutcome
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.evals.service import evaluate_case
 from app.evals.tune import service
 from app.evals.tune.models import TunableParam
 from app.evals.tune.service import retrieve_graph, tune
-from tests.conftest import search_result
+from tests.conftest import install_search, search_result
 from tests.evals.conftest import eval_case, eval_dataset, eval_result
 
 pytestmark = pytest.mark.anyio
@@ -26,7 +26,7 @@ def found_context(monkeypatch: pytest.MonkeyPatch) -> None:
         return (search_result(),)
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
+    install_search(monkeypatch, fake_search)
 
 
 async def test_retrieve_graph_drives_the_retrieve_node_alone(found_context: None) -> None:
@@ -35,7 +35,7 @@ async def test_retrieve_graph_drives_the_retrieve_node_alone(found_context: None
     assert result.state.hits == (search_result(),)
     assert result.state.sources == (search_result(),)
     assert [n.step for n in result.state.steps] == [ChatNode.RETRIEVE]
-    assert result.state.token_totals() == (None, None)
+    assert result.state.token_usage() is None
     assert result.state.total_ms is not None
 
 
@@ -45,7 +45,7 @@ async def test_a_case_retrieve_raises_on_is_recorded_rather_than_raised(
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.graph.search", failing_search)
+    install_search(monkeypatch, failing_search)
 
     with caplog.at_level(logging.WARNING):
         result = await evaluate_case(eval_case(), graph=retrieve_graph)

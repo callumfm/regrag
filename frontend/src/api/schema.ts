@@ -84,7 +84,7 @@ export interface components {
         /**
          * ChatStepResult
          * @description One step of the path — a graph node, or one tool call a round ran: what it was, how
-         *     long it took, and the tokens it used if it called a model. The shape the ledger persists
+         *     long it took, and what it spent if it called a model. The shape the ledger persists
          *     per step, and the trace a run is read back from.
          *
          *     status: whether the step has finished. Only the stream announces a running one; every step
@@ -98,10 +98,7 @@ export interface components {
             step: components["schemas"]["ChatNode"] | components["schemas"]["ToolStep"];
             /** Ms */
             ms: number;
-            /** Input Tokens */
-            input_tokens?: number | null;
-            /** Output Tokens */
-            output_tokens?: number | null;
+            usage?: components["schemas"]["TokenUsage"] | null;
             /** @default completed */
             status: components["schemas"]["ChatStepStatus"];
             /** Subject */
@@ -226,6 +223,16 @@ export interface components {
             event: "text";
             /** Data */
             data: string;
+        };
+        /**
+         * TokenUsage
+         * @description The tokens one model call spent, or several calls spent between them.
+         */
+        TokenUsage: {
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
         };
         /**
          * ToolStep

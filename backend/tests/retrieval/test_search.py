@@ -7,7 +7,7 @@ from sqlalchemy import Select, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import EMBED_DIMENSIONS, config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.schemas import IngestRun
 from app.retrieval.models import SearchFilters, SearchRequest, SearchResult

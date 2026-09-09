@@ -1,5 +1,6 @@
 """Tune test factories and guards shared across the tune test modules."""
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -16,9 +17,13 @@ def enabled(monkeypatch):
     """Record whether the command turned the call cache on, without turning it on. Autouse
     so no test here installs a real cache: tune enables one by default, which would put a
     cache under the real data directory and leave it set for whatever runs next."""
-    calls: list[bool] = []
-    monkeypatch.setattr(tune_cli, "enable_call_cache", lambda: calls.append(True))
-    return calls
+    enabled: list[Path] = []
+
+    def record(directory: Path) -> None:
+        enabled.append(directory)
+
+    monkeypatch.setattr(tune_cli, "enable_call_cache", record)
+    return enabled
 
 
 HEALTHY = compute_metrics(()).model_dump() | {

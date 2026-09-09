@@ -5,13 +5,12 @@ import logging
 from collections.abc import Sequence
 
 import litellm
-from pydantic import ValidationError
 
 from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
 from app.core.concurrency import run_concurrently
 from app.core.config import config
-from app.core.llm import LLMError, llm_retry, wrap_provider_errors
+from app.core.llm.errors import LLMError, llm_retry, parse_model_answer, wrap_provider_errors
 from app.core.models import FrozenModel
 from app.evals.dataset.enums import EvalKind
 from app.evals.dataset.models import EvalCase
@@ -51,14 +50,9 @@ async def call_judge_model[T: FrozenModel](system: str, user: str, output: type[
         drop_params=True,
     )
     choice = response.choices[0]
-    content = choice.message.content or ""
-    try:
-        return output.model_validate_json(content)
-    except ValidationError as exc:
-        logger.warning(
-            "judge answered off its schema, stopped on %s: %s", choice.finish_reason, exc
-        )
-        raise LLMError("judge call failed") from exc
+    return parse_model_answer(
+        output, choice.message.content or "", label="judge", stopped_on=choice.finish_reason
+    )
 
 
 async def _judge[T: FrozenModel](system: str, user: str, output: type[T]) -> T | None:

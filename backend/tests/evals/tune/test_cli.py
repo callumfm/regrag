@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot
+from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
 from app.evals.cli import main
 from app.evals.tune import cli as tune_cli
 from app.evals.tune.models import TuneResult, TuneRun
@@ -58,7 +58,7 @@ def test_tune_exits_nonzero_when_a_measurement_had_errors(monkeypatch, capsys):
 
 def test_tune_replays_its_embed_and_rerank_calls_by_default(fake_tune, enabled):
     assert main(["tune"]) == 0
-    assert enabled
+    assert enabled == [config.EVAL_CACHE_DIR]
 
 
 def test_no_cache_makes_a_sweep_pay_for_its_calls_again(fake_tune, enabled):

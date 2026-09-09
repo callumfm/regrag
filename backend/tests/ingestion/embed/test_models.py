@@ -1,6 +1,6 @@
 """What the embed stage reports: its buckets, and how a failure is recorded against a document."""
 
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.ingestion.embed.models import EmbedOutcome
 
 

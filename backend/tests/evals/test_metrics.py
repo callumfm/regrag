@@ -3,6 +3,7 @@
 from app.chat.enums import ChatNode
 from app.chat.models import ChatStepResult
 from app.chat.prompts import REFUSAL_ANSWER
+from app.core.llm.models import TokenUsage
 from app.evals.judge.enums import JudgeVerdict
 from app.evals.judge.models import CaseJudgement, CorrectnessVerdict
 from app.evals.metrics import (
@@ -14,13 +15,12 @@ from app.evals.metrics import (
     compute_expanded_recall,
     compute_faithfulness,
     compute_gate_refusal_rate,
-    compute_input_tokens,
     compute_markers_in_context,
     compute_mean_step_ms,
     compute_metrics,
     compute_model_refusal_rate,
-    compute_output_tokens,
     compute_raw_recall,
+    compute_usage,
     count_assess_false_refusals,
     count_errors,
     count_false_refusals,
@@ -301,8 +301,7 @@ def test_node_ms_is_averaged_over_the_cases_that_ran_the_node() -> None:
 def test_tokens_are_summed_over_the_run() -> None:
     results = (eval_result(), eval_result(), refused_result())
 
-    assert compute_input_tokens(results) == 3000
-    assert compute_output_tokens(results) == 80
+    assert compute_usage(results) == TokenUsage(input_tokens=3000, output_tokens=80)
 
 
 def test_compute_metrics_assembles_every_block_of_the_run() -> None:

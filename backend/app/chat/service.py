@@ -22,14 +22,13 @@ async def create_chat_request(session: AsyncSession, state: ChatState) -> None:
     """The run as recorded: one stats line, and a chat_requests row with a row per step."""
     fields = state.log_fields()
     logger.info("chat %(outcome)s in %(total_ms)sms", fields, extra=fields)
-    input_tokens, output_tokens = state.token_totals()
+    usage = state.token_usage()
     steps = [
         ChatRequestStep(
             position=idx,
             step=result.step.value,
             ms=result.ms,
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
+            **(result.usage.model_dump() if result.usage else {}),
         )
         for idx, result in enumerate(state.steps)
     ]
@@ -42,8 +41,7 @@ async def create_chat_request(session: AsyncSession, state: ChatState) -> None:
         model=config.CHAT_MODEL,
         total_ms=state.total_ms,
         sources=len(state.sources),
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
+        **(usage.model_dump() if usage else {}),
         error=state.error,
         steps=steps,
     )

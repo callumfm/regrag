@@ -6,7 +6,7 @@ import sys
 
 from app.core.config import config
 from app.core.db.session import get_session
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.core.logger import setup_logging
 from app.retrieval.models import SearchFilters, SearchRequest, SearchResult
 from app.retrieval.search import search

@@ -11,6 +11,8 @@ from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages.ai import UsageMetadata
 from sqlalchemy import URL, create_engine, delete, make_url, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -20,6 +22,7 @@ from app.chat.graph import synthesize
 from app.core.clock import utc_now
 from app.core.config import BACKEND_ROOT, EMBED_DIMENSIONS, R2Config, config
 from app.core.db.session import async_session_factory
+from app.core.llm.models import TokenUsage
 from app.core.storage import LocalObjectStore
 from app.evals.judge.service import call_judge_model
 from app.ingestion.chunk.models import Chunk
@@ -399,6 +402,26 @@ def retrieved_chunk(**overrides: Any) -> RetrievedChunk:
     return RetrievedChunk(**{**RETRIEVED_CHUNK, **overrides})
 
 
+USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
+"""What a faked model reports spending, as langchain carries it."""
+TOKEN_USAGE = TokenUsage.from_metadata(USAGE)
+"""USAGE as a step records it."""
+
+PROVIDER_REQUEST = httpx.Request("POST", "https://api.provider.example")
+
+
+def provider_error(exc_type, status_code: int | None = None, *, message: str | None = None):
+    """An openai exception as litellm surfaces one: on a status when given, else as a
+    connection failure, which carries the message only when one is given."""
+    if status_code is None:
+        return exc_type(request=PROVIDER_REQUEST, **({"message": message} if message else {}))
+    return exc_type(
+        message=message or "provider said no",
+        response=httpx.Response(status_code, request=PROVIDER_REQUEST),
+        body=None,
+    )
+
+
 def search_result(**overrides: Any) -> SearchResult:
     """A scored search hit with sane defaults, overridable per field."""
     defaults: dict[str, Any] = {
@@ -409,3 +432,13 @@ def search_result(**overrides: Any) -> SearchResult:
         "cosine_similarity": 0.8,
     }
     return SearchResult(**{**defaults, **overrides})
+
+
+def install_chat_model(monkeypatch: pytest.MonkeyPatch, model: BaseChatModel) -> None:
+    """Point every node that calls a model at one fake."""
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+
+
+def install_search(monkeypatch: pytest.MonkeyPatch, fake_search: Callable[..., Any]) -> None:
+    """Point retrieve at a fake search; the graph imports it by name, so it is set there."""
+    monkeypatch.setattr("app.chat.graph.search", fake_search)
