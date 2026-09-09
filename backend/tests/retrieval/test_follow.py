@@ -316,13 +316,13 @@ async def store_definitions_article(
     await session.flush()
 
 
-@pytest.mark.parametrize(("point", "opening"), [("e", "(e) ‘gross"), ("16", "(15) ‘ship")])
+@pytest.mark.parametrize(("point", "part"), [("e", 2), ("16", 3)])
 async def test_a_point_of_a_definitions_article_reaches_the_part_that_defines_it(
     db_session: AsyncSession,
     ingest_run: IngestRun,
     make_chunk_row: Callable[..., DocumentChunk],
     point: str,
-    opening: str,
+    part: int,
 ) -> None:
     """A definitions article numbers no paragraphs, so a citation's point is found in the text."""
     await store_definitions_article(db_session, ingest_run, make_chunk_row)
@@ -331,7 +331,7 @@ async def test_a_point_of_a_definitions_article_reaches_the_part_that_defines_it
         db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", paragraph=point)
     )
 
-    assert [chunk.text[: len(opening)] for chunk in found] == [opening]
+    assert [chunk.part for chunk in found] == [part]
 
 
 async def test_a_point_no_part_defines_returns_nothing_rather_than_the_whole_article(

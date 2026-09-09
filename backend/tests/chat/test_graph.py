@@ -572,24 +572,29 @@ def test_the_compiled_graph_has_the_edges_the_readme_draws():
 
 
 class TestFollowsOfBlocksAlreadyShown:
-    """A follow_reference of a division the context already shows fetches nothing new, so
-    it is dropped before the cap is counted, leaving the round's budget for what is missing."""
+    """A follow_reference of a paragraph the context already shows in full fetches nothing
+    new, so it is dropped before the cap is counted, leaving the budget for what is missing."""
 
     SHOWN_ARGS = {"celex": "32023R1805", "article": "4", "paragraph": "1"}
-    FOLLOW_SHOWN = {
-        "name": "follow_reference",
-        "args": SHOWN_ARGS,
-        "id": "call_1",
-        "type": "tool_call",
-    }
 
     async def test_a_follow_of_a_block_already_shown_is_dropped_before_the_cap(
         self, loop_on, one_result, answer_model, assess_turns, tool_results, monkeypatch
     ):
         monkeypatch.setattr(config, "ASSESS_MAX_CALLS", 1)
-        search = {"name": "search", "args": {"query": "a"}, "id": "call_2", "type": "tool_call"}
         assess_turns(
-            AIMessage(content="", tool_calls=[self.FOLLOW_SHOWN, search]), AIMessage(content="")
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "follow_reference",
+                        "args": self.SHOWN_ARGS,
+                        "id": "c1",
+                        "type": "tool_call",
+                    },
+                    {"name": "search", "args": {"query": "a"}, "id": "c2", "type": "tool_call"},
+                ],
+            ),
+            AIMessage(content=""),
         )
         run_calls = tool_results()
 
@@ -597,16 +602,34 @@ class TestFollowsOfBlocksAlreadyShown:
 
         assert run_calls == [ToolCall(name="search", args={"query": "a"})]
 
-    async def test_a_follow_of_a_division_shown_only_in_part_still_runs(
+    async def test_a_follow_of_a_paragraph_shown_only_in_part_still_runs(
         self, loop_on, answer_model, assess_turns, tool_results, monkeypatch
     ):
         async def fake_search(session, request):
             return (search_result(part=1, parts=2),)
 
         monkeypatch.setattr("app.chat.graph.search", fake_search)
-        assess_turns(AIMessage(content="", tool_calls=[self.FOLLOW_SHOWN]), AIMessage(content=""))
+        assess_turns(tool_call_message("follow_reference", self.SHOWN_ARGS), AIMessage(content=""))
         run_calls = tool_results()
 
         await run_graph()
 
         assert run_calls == [ToolCall(name="follow_reference", args=self.SHOWN_ARGS)]
+
+    async def test_a_follow_of_a_whole_article_still_runs_when_only_its_chapeau_is_shown(
+        self, loop_on, answer_model, assess_turns, tool_results, monkeypatch
+    ):
+        """The chapeau's parts say nothing about the paragraphs under it, so only a
+        paragraph can be known to be shown in full."""
+
+        async def fake_search(session, request):
+            return (search_result(citation="Article 4", article="4"),)
+
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        whole = {"celex": "32023R1805", "article": "4"}
+        assess_turns(tool_call_message("follow_reference", whole), AIMessage(content=""))
+        run_calls = tool_results()
+
+        await run_graph()
+
+        assert run_calls == [ToolCall(name="follow_reference", args=whole)]

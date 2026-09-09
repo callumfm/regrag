@@ -103,23 +103,16 @@ async def test_a_judge_call_spends_the_judges_own_token_cap(
     assert call["max_tokens"] == 4321
 
 
-async def test_an_answer_cut_off_says_why_it_stopped(judge_answers, caplog) -> None:
+async def test_an_answer_off_the_schema_is_a_failed_call_that_says_why_it_stopped(
+    judge_answers, caplog
+) -> None:
     judge_answers(judge_response('{"critique": "The answer', finish_reason="length"))
-
-    with caplog.at_level(logging.WARNING):
-        await judge_case(out_of_corpus_case(), eval_result().state)
-
-    assert "stopped on length" in caplog.text
-
-
-async def test_an_answer_off_the_schema_is_a_failed_call(judge_answers, caplog) -> None:
-    judge_answers('{"critique": "no verdict here"}')
 
     with caplog.at_level(logging.WARNING):
         judgement = await judge_case(out_of_corpus_case(), eval_result().state)
 
     assert judgement.refusal is None
-    assert "judge answered off its schema" in caplog.text
+    assert "judge answered off its schema, stopped on length" in caplog.text
     assert "RefusalVerdict left unjudged: judge call failed" in caplog.text
 
 

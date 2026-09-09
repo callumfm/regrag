@@ -112,20 +112,21 @@ TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
 
 
 def fetches_a_shown_division(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:
-    """Whether the call would only fetch a division the context already shows in full, so
-    running it could add nothing: a follow of a division every part of which is a source.
-    A call the surface cannot read is left to run_tool_call to reject."""
+    """Whether the call would only fetch a paragraph the context already shows in full, so
+    running it could add nothing. A whole article or annex is never known to be shown in
+    full: its chapeau's parts say nothing about what sits under it. A call the surface cannot
+    read is left to run_tool_call to reject."""
     if call.name != "follow_reference":
         return False
     try:
-        args = FollowReferenceArgs.model_validate(call.args)
-        target = ReferenceTarget(
-            celex=args.celex, article=args.article, paragraph=args.paragraph, annex=args.annex
-        )
+        target = ReferenceTarget.model_validate(call.args)
     except ValidationError:
         return False
-    shown = [s for s in sources if s.celex == target.celex and s.citation == target.citation]
-    return bool(shown) and {s.part for s in shown} == set(range(1, shown[0].parts + 1))
+    if target.paragraph is None:
+        return False
+    citation = target.citation.lower()
+    shown = [s for s in sources if s.celex == target.celex and s.citation.lower() == citation]
+    return bool(shown) and len({s.part for s in shown}) == shown[0].parts
 
 
 def tool_step(name: str) -> ToolStep:

@@ -136,8 +136,11 @@ async def call_assess_model(state: ChatState) -> dict[str, Any]:
         HumanMessage(build_assess_message(state.question, state.sources)),
     ]
     response = await assess_model().ainvoke(messages)
-    asked = (ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls)
-    useful = [call for call in asked if not fetches_a_shown_division(call, state.sources)]
+    useful = [
+        call
+        for call in (ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls)
+        if not fetches_a_shown_division(call, state.sources)
+    ]
     calls = tuple(useful[: config.ASSESS_MAX_CALLS])
     return {"pending_calls": calls, "usage": response.usage_metadata}
 
