@@ -34,11 +34,11 @@ GROUNDED = FaithfulnessVerdict(
 DECLINED = RefusalVerdict(critique="says the corpus lacks it", verdict=JudgeVerdict.PASS)
 
 
-def judge_response(payload: FrozenModel | str) -> ModelResponse:
+def judge_response(payload: FrozenModel | str, finish_reason: str = "stop") -> ModelResponse:
     """A completion as litellm returns one, its content the verdict's JSON."""
     content = payload if isinstance(payload, str) else payload.model_dump_json()
     return ModelResponse(
-        choices=[Choices(message=Message(content=content))],
+        choices=[Choices(message=Message(content=content), finish_reason=finish_reason)],
         usage=Usage(prompt_tokens=200, completion_tokens=60),
     )
 
@@ -50,7 +50,7 @@ def judge_answers(monkeypatch: pytest.MonkeyPatch):
     still arrive in the order they were made, as the fake never yields."""
     calls: list[dict[str, Any]] = []
 
-    def install(*answers: FrozenModel | str | Exception) -> list[dict[str, Any]]:
+    def install(*answers: FrozenModel | str | ModelResponse | Exception) -> list[dict[str, Any]]:
         queue = list(answers)
 
         async def fake_acompletion(**kwargs: Any) -> ModelResponse:
@@ -58,6 +58,8 @@ def judge_answers(monkeypatch: pytest.MonkeyPatch):
             answer = queue.pop(0)
             if isinstance(answer, Exception):
                 raise answer
+            if isinstance(answer, ModelResponse):
+                return answer
             return judge_response(answer)
 
         monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
@@ -88,14 +90,29 @@ async def test_a_judge_call_asks_for_the_verdicts_shape_and_drops_what_the_model
     ]
 
 
-async def test_an_answer_off_the_schema_is_a_failed_call(judge_answers, caplog) -> None:
-    judge_answers('{"critique": "no verdict here"}')
+async def test_a_judge_call_spends_the_judges_own_token_cap(
+    judge_answers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The verdict is critique first, and a judge that thinks spends the cap on that too."""
+    monkeypatch.setattr(config, "EVAL_JUDGE_MAX_TOKENS", 4321, raising=False)
+    calls = judge_answers(DECLINED)
+
+    await call_judge_model(REFUSAL_PROMPT, "user turn", RefusalVerdict)
+
+    [call] = calls
+    assert call["max_tokens"] == 4321
+
+
+async def test_an_answer_off_the_schema_is_a_failed_call_that_says_why_it_stopped(
+    judge_answers, caplog
+) -> None:
+    judge_answers(judge_response('{"critique": "The answer', finish_reason="length"))
 
     with caplog.at_level(logging.WARNING):
         judgement = await judge_case(out_of_corpus_case(), eval_result().state)
 
     assert judgement.refusal is None
-    assert "judge answered off its schema" in caplog.text
+    assert "judge answered off its schema, stopped on length" in caplog.text
     assert "RefusalVerdict left unjudged: judge call failed" in caplog.text
 
 

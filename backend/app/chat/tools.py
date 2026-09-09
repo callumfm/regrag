@@ -1,7 +1,7 @@
 """The assess loop's tool surface: what the model may call, and how each call runs."""
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import NamedTuple
 
 from pydantic import ValidationError
@@ -109,6 +109,24 @@ TOOL_SURFACE = {
 
 TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
 """The surface as the model is shown it, built once: it depends on nothing at call time."""
+
+
+def already_in_context(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:
+    """Whether the call would only fetch a paragraph the context already shows in full, so
+    running it could add nothing. A whole article or annex is never known to be shown in
+    full: its chapeau's parts say nothing about what sits under it. A call the surface cannot
+    read is left to run_tool_call to reject."""
+    if call.name != "follow_reference":
+        return False
+    try:
+        target = ReferenceTarget.model_validate(call.args)
+    except ValidationError:
+        return False
+    if target.paragraph is None:
+        return False
+    citation = target.citation.lower()
+    shown = [s for s in sources if s.celex == target.celex and s.citation.lower() == citation]
+    return bool(shown) and len({s.part for s in shown}) == shown[0].parts
 
 
 def describe_call(call: ToolCall) -> str | None:

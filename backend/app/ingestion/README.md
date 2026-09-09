@@ -182,6 +182,8 @@ Legislation often makes references to other documents or other sections of the c
 
 An article named on its own belongs to the document it sits in; one qualified by an instrument takes that instrument's CELEX id, so it can be matched against the rest of the corpus.
 
+A point or subparagraph named between the article and its instrument — `Article 3, point (e), of Regulation (EU) 2015/757`, the form a definitions article borrows a term in — still qualifies the article by that instrument. The point itself is not stored: a definitions article numbers no paragraphs, so the reference addresses the article and the point is found in its text when followed.
+
 This transforms the corpus into a graph for which references can be followed to the source in a deterministic fashion rather than relying on similarity to surface it.
 
 References to the same document always land. References to other instruments mostly do not: a citation only resolves where the act it names is in the corpus, and most of the acts FuelEU cites are not, because discovery collects what is made *under* the seeds rather than what they cite. A few land anyway — FuelEU cites MRV, which is a seed in its own right. The most-cited act of all, Directive 2018/2001, is outside, and it is where fuel certification is defined. Following the citation graph one hop further is tracked as a separate piece of work.

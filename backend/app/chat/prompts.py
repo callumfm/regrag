@@ -27,8 +27,9 @@ REFUSAL_ANSWER = (
 
 
 def _reference_addresses(source: RetrievedChunk) -> list[str]:
-    """Each followable reference as 'celex division'; one naming no division is skipped,
-    on the same rule follow_reference's target enforces."""
+    """Each followable address once, as 'celex division': a reference naming no division is
+    skipped, on the same rule follow_reference's target enforces, and several points of one
+    article are the one address."""
     addresses = []
     for reference in source.references:
         try:
@@ -36,7 +37,7 @@ def _reference_addresses(source: RetrievedChunk) -> list[str]:
         except ValidationError:
             continue
         addresses.append(f"{target.celex} {target.citation}")
-    return addresses
+    return list(dict.fromkeys(addresses))
 
 
 def format_context_block(marker: int, source: RetrievedChunk) -> str:

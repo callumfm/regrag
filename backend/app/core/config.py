@@ -289,12 +289,15 @@ class JudgeConfig(BaseConfig):
 
     EVAL_JUDGE_MODEL: a model other than the one that wrote the answer, so a model does not
         grade its own habits. Recorded on every run: two runs graded by different judges are
-        not comparable. Timeout and max tokens are the chat values until each role has its
-        own (RRG-99).
+        not comparable. The timeout is the chat value until each role has its own (RRG-99).
+    EVAL_JUDGE_MAX_TOKENS: the cap on one verdict. The verdict is critique first, and a judge
+        that thinks spends the cap on that too, so it sits well above the answer's cap: a
+        verdict cut short parses as nothing and leaves the case unjudged.
     EVAL_JUDGE_CONCURRENCY: cases judged at once; llm_retry absorbs the rate limits.
     """
 
     EVAL_JUDGE_MODEL: str = "anthropic/claude-sonnet-5"
+    EVAL_JUDGE_MAX_TOKENS: int = 8192
     EVAL_JUDGE_CONCURRENCY: int = 4
 
 
