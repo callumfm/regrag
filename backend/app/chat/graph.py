@@ -17,11 +17,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import ValidationError
 
-from app.chat.enums import ChatNode
+from app.chat.enums import ChatNode, RefusalReason
 from app.chat.models import (
     ChatState,
     ChatStepResult,
     DecomposedQuestion,
+    Refusal,
     StandaloneQuestion,
     ToolCall,
 )
@@ -40,7 +41,7 @@ from app.chat.prompts import (
 from app.chat.tools import (
     already_in_context,
     build_call_step,
-    is_insufficient_context,
+    is_refusal,
     run_tool_call,
     tool_definitions,
 )
@@ -166,8 +167,11 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
 
 @traced
 async def refuse(state: ChatState) -> dict[str, Any]:
-    """The fixed refusal, in place of an answer, for a question without context."""
-    return {"answer": REFUSAL_ANSWER}
+    """The fixed refusal, in place of an answer, for a question without context: assess's
+    own refusal where it made one, else the gate's, which nothing before this node records
+    — retrieve only found nothing, and a run cut short there refused nothing."""
+    refusal = state.refusal or Refusal(reason=RefusalReason.NOTHING_RETRIEVED)
+    return {"answer": REFUSAL_ANSWER, "refusal": refusal}
 
 
 def decompose_model() -> Runnable:
@@ -267,12 +271,12 @@ async def call_assess_model(state: ChatState) -> dict[str, Any]:
     ]
     response = await assess_model().ainvoke(messages)
     asked = [ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls]
-    insufficient = [call for call in asked if is_insufficient_context(call)]
-    fetches = [call for call in asked if not is_insufficient_context(call)]
-    if insufficient and not fetches:
-        return {"pending_calls": (insufficient[0],), "usage": response.usage_metadata}
-    if insufficient:
-        logger.info("assess hedged insufficient context with a fetch, so the fetch runs")
+    refusals = [call for call in asked if is_refusal(call)]
+    fetches = [call for call in asked if not is_refusal(call)]
+    if refusals and not fetches:
+        return {"pending_calls": (refusals[0],), "usage": response.usage_metadata}
+    if refusals:
+        logger.info("assess hedged its refusal with a fetch, so the fetch runs")
     useful = [call for call in fetches if not already_in_context(call, state.sources)]
     calls = tuple(useful[: config.ASSESS_MAX_CALLS])
     return {"pending_calls": calls, "usage": response.usage_metadata}
@@ -310,24 +314,25 @@ def merge_sources(
 async def tools(state: ChatState) -> dict[str, Any]:
     """The round's calls run and folded into the context: dedup by chunk id, earlier context
     kept, growth capped. Each call is timed as its own step, so the path says what it cost.
-    An insufficient_context call fetches nothing and leaves its reason on the state, which
-    is what routes the round to the refusal."""
+    A refuse call fetches nothing and leaves its refusal on the state, which is what routes
+    the round to the refusal."""
     fetched: list[RetrievedChunk] = []
     steps: list[ChatStepResult] = []
-    insufficiency = state.insufficiency
+    refusal = state.refusal
     for call in state.pending_calls:
         start = time.perf_counter()
         fetched.extend(await run_tool_call(call))
         steps.append(build_call_step(call, ms=elapsed_ms(start)))
-        if is_insufficient_context(call):
-            insufficiency = str(call.args.get("reason", ""))
-            logger.info("assess found the context insufficient: %s", insufficiency)
+        if is_refusal(call):
+            explanation = str(call.args.get("explanation", ""))
+            refusal = Refusal(reason=RefusalReason.INSUFFICIENT_CONTEXT, explanation=explanation)
+            logger.info("assess refused for want of context: %s", explanation)
 
     cap = state.retrieved_sources + config.ASSESS_EXTRA_CHUNKS
     return {
         "sources": merge_sources(state.sources, fetched, cap=cap),
         "pending_calls": (),
-        "insufficiency": insufficiency,
+        "refusal": refusal,
         "steps": tuple(steps),
     }
 
@@ -345,7 +350,7 @@ def tools_or_synthesize(state: ChatState) -> ChatNode:
 def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
     """After retrieve or tools: refuse for want of context — none cleared the gate, or
     assess found what there is bears on nothing — else review or answer."""
-    if not state.sources or state.insufficiency is not None:
+    if not state.sources or state.refusal is not None:
         return ChatNode.REFUSE
     return assess_or_synthesize(state)
 

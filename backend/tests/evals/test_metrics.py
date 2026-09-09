@@ -237,9 +237,12 @@ def test_an_in_corpus_refusal_over_hits_holding_the_reference_is_the_gate_too_ti
     assert count_refusals_of_a_found_reference((too_tight, genuine_miss)) == 1
 
 
-def test_a_refusal_is_read_off_empty_sources_not_the_refuse_node() -> None:
-    """A retrieval-only run never visits REFUSE; the gate's mark is the empty context."""
-    retrieval_only = refused_result(steps=(ChatStepResult(step=ChatNode.RETRIEVE, ms=80),))
+def test_a_run_cut_short_is_read_off_empty_sources_rather_than_a_refusal() -> None:
+    """A retrieval-only run stops before the graph routes, so it records no refusal to read;
+    the gate's mark is the empty context it left."""
+    retrieval_only = refused_result(
+        steps=(ChatStepResult(step=ChatNode.RETRIEVE, ms=80),), refusal=None, answer=""
+    )
 
     assert compute_gate_refusal_rate([retrieval_only]) == 1.0
 

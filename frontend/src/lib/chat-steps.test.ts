@@ -28,11 +28,11 @@ describe("stepLabel", () => {
 		expect(stepLabel(step(unknown))).toBe("rerank")
 	})
 
-	it("names the insufficient-context step by what it found", () => {
-		expect(stepLabel(step("tool_insufficient_context", 0, "running"))).toBe(
+	it("names the refuse step by what it found", () => {
+		expect(stepLabel(step("tool_refuse", 0, "running"))).toBe(
 			"Finding nothing that bears on the question",
 		)
-		expect(stepLabel(step("tool_insufficient_context"))).toBe(
+		expect(stepLabel(step("tool_refuse"))).toBe(
 			"Found nothing that bears on the question",
 		)
 	})

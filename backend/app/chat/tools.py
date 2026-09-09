@@ -62,18 +62,16 @@ async def run_follow_reference(
     return chunks[: config.ASSESS_FOLLOW_LIMIT]
 
 
-class InsufficientContextArgs(FrozenModel):
+class RefuseArgs(FrozenModel):
     """Assess's word that nothing in the context bears on the question and no fetch would:
     the one call that ends the question in the fixed refusal rather than an answer."""
 
-    reason: str
+    explanation: str
 
 
-async def run_insufficient_context(
-    session: AsyncSession, args: InsufficientContextArgs
-) -> tuple[RetrievedChunk, ...]:
-    """Nothing to fetch: the call is its own result, and the tools node reads the reason off
-    it. Run like the others so the round records it as a step, timed and named."""
+async def run_refusal(session: AsyncSession, args: RefuseArgs) -> tuple[RetrievedChunk, ...]:
+    """Nothing to fetch: the call is its own result, and the tools node reads the explanation
+    off it. Run like the others so the round records it as a step, timed and named."""
     return ()
 
 
@@ -120,33 +118,33 @@ TOOL_SURFACE = {
             "or an annex of an act (celex). Use the addresses on the context's cites lines.",
         ),
         ToolSpec(
-            "insufficient_context",
-            ToolStep.INSUFFICIENT_CONTEXT,
-            InsufficientContextArgs,
-            run_insufficient_context,
-            "Declare that nothing in the context bears on the question and no search or "
-            "fetch of this corpus could change that. Call it alone, never beside a search "
-            "or fetch.",
+            "refuse",
+            ToolStep.REFUSE,
+            RefuseArgs,
+            run_refusal,
+            "Refuse the question, because nothing in the context bears on it and no search "
+            "or fetch of this corpus could change that. Call it alone, never beside a "
+            "search or fetch.",
         ),
     )
 }
 
-INSUFFICIENT_CONTEXT = "insufficient_context"
+REFUSE_TOOL = "refuse"
 """The one tool that grows nothing: assess's word that the question cannot be answered."""
 
 
-def is_insufficient_context(call: ToolCall) -> bool:
+def is_refusal(call: ToolCall) -> bool:
     """Whether the call is assess's word that the context cannot answer, rather than a fetch."""
-    return call.name == INSUFFICIENT_CONTEXT
+    return call.name == REFUSE_TOOL
 
 
 def tool_definitions() -> list[dict]:
-    """The surface as assess is shown it: the fetch tools, and insufficient_context while
-    refusing is allowed."""
+    """The surface as assess is shown it: the fetch tools, and refuse while refusing is
+    allowed."""
     return [
         spec.definition()
         for spec in TOOL_SURFACE.values()
-        if spec.name != INSUFFICIENT_CONTEXT or config.ASSESS_MAY_REFUSE
+        if spec.name != REFUSE_TOOL or config.ASSESS_MAY_REFUSE
     ]
 
 

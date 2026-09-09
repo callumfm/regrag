@@ -11,12 +11,13 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk
 from sqlalchemy.exc import OperationalError
 
-from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, ToolStep
+from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, RefusalReason, ToolStep
 from app.chat.models import (
     ChatQuery,
     ChatTurn,
     DoneEvent,
     ErrorEvent,
+    Refusal,
     SourcesEvent,
     StepEvent,
     TextEvent,
@@ -192,13 +193,11 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
 async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_refusal(
     loop_on, one_result, monkeypatch, recorded_requests
 ):
-    """The tool step carries the reason, the context settled when it ran, so the sources go
+    """The tool step carries the explanation, the context settled when it ran, so the sources go
     out as on any answered question; the one text frame is the fixed refusal, and the ledger
     says refused."""
     assess = ToolCallStreamingModel(
-        messages=iter(
-            [tool_call_message("insufficient_context", {"reason": "nothing bears on it"})]
-        ),
+        messages=iter([tool_call_message("refuse", {"explanation": "nothing bears on it"})]),
         usage=USAGE,
     )
     monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
@@ -208,8 +207,8 @@ async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_ref
     events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     assert step_frames(events)[4:] == [
-        (ToolStep.INSUFFICIENT_CONTEXT, ChatStepStatus.RUNNING, "nothing bears on it"),
-        (ToolStep.INSUFFICIENT_CONTEXT, ChatStepStatus.COMPLETED, "nothing bears on it"),
+        (ToolStep.REFUSE, ChatStepStatus.RUNNING, "nothing bears on it"),
+        (ToolStep.REFUSE, ChatStepStatus.COMPLETED, "nothing bears on it"),
         (ChatNode.REFUSE, ChatStepStatus.RUNNING, None),
         (ChatNode.REFUSE, ChatStepStatus.COMPLETED, None),
     ]
@@ -219,7 +218,9 @@ async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_ref
     assert model.received == []
     [state] = recorded_requests
     assert state.outcome is ChatOutcome.REFUSED
-    assert state.insufficiency == "nothing bears on it"
+    assert state.refusal == Refusal(
+        reason=RefusalReason.INSUFFICIENT_CONTEXT, explanation="nothing bears on it"
+    )
 
 
 def step_frames(events) -> list[tuple]:

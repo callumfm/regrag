@@ -13,7 +13,7 @@ from langchain_core.outputs import ChatResult
 from langchain_core.runnables import RunnableBinding
 from langchain_litellm import ChatLiteLLM
 
-from app.chat.enums import ChatNode, ToolStep
+from app.chat.enums import ChatNode, RefusalReason, ToolStep
 from app.chat.graph import (
     GRAPH_EDGES,
     assess_model,
@@ -26,7 +26,14 @@ from app.chat.graph import (
     rewrite,
     rewrite_model,
 )
-from app.chat.models import ChatState, ChatTurn, DecomposedQuestion, StandaloneQuestion, ToolCall
+from app.chat.models import (
+    ChatState,
+    ChatTurn,
+    DecomposedQuestion,
+    Refusal,
+    StandaloneQuestion,
+    ToolCall,
+)
 from app.chat.prompts import (
     ASSESS_SYSTEM_PROMPT,
     DECOMPOSE_SYSTEM_PROMPT,
@@ -308,6 +315,7 @@ async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_
 
     assert state["answer"] == REFUSAL_ANSWER
     assert state["sources"] == ()
+    assert state["refusal"] == Refusal(reason=RefusalReason.NOTHING_RETRIEVED)
     assert model.received == []
     assert len(searches) == 1
 
@@ -1068,17 +1076,17 @@ class TestFollowsOfBlocksAlreadyShown:
         assert run_calls == [ToolCall(name="follow_reference", args=whole)]
 
 
-class TestInsufficientContext:
+class TestRefuseTool:
     """Assess may answer that nothing in the context bears on the question and no fetch would
     change that: that call alone runs as a tool step and routes to the fixed refusal, with
     no answer written."""
 
-    INSUFFICIENT = {"reason": "no block concerns airline luggage"}
+    REFUSED = {"explanation": "no block concerns airline luggage"}
 
     async def test_the_call_alone_ends_in_the_fixed_refusal_without_an_answer_call(
         self, loop_on, one_result, answer_model, assess_turns
     ):
-        assess_turns(tool_call_message("insufficient_context", self.INSUFFICIENT))
+        assess_turns(tool_call_message("refuse", self.REFUSED))
 
         state = await run_graph()
 
@@ -1087,19 +1095,22 @@ class TestInsufficientContext:
         assert [r.step for r in state.steps] == [
             ChatNode.RETRIEVE,
             ChatNode.ASSESS,
-            ToolStep.INSUFFICIENT_CONTEXT,
+            ToolStep.REFUSE,
             ChatNode.REFUSE,
         ]
 
-    async def test_the_refusal_keeps_the_context_it_was_read_against_and_the_reason(
+    async def test_the_refusal_keeps_the_context_it_was_read_against_and_the_explanation(
         self, loop_on, one_result, answer_model, assess_turns
     ):
-        assess_turns(tool_call_message("insufficient_context", self.INSUFFICIENT))
+        assess_turns(tool_call_message("refuse", self.REFUSED))
 
         state = await run_graph()
 
         assert tuple(chunk.id for chunk in state.sources) == (1,)
-        assert state.insufficiency == "no block concerns airline luggage"
+        assert state.refusal == Refusal(
+            reason=RefusalReason.INSUFFICIENT_CONTEXT,
+            explanation="no block concerns airline luggage",
+        )
         assert state.steps[2].subject == "no block concerns airline luggage"
 
     async def test_the_call_beside_a_fetch_is_dropped_and_the_fetch_runs(
@@ -1111,8 +1122,8 @@ class TestInsufficientContext:
                 content="",
                 tool_calls=[
                     {
-                        "name": "insufficient_context",
-                        "args": self.INSUFFICIENT,
+                        "name": "refuse",
+                        "args": self.REFUSED,
                         "id": "call_1",
                         "type": "tool_call",
                     },
@@ -1127,18 +1138,18 @@ class TestInsufficientContext:
 
         assert run_calls == [ToolCall(name="search", args={"query": "a"})]
         assert state.answer == "Answered [1]."
-        assert state.insufficiency is None
+        assert state.refusal is None
         assert ChatNode.REFUSE not in {r.step for r in state.steps}
 
-    async def test_the_call_without_a_reason_still_refuses(
+    async def test_the_call_without_an_explanation_still_refuses(
         self, loop_on, one_result, answer_model, assess_turns
     ):
-        assess_turns(tool_call_message("insufficient_context", {}))
+        assess_turns(tool_call_message("refuse", {}))
 
         state = await run_graph()
 
         assert state.answer == REFUSAL_ANSWER
-        assert state.insufficiency == ""
+        assert state.refusal == Refusal(reason=RefusalReason.INSUFFICIENT_CONTEXT)
 
     async def test_the_refusal_still_comes_with_rounds_left_in_the_budget(
         self, loop_on, one_result, answer_model, assess_turns, monkeypatch
@@ -1146,7 +1157,7 @@ class TestInsufficientContext:
         """Nothing bearing on the question is final: a second round would only read the
         same context again."""
         monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 3)
-        assess_turns(tool_call_message("insufficient_context", self.INSUFFICIENT))
+        assess_turns(tool_call_message("refuse", self.REFUSED))
 
         state = await run_graph()
 
@@ -1160,7 +1171,7 @@ class TestInsufficientContext:
             return [tool["function"]["name"] for tool in binding.kwargs["tools"]]
 
         monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", True)
-        assert offered() == ["search", "follow_reference", "insufficient_context"]
+        assert offered() == ["search", "follow_reference", "refuse"]
 
         monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", False)
         assert offered() == ["search", "follow_reference"]
@@ -1175,7 +1186,7 @@ class TestInsufficientContext:
 
         (prompt,) = assess.received
         assert prompt[0].content == build_assess_system_prompt(may_refuse=True)
-        assert "insufficient_context" in prompt[0].content
+        assert "call refuse" in prompt[0].content
 
     async def test_the_prompt_says_nothing_of_it_while_the_switch_is_off(
         self, loop_on, one_result, answer_model, assess_turns, monkeypatch
@@ -1187,4 +1198,4 @@ class TestInsufficientContext:
 
         (prompt,) = assess.received
         assert prompt[0].content == ASSESS_SYSTEM_PROMPT
-        assert "insufficient_context" not in prompt[0].content
+        assert "call refuse" not in prompt[0].content

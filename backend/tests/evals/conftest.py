@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from app.chat.enums import ChatNode, ToolStep
-from app.chat.models import ChatState, ChatStepResult
+from app.chat.enums import ChatNode, RefusalReason, ToolStep
+from app.chat.models import ChatState, ChatStepResult, Refusal
 from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.evals.dataset.enums import EvalKind
@@ -136,6 +136,7 @@ def refused_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
         "steps": REFUSED_PATH,
         "hits": (),
         "sources": (),
+        "refusal": Refusal(reason=RefusalReason.NOTHING_RETRIEVED),
         "answer": REFUSAL_ANSWER,
         "total_ms": 85,
     }
@@ -147,7 +148,7 @@ def refused_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
 ASSESS_REFUSED_PATH = (
     ChatStepResult(step=ChatNode.RETRIEVE, ms=80),
     ChatStepResult(step=ChatNode.ASSESS, ms=900, input_tokens=1500, output_tokens=40),
-    ChatStepResult(step=ToolStep.INSUFFICIENT_CONTEXT, ms=0),
+    ChatStepResult(step=ToolStep.REFUSE, ms=0),
     ChatStepResult(step=ChatNode.REFUSE, ms=0),
 )
 """The path assess's refusal leaves: the gate passed, assess read the context and found it
@@ -160,7 +161,10 @@ def assess_refused_result(case: EvalCase | None = None, **state: Any) -> EvalRes
         "steps": ASSESS_REFUSED_PATH,
         "hits": (search_result(),),
         "sources": (retrieved_chunk(),),
-        "insufficiency": "no block concerns the question",
+        "refusal": Refusal(
+            reason=RefusalReason.INSUFFICIENT_CONTEXT,
+            explanation="no block concerns the question",
+        ),
         "answer": REFUSAL_ANSWER,
         "total_ms": 985,
     }

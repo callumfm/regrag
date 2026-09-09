@@ -3,8 +3,7 @@ and the run's measures, each a plain function over its results."""
 
 from collections.abc import Sequence
 
-from app.chat.enums import ChatNode, ChatOutcome
-from app.chat.graph import assess_or_synthesize_or_refuse
+from app.chat.enums import ChatOutcome, RefusalReason
 from app.chat.prompts import MARKER
 from app.evals.dataset.enums import EvalKind
 from app.evals.judge.models import CaseJudgement
@@ -192,22 +191,22 @@ def compute_context_metrics(results: Sequence[EvalResult]) -> ContextMetrics:
 # Gate: the pre-model routing decision
 
 
-def _assess_ran(result: EvalResult) -> bool:
-    return any(step.step is ChatNode.ASSESS for step in result.state.steps)
+def _refused_for(result: EvalResult, reason: RefusalReason) -> bool:
+    """Whether the run recorded a refusal, and this is the one it recorded."""
+    return result.state.refusal is not None and result.state.refusal.reason is reason
 
 
 def _gate_refused(result: EvalResult) -> bool:
-    """The branch the graph took, observed off the path so a routing bug shows up here: a
-    refusal before any model call. A retrieval-only run never routes, so its gate is read
-    the way the graph would route."""
+    """A refusal before any model call, as the run recorded it. A retrieval-only run stops
+    before the graph routes, so it refused nothing and is read for what the gate left."""
     if result.state.outcome is ChatOutcome.ABORTED:
-        return assess_or_synthesize_or_refuse(result.state) is ChatNode.REFUSE
-    return result.state.outcome is ChatOutcome.REFUSED and not _assess_ran(result)
+        return not result.state.sources
+    return _refused_for(result, RefusalReason.NOTHING_RETRIEVED)
 
 
 def _assess_refused(result: EvalResult) -> bool:
-    """A refusal assess asked for, read off the path the same way: the gate passed."""
-    return result.state.outcome is ChatOutcome.REFUSED and _assess_ran(result)
+    """A refusal assess asked for, once the gate had passed."""
+    return _refused_for(result, RefusalReason.INSUFFICIENT_CONTEXT)
 
 
 def compute_gate_refusal_rate(results: Sequence[EvalResult]) -> float | None:

@@ -101,15 +101,16 @@ def test_an_unsplit_case_prints_no_split_line():
     assert "split:" not in line
 
 
-def test_a_case_assess_refused_shows_its_reason_beneath_it():
+def test_a_case_assess_refused_shows_its_explanation_beneath_it():
     """Runs persist nothing, so the report is the one place a wrongful refusal is read."""
-    line, reason = format_case_lines((assess_refused_result(),))
+    line, explanation = format_case_lines((assess_refused_result(),))
 
     assert "refused" in line
-    assert reason == "    insufficient context: no block concerns the question"
+    assert explanation == "    refused: no block concerns the question"
 
 
-def test_a_gate_refusal_prints_no_reason_line():
+def test_a_gate_refusal_prints_no_explanation_line():
+    """It has none to print: the gate asked no model."""
     [line] = format_case_lines((refused_result(),))
 
-    assert "insufficient context:" not in line
+    assert "refused:" not in line

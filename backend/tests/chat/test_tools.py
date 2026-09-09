@@ -8,7 +8,7 @@ from app.chat.models import ToolCall
 from app.chat.tools import (
     build_call_step,
     describe_call,
-    is_insufficient_context,
+    is_refusal,
     run_tool_call,
     tool_definitions,
 )
@@ -23,44 +23,44 @@ pytestmark = pytest.mark.anyio
 def test_definitions_name_every_tool_with_parameter_schemas(monkeypatch):
     monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", True)
     names = [d["function"]["name"] for d in tool_definitions()]
-    assert names == ["search", "follow_reference", "insufficient_context"]
+    assert names == ["search", "follow_reference", "refuse"]
     for definition in tool_definitions():
         assert definition["type"] == "function"
         assert "properties" in definition["function"]["parameters"]
         assert definition["function"]["description"]
 
 
-def test_insufficient_context_is_left_off_the_surface_when_the_switch_is_off(monkeypatch):
+def test_refuse_is_left_off_the_surface_when_the_switch_is_off(monkeypatch):
     monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", False)
     names = [d["function"]["name"] for d in tool_definitions()]
     assert names == ["search", "follow_reference"]
 
 
-def test_insufficient_context_asks_for_a_reason(monkeypatch):
+def test_refuse_asks_for_an_explanation(monkeypatch):
     monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", True)
-    tool = next(d for d in tool_definitions() if d["function"]["name"] == "insufficient_context")
-    assert tool["function"]["parameters"]["required"] == ["reason"]
+    tool = next(d for d in tool_definitions() if d["function"]["name"] == "refuse")
+    assert tool["function"]["parameters"]["required"] == ["explanation"]
 
 
-def test_only_a_call_to_insufficient_context_is_one():
-    assert is_insufficient_context(ToolCall(name="insufficient_context", args={"reason": "none"}))
-    assert not is_insufficient_context(ToolCall(name="search", args={"query": "insufficient"}))
+def test_only_a_call_to_refuse_is_one():
+    assert is_refusal(ToolCall(name="refuse", args={"explanation": "none"}))
+    assert not is_refusal(ToolCall(name="search", args={"query": "refuse"}))
 
 
-async def test_an_insufficient_context_call_fetches_nothing():
-    """The call is its own result: the tools node reads the reason off it, so running it
-    adds no chunk to the context."""
-    call = ToolCall(name="insufficient_context", args={"reason": "nothing bears on it"})
+async def test_a_refuse_call_fetches_nothing():
+    """The call is its own result: the tools node reads the explanation off it, so running
+    it adds no chunk to the context."""
+    call = ToolCall(name="refuse", args={"explanation": "nothing bears on it"})
 
     assert await run_tool_call(call) == ()
 
 
-def test_an_insufficient_context_call_records_its_reason_as_the_steps_subject():
-    call = ToolCall(name="insufficient_context", args={"reason": "nothing bears on it"})
+def test_a_refuse_call_records_its_explanation_as_the_steps_subject():
+    call = ToolCall(name="refuse", args={"explanation": "nothing bears on it"})
 
     step = build_call_step(call)
 
-    assert step.step is ToolStep.INSUFFICIENT_CONTEXT
+    assert step.step is ToolStep.REFUSE
     assert step.subject == "nothing bears on it"
 
 

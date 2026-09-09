@@ -88,10 +88,10 @@ class TestBuildAssessMessage:
 
 
 class TestBuildAssessSystemPrompt:
-    def test_with_refusal_allowed_the_prompt_adds_when_to_call_insufficient_context(self):
+    def test_with_refusal_allowed_the_prompt_adds_when_to_call_refuse(self):
         prompt = build_assess_system_prompt(may_refuse=True)
         assert prompt.startswith(ASSESS_SYSTEM_PROMPT)
-        assert "insufficient_context" in prompt[len(ASSESS_SYSTEM_PROMPT) :]
+        assert "call refuse" in prompt[len(ASSESS_SYSTEM_PROMPT) :]
 
     def test_without_it_the_prompt_is_the_bare_one(self):
         assert build_assess_system_prompt(may_refuse=False) == ASSESS_SYSTEM_PROMPT

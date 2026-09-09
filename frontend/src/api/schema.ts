@@ -233,7 +233,7 @@ export interface components {
          *     graph's nodes without either being read for the other.
          * @enum {string}
          */
-        ToolStep: "tool_search" | "tool_follow_reference" | "tool_insufficient_context" | "tool_unknown";
+        ToolStep: "tool_search" | "tool_follow_reference" | "tool_refuse" | "tool_unknown";
         /** ValidationError */
         ValidationError: {
             /** Location */

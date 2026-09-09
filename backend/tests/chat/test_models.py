@@ -3,8 +3,15 @@
 import pytest
 from pydantic import ValidationError
 
-from app.chat.enums import ChatNode, ToolStep
-from app.chat.models import ChatState, ChatStepResult, ChatTurn, DecomposedQuestion, ToolCall
+from app.chat.enums import ChatNode, RefusalReason, ToolStep
+from app.chat.models import (
+    ChatState,
+    ChatStepResult,
+    ChatTurn,
+    DecomposedQuestion,
+    Refusal,
+    ToolCall,
+)
 from app.core.config import config
 from app.core.exceptions import DomainError
 from tests.conftest import search_result
@@ -162,14 +169,17 @@ class TestContextSettled:
         )
         assert state.context_settled is True
 
-    def test_an_insufficient_context_step_is_settled_whatever_the_budget(self, monkeypatch):
+    def test_a_refuse_step_is_settled_whatever_the_budget(self, monkeypatch):
         """Nothing bearing on the question is final: the refusal follows, and the sources
         it was read against go out first."""
         monkeypatch.setattr(config, "ASSESS_MAX_ROUNDS", 3)
         state = ChatState(
             question="q",
-            steps=visited(ChatNode.RETRIEVE, ChatNode.ASSESS, ToolStep.INSUFFICIENT_CONTEXT),
+            steps=visited(ChatNode.RETRIEVE, ChatNode.ASSESS, ToolStep.REFUSE),
             sources=(search_result(),),
-            insufficiency="no block concerns the question",
+            refusal=Refusal(
+                reason=RefusalReason.INSUFFICIENT_CONTEXT,
+                explanation="no block concerns the question",
+            ),
         )
         assert state.context_settled is True
