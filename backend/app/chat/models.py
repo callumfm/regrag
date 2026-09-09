@@ -76,6 +76,13 @@ class ChatTurn(FrozenModel):
     answer: str
 
 
+class StandaloneQuestion(FrozenModel):
+    """What rewrite makes of a follow-up: the question restated so that it can be
+    searched on its own, naming what the thread's pronouns and shorthand referred to."""
+
+    question: str
+
+
 class ChatState(AppModel):
     """Everything one question produced: what the graph accumulates as it runs, then what
     only the stream's consumer knows once it ends — how long the request lived, and an error.

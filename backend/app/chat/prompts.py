@@ -3,8 +3,10 @@
 import re
 from collections.abc import Sequence
 
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import ValidationError
 
+from app.chat.models import ChatTurn
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
 
 SYSTEM_PROMPT = (
@@ -18,7 +20,9 @@ SYSTEM_PROMPT = (
     "preamble such as 'Based on the context provided'. When several acts give the same "
     "answer, give it once and name the acts it holds for, then note only where they "
     "differ; do not repeat near-identical lists per act. Refer to an act by the number "
-    "the context gives it; never invent a name or title for it."
+    "the context gives it; never invent a name or title for it. "
+    "Earlier turns of the conversation may come before the context; read them only to "
+    "understand what the question refers to, and cite only this turn's numbered blocks."
 )
 
 REFUSAL_ANSWER = (
@@ -81,6 +85,8 @@ ASSESS_SYSTEM_PROMPT = (
     "that line's document number and division; search runs a fresh corpus search — "
     "use it when a needed concept is named without a citation, or a part of the "
     "question has no context at all, narrowing with celex when the act is known. "
+    "Earlier turns of the conversation may come before the context; they say what the "
+    "question refers to, and are not context to answer from. "
     "Never re-fetch what the context already shows. You never answer the question "
     "yourself: your output is tool calls, or nothing when the context suffices."
 )
@@ -90,6 +96,33 @@ def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> st
     """The full assess turn: the same numbered blocks synthesize will cite, each with the
     addresses it cites, then the question."""
     return f"Context:\n\n{format_context(sources, cites=True)}\n\nQuestion: {question}"
+
+
+def thread_messages(history: Sequence[ChatTurn]) -> list[BaseMessage]:
+    """The thread's earlier turns as the message pairs a model reads them as, oldest first,
+    to go between the system prompt and this turn's user message."""
+    messages: list[BaseMessage] = []
+    for turn in history:
+        messages.append(HumanMessage(turn.question))
+        messages.append(AIMessage(turn.answer))
+    return messages
+
+
+REWRITE_SYSTEM_PROMPT = (
+    "You restate the latest question of a conversation about EU maritime regulation so "
+    "that it can be searched on its own, without the conversation. You are shown the "
+    "earlier turns, then the question. Replace pronouns and shorthand — 'it', 'that "
+    "regulation', 'the penalties' — with what the earlier turns show they refer to, and "
+    "carry over the act or scheme the conversation is about when the question leaves it "
+    "unsaid. Never answer, and never add anything the question did not ask. A question "
+    "that already stands on its own is returned unchanged."
+)
+
+
+def build_rewrite_message(question: str, history: Sequence[ChatTurn]) -> str:
+    """The full rewrite turn: the thread as a transcript, then the question to restate."""
+    transcript = "\n\n".join(f"Q: {turn.question}\nA: {turn.answer}" for turn in history)
+    return f"Conversation so far:\n\n{transcript}\n\nLatest question: {question}"
 
 
 DECOMPOSE_SYSTEM_PROMPT = (

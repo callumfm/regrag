@@ -8,7 +8,7 @@ import httpx
 import litellm
 import openai
 import pytest
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatResult
 from langchain_core.runnables import RunnableBinding
 from langchain_litellm import ChatLiteLLM
@@ -23,9 +23,15 @@ from app.chat.graph import (
     interleave_by_rank,
     merge_sources,
     retrieve,
+    rewrite,
 )
-from app.chat.models import ChatState, DecomposedQuestion, ToolCall
-from app.chat.prompts import ASSESS_SYSTEM_PROMPT, DECOMPOSE_SYSTEM_PROMPT, REFUSAL_ANSWER
+from app.chat.models import ChatState, ChatTurn, DecomposedQuestion, ToolCall
+from app.chat.prompts import (
+    ASSESS_SYSTEM_PROMPT,
+    DECOMPOSE_SYSTEM_PROMPT,
+    REFUSAL_ANSWER,
+    REWRITE_SYSTEM_PROMPT,
+)
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
@@ -35,6 +41,7 @@ from tests.chat.conftest import (
     USAGE,
     RecordingChatModel,
     fake_chat_model,
+    restated_message,
     split_message,
     tool_call_message,
 )
@@ -855,6 +862,110 @@ class TestAssessLoop:
         state = await run_graph()
 
         assert tuple(chunk.id for chunk in state.sources) == (1,)
+
+
+FOLLOW_UP = "What penalties does it impose?"
+RESTATED = "What penalties does FuelEU Maritime impose?"
+HISTORY = (ChatTurn(question="What is FuelEU Maritime?", answer="A regulation on fuel."),)
+
+
+class TestRewriteInTheGraph:
+    async def test_a_first_question_runs_no_rewrite_step_and_sends_the_prompts_as_before(
+        self, one_result, answer_model
+    ):
+        state = await run_graph()
+
+        assert [r.step for r in state.steps] == [ChatNode.RETRIEVE, ChatNode.SYNTHESIZE]
+        assert state.standalone_question == ""
+        [messages] = answer_model.received
+        assert [type(m) for m in messages] == [SystemMessage, HumanMessage]
+
+    async def test_a_follow_up_is_restated_searched_and_answered_with_the_thread_in_view(
+        self, answer_model, rewrite_turns, monkeypatch
+    ):
+        rewrite = rewrite_turns(restated_message(RESTATED))
+        fake_search, requests = hits_for(**{RESTATED: (search_result(),)})
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+        state = ChatState(question=FOLLOW_UP, history=HISTORY)
+        state.sync_from_snapshot(await chat_graph.ainvoke(state))
+
+        assert [r.step for r in state.steps] == [
+            ChatNode.REWRITE,
+            ChatNode.RETRIEVE,
+            ChatNode.SYNTHESIZE,
+        ]
+        assert state.standalone_question == RESTATED
+        assert [r.query for r in requests] == [RESTATED]
+        [rewrite_prompt] = rewrite.received
+        assert rewrite_prompt[0].content == REWRITE_SYSTEM_PROMPT
+        assert "What is FuelEU Maritime?" in rewrite_prompt[1].content
+        assert rewrite_prompt[1].content.endswith(f"Latest question: {FOLLOW_UP}")
+        [messages] = answer_model.received
+        assert [type(m) for m in messages] == [SystemMessage, HumanMessage, AIMessage, HumanMessage]
+        assert messages[1].content == "What is FuelEU Maritime?"
+        assert messages[2].content == "A regulation on fuel."
+        assert messages[3].content.endswith(f"Question: {FOLLOW_UP}")
+
+    async def test_the_rewrite_step_records_its_usage(self, rewrite_turns):
+        rewrite_turns(restated_message(RESTATED))
+
+        update = await rewrite(ChatState(question=FOLLOW_UP, history=HISTORY))
+
+        assert update["standalone_question"] == RESTATED
+        [step] = update["steps"]
+        assert (step.step, step.input_tokens, step.output_tokens) == (ChatNode.REWRITE, 1500, 40)
+
+    async def test_an_answer_off_the_schema_searches_the_question_as_asked(
+        self, rewrite_turns, caplog
+    ):
+        rewrite_turns(AIMessage(content="It refers to FuelEU."))
+
+        update = await rewrite(ChatState(question=FOLLOW_UP, history=HISTORY))
+
+        assert update["standalone_question"] == ""
+        assert "rewrite answered off its schema" in caplog.text
+
+    async def test_a_failing_call_searches_the_question_as_asked(self, monkeypatch, caplog):
+        monkeypatch.setattr(
+            "app.chat.graph.rewrite_model", lambda: FailingModel(messages=iter([]), failures=9)
+        )
+
+        update = await rewrite(ChatState(question=FOLLOW_UP, history=HISTORY))
+
+        assert update["standalone_question"] == ""
+        assert "rewrite call failed" in caplog.text
+
+    async def test_with_decompose_on_the_restated_question_is_what_gets_split(
+        self, decompose_on, one_result, answer_model, rewrite_turns, decompose_turns
+    ):
+        rewrite_turns(restated_message(RESTATED))
+        decompose = decompose_turns(split_message(RESTATED))
+
+        state = ChatState(question=FOLLOW_UP, history=HISTORY)
+        state.sync_from_snapshot(await chat_graph.ainvoke(state))
+
+        assert [r.step for r in state.steps][:3] == [
+            ChatNode.REWRITE,
+            ChatNode.DECOMPOSE,
+            ChatNode.RETRIEVE,
+        ]
+        [prompt] = decompose.received
+        assert prompt[1].content == RESTATED
+        assert one_result == [SearchRequest(query=RESTATED, limit=config.CHAT_SOURCES)]
+
+    async def test_assess_sees_the_thread_before_the_context(
+        self, loop_on, one_result, answer_model, rewrite_turns, assess_turns
+    ):
+        rewrite_turns(restated_message(RESTATED))
+        assess = assess_turns(AIMessage(content=""))
+
+        state = ChatState(question=FOLLOW_UP, history=HISTORY)
+        state.sync_from_snapshot(await chat_graph.ainvoke(state))
+
+        [messages] = assess.received
+        assert [type(m) for m in messages] == [SystemMessage, HumanMessage, AIMessage, HumanMessage]
+        assert messages[3].content.endswith(f"Question: {FOLLOW_UP}")
 
 
 def test_the_compiled_graph_has_the_edges_the_readme_draws():
