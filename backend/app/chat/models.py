@@ -8,7 +8,7 @@ from langchain_core.messages.ai import UsageMetadata
 from pydantic import Field, computed_field
 
 from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, RefusalReason, ToolStep
-from app.chat.tools.models import ToolCall
+from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.core.exceptions import DomainError
 from app.core.models import AppModel, FrozenModel

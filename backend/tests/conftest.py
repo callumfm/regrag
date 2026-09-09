@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
-from app.chat.graph.synthesize import synthesize
+from app.chat.graph.nodes.synthesize import synthesize
 from app.core.clock import utc_now
 from app.core.config import BACKEND_ROOT, EMBED_DIMENSIONS, R2Config, config
 from app.core.db.session import async_session_factory
@@ -403,7 +403,7 @@ def install_chat_model(monkeypatch: pytest.MonkeyPatch, build: Callable[..., Any
     """Point every node that calls a model at one fake. Each node imports chat_model by
     name, so the fake is set on each node module rather than on the one it came from."""
     for node in ("rewrite", "decompose", "assess", "synthesize"):
-        monkeypatch.setattr(f"app.chat.graph.{node}.chat_model", build)
+        monkeypatch.setattr(f"app.chat.graph.nodes.{node}.chat_model", build)
 
 
 def search_result(**overrides: Any) -> SearchResult:

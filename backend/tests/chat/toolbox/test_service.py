@@ -5,8 +5,8 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.chat.enums import ChatStepStatus, ToolStep
-from app.chat.tools.models import ToolCall
-from app.chat.tools.service import build_call_step, describe_call, run_tool_call, tool_definitions
+from app.chat.toolbox.models import ToolCall
+from app.chat.toolbox.service import build_call_step, describe_call, run_tool_call, tool_definitions
 from app.core.config import config
 from tests.conftest import search_result
 
@@ -49,7 +49,7 @@ async def test_a_call_that_fails_on_the_database_leaves_the_next_call_working(mo
             raise SQLAlchemyError("connection lost")
         return (search_result(id=9),)
 
-    monkeypatch.setattr("app.chat.tools.search.search", flaky_search)
+    monkeypatch.setattr("app.chat.toolbox.tools.search.search", flaky_search)
 
     first = await run_tool_call(ToolCall(name="search", args={"query": "first"}))
     second = await run_tool_call(ToolCall(name="search", args={"query": "second"}))

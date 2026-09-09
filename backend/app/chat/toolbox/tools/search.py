@@ -3,7 +3,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.enums import ToolStep
-from app.chat.tools.models import ToolSpec
+from app.chat.toolbox.models import ToolSpec
 from app.core.config import config
 from app.core.models import FrozenModel
 from app.retrieval.models import RetrievedChunk, SearchFilters, SearchRequest

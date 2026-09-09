@@ -26,7 +26,7 @@ def found_context(monkeypatch: pytest.MonkeyPatch) -> None:
         return (search_result(),)
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
-    monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
+    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
 
 
 async def test_retrieve_graph_drives_the_retrieve_node_alone(found_context: None) -> None:
@@ -45,7 +45,7 @@ async def test_a_case_retrieve_raises_on_is_recorded_rather_than_raised(
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.graph.retrieve.search", failing_search)
+    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", failing_search)
 
     with caplog.at_level(logging.WARNING):
         result = await evaluate_case(eval_case(), graph=retrieve_graph)

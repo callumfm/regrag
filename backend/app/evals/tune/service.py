@@ -5,7 +5,7 @@ from typing import Any
 
 import litellm
 
-from app.chat.graph.retrieve import retrieve
+from app.chat.graph.nodes.retrieve import retrieve
 from app.chat.models import ChatState
 from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
 from app.evals.dataset.models import EvalCase, EvalDataset

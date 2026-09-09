@@ -3,8 +3,8 @@
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.chat.tools.models import ToolCall
-from app.chat.tools.service import run_tool_call
+from app.chat.toolbox.models import ToolCall
+from app.chat.toolbox.service import run_tool_call
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchFilters, SearchRequest
@@ -20,7 +20,7 @@ async def test_search_call_dispatches_with_filters_and_the_assess_limit(monkeypa
         requests.append(request)
         return (search_result(),)
 
-    monkeypatch.setattr("app.chat.tools.search.search", fake_search)
+    monkeypatch.setattr("app.chat.toolbox.tools.search.search", fake_search)
     call = ToolCall(name="search", args={"query": "penalties", "celex": "32023R1805"})
 
     found = await run_tool_call(call)
@@ -39,7 +39,7 @@ async def test_a_search_call_that_raises_llmerror_returns_nothing(monkeypatch):
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.tools.search.search", failing_search)
+    monkeypatch.setattr("app.chat.toolbox.tools.search.search", failing_search)
     call = ToolCall(name="search", args={"query": "penalties"})
 
     assert await run_tool_call(call) == ()
@@ -49,7 +49,7 @@ async def test_a_search_call_that_raises_a_database_error_returns_nothing(monkey
     async def failing_search(session, request):
         raise SQLAlchemyError("connection lost")
 
-    monkeypatch.setattr("app.chat.tools.search.search", failing_search)
+    monkeypatch.setattr("app.chat.toolbox.tools.search.search", failing_search)
     call = ToolCall(name="search", args={"query": "penalties"})
 
     assert await run_tool_call(call) == ()
@@ -61,7 +61,7 @@ async def test_hits_below_the_retrieval_bar_are_not_added_to_the_context(monkeyp
     async def junk_search(session, request):
         return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
 
-    monkeypatch.setattr("app.chat.tools.search.search", junk_search)
+    monkeypatch.setattr("app.chat.toolbox.tools.search.search", junk_search)
     call = ToolCall(name="search", args={"query": "best pizza topping"})
 
     assert await run_tool_call(call) == ()

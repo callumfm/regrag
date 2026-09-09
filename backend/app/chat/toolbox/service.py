@@ -8,10 +8,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.chat.enums import ChatStepStatus, ToolStep
 from app.chat.models import ChatStepResult
-from app.chat.tools.follow_reference import FOLLOW_REFERENCE
-from app.chat.tools.models import ToolCall
-from app.chat.tools.refuse import REFUSE, REFUSE_TOOL
-from app.chat.tools.search import SEARCH
+from app.chat.toolbox.models import ToolCall
+from app.chat.toolbox.tools.follow_reference import FOLLOW_REFERENCE
+from app.chat.toolbox.tools.refuse import REFUSE, REFUSE_TOOL
+from app.chat.toolbox.tools.search import SEARCH
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm import LLMError

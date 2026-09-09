@@ -6,11 +6,11 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from app.chat.enums import ChatNode
-from app.chat.graph.assess import assess, assess_tools
-from app.chat.graph.decompose import decompose
-from app.chat.graph.retrieve import retrieve
-from app.chat.graph.rewrite import rewrite
-from app.chat.graph.synthesize import refuse, synthesize
+from app.chat.graph.nodes.assess import assess, assess_tools
+from app.chat.graph.nodes.decompose import decompose
+from app.chat.graph.nodes.retrieve import retrieve
+from app.chat.graph.nodes.rewrite import rewrite
+from app.chat.graph.nodes.synthesize import refuse, synthesize
 from app.chat.models import ChatState
 from app.core.config import config
 

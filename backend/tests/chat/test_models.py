@@ -2,7 +2,7 @@
 
 from app.chat.enums import ChatNode, RefusalReason, ToolStep
 from app.chat.models import ChatState, ChatStepResult, ChatTurn, Refusal
-from app.chat.tools.models import ToolCall
+from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.core.exceptions import DomainError
 from tests.conftest import search_result

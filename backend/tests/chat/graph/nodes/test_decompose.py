@@ -9,7 +9,7 @@ from langchain_litellm import ChatLiteLLM
 from pydantic import ValidationError
 
 from app.chat.enums import ChatNode
-from app.chat.graph.decompose import (
+from app.chat.graph.nodes.decompose import (
     DECOMPOSE_SYSTEM_PROMPT,
     DecomposedQuestion,
     decompose,
@@ -72,7 +72,7 @@ class TestDecomposeInTheGraph:
         fake_search, requests = hits_for(
             **{"what is A": (search_result(id=1),), "what is B": (search_result(id=2),)}
         )
-        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
 
         state = ChatState(question="What are A and B?")
         state.sync_from_snapshot(await chat_graph.ainvoke(state))
@@ -111,7 +111,7 @@ class TestDecomposeInTheGraph:
         junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
         fake_search, _ = hits_for(pizza=(junk,), pasta=(junk,))
         model = fake_chat_model()
-        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
         install_chat_model(monkeypatch, lambda *_: model)
 
         state = await chat_graph.ainvoke(ChatState(question="Best pizza and pasta?"))
@@ -161,7 +161,7 @@ class TestDecompose:
 
     async def test_a_failing_call_falls_back_to_the_question(self, monkeypatch, caplog):
         monkeypatch.setattr(
-            "app.chat.graph.decompose.decompose_model",
+            "app.chat.graph.nodes.decompose.decompose_model",
             lambda: FailingModel(messages=iter([]), failures=9),
         )
 

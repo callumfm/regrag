@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableBinding
 from langchain_litellm import ChatLiteLLM
 
 from app.chat.enums import ChatNode, RefusalReason, ToolStep
-from app.chat.graph.assess import (
+from app.chat.graph.nodes.assess import (
     ASSESS_SYSTEM_PROMPT,
     assess_model,
     build_assess_message,
@@ -15,7 +15,7 @@ from app.chat.graph.assess import (
 )
 from app.chat.models import Refusal
 from app.chat.prompts import REFUSAL_ANSWER
-from app.chat.tools.models import ToolCall
+from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.ingestion.chunk.models import Reference
 from tests.chat.conftest import QUESTION, USAGE, FailingModel, run_graph, tool_call_message
@@ -212,7 +212,7 @@ class TestAssessLoop:
         async def empty_search(session, request):
             return ()
 
-        monkeypatch.setattr("app.chat.graph.retrieve.search", empty_search)
+        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", empty_search)
 
         state = await run_graph()
 
@@ -225,7 +225,7 @@ class TestAssessLoop:
         """An assess round is best-effort: it must never destroy a request that already
         has answerable context, even when the model keeps failing."""
         assess = FailingModel(messages=iter([]), failures=10, usage=USAGE)
-        monkeypatch.setattr("app.chat.graph.assess.assess_model", lambda: assess)
+        monkeypatch.setattr("app.chat.graph.nodes.assess.assess_model", lambda: assess)
 
         state = await run_graph()
 
@@ -323,7 +323,7 @@ class TestFollowsOfBlocksAlreadyShown:
         async def fake_search(session, request):
             return (search_result(part=1, parts=2),)
 
-        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
         assess_turns(tool_call_message("follow_reference", self.SHOWN_ARGS), AIMessage(content=""))
         run_calls = tool_results()
 
@@ -340,7 +340,7 @@ class TestFollowsOfBlocksAlreadyShown:
         async def fake_search(session, request):
             return (search_result(citation="Article 4", article="4"),)
 
-        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
         whole = {"celex": "32023R1805", "article": "4"}
         assess_turns(tool_call_message("follow_reference", whole), AIMessage(content=""))
         run_calls = tool_results()

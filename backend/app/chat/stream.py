@@ -23,7 +23,7 @@ from app.chat.exceptions import ThreadFullError
 from app.chat.graph.service import chat_graph
 from app.chat.models import ChatQuery, ChatState, ChatStepResult
 from app.chat.service import create_chat_request, load_thread_history
-from app.chat.tools.service import build_call_step
+from app.chat.toolbox.service import build_call_step
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session

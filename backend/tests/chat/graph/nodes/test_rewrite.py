@@ -6,15 +6,15 @@ from langchain_core.runnables import RunnableBinding
 from langchain_litellm import ChatLiteLLM
 
 from app.chat.enums import ChatNode
-from app.chat.graph.assess import build_assess_system_prompt
-from app.chat.graph.rewrite import (
+from app.chat.graph.nodes.assess import build_assess_system_prompt
+from app.chat.graph.nodes.rewrite import (
     REWRITE_SYSTEM_PROMPT,
     StandaloneQuestion,
     rewrite,
     rewrite_model,
 )
+from app.chat.graph.nodes.synthesize import SYSTEM_PROMPT
 from app.chat.graph.service import chat_graph
-from app.chat.graph.synthesize import SYSTEM_PROMPT
 from app.chat.models import ChatState
 from app.chat.prompts import THREAD_NOTE, system_prompt
 from app.core.config import config
@@ -66,7 +66,7 @@ class TestRewriteInTheGraph:
     ):
         rewrite = rewrite_turns(restated_message(RESTATED))
         fake_search, requests = hits_for(**{RESTATED: (search_result(),)})
-        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
 
         state = ChatState(question=FOLLOW_UP, history=HISTORY)
         state.sync_from_snapshot(await chat_graph.ainvoke(state))
@@ -110,7 +110,7 @@ class TestRewriteInTheGraph:
 
     async def test_a_failing_call_searches_the_question_as_asked(self, monkeypatch, caplog):
         monkeypatch.setattr(
-            "app.chat.graph.rewrite.rewrite_model",
+            "app.chat.graph.nodes.rewrite.rewrite_model",
             lambda: FailingModel(messages=iter([]), failures=9),
         )
 

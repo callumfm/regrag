@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.enums import ToolStep
-from app.chat.tools.models import ToolCall, ToolSpec
+from app.chat.toolbox.models import ToolCall, ToolSpec
 from app.core.config import config
 from app.retrieval.follow import follow_reference
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
