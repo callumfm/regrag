@@ -168,7 +168,7 @@ class ChatConfig(BaseConfig):
 
 
 class AssessConfig(BaseConfig):
-    """The assess ⇄ tools loop, which grows the retrieved context before the answer.
+    """The assess ⇄ assess_tools loop, which grows the retrieved context before the answer.
 
     ASSESS_ENABLED: the loop's off switch; off, the graph answers from retrieval alone.
         On by default: over the 40-case golden dataset (RRG-98) it lifted expanded recall

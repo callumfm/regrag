@@ -1,5 +1,5 @@
 """Chat graph: restate a follow-up, split a multi-part question, retrieve corpus context,
-run the assess ⇄ tools loop, then synthesize a cited answer — or refuse, before any model
+run the assess ⇄ assess_tools loop, then synthesize a cited answer — or refuse, before any model
 call, a question the corpus does not cover."""
 
 import asyncio
@@ -23,7 +23,6 @@ from app.chat.models import (
     DecomposedQuestion,
     Refusal,
     StandaloneQuestion,
-    ToolCall,
 )
 from app.chat.prompts import (
     DECOMPOSE_SYSTEM_PROMPT,
@@ -37,10 +36,12 @@ from app.chat.prompts import (
     system_prompt,
     thread_messages,
 )
-from app.chat.tools import (
+from app.chat.toolbox.models import ToolCall
+from app.chat.toolbox.service import (
     already_in_context,
     build_call_step,
     is_refusal,
+    refusal_from,
     run_tool_call,
     tool_definitions,
 )
@@ -302,7 +303,7 @@ def merge_sources(
     return tuple(merged)
 
 
-async def tools(state: ChatState) -> dict[str, Any]:
+async def assess_tools(state: ChatState) -> dict[str, Any]:
     """The round's calls run and folded into the context: dedup by chunk id, earlier context
     kept, growth capped. Each call is timed as its own step, so the path says what it cost.
     A refuse call fetches nothing and leaves its refusal on the state, which is what routes
@@ -314,10 +315,9 @@ async def tools(state: ChatState) -> dict[str, Any]:
         start = time.perf_counter()
         fetched.extend(await run_tool_call(call))
         steps.append(build_call_step(call, ms=elapsed_ms(start)))
-        if is_refusal(call):
-            explanation = str(call.args.get("explanation", ""))
-            refusal = Refusal(reason=RefusalReason.INSUFFICIENT_CONTEXT, explanation=explanation)
-            logger.info("assess refused for want of context: %s", explanation)
+        if refused := refusal_from(call):
+            refusal = refused
+            logger.info("assess refused for want of context: %s", refused.explanation)
 
     cap = state.retrieved_sources + config.ASSESS_EXTRA_CHUNKS
     return {
@@ -333,13 +333,13 @@ def assess_or_synthesize(state: ChatState) -> ChatNode:
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
 
 
-def tools_or_synthesize(state: ChatState) -> ChatNode:
+def assess_tools_or_synthesize(state: ChatState) -> ChatNode:
     """After assess: run what it asked for, or answer when it asked for nothing."""
-    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.TOOLS
+    return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS_TOOLS
 
 
 def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
-    """After retrieve or tools: refuse for want of context — none cleared the gate, or
+    """After retrieve or assess_tools: refuse for want of context — none cleared the gate, or
     assess found what there is bears on nothing — else review or answer."""
     if not state.sources or state.refusal is not None:
         return ChatNode.REFUSE
@@ -368,11 +368,11 @@ GRAPH_EDGES = (
     (ChatNode.RETRIEVE, ChatNode.ASSESS),
     (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE),
     (ChatNode.RETRIEVE, ChatNode.REFUSE),
-    (ChatNode.ASSESS, ChatNode.TOOLS),
+    (ChatNode.ASSESS, ChatNode.ASSESS_TOOLS),
     (ChatNode.ASSESS, ChatNode.SYNTHESIZE),
-    (ChatNode.TOOLS, ChatNode.ASSESS),
-    (ChatNode.TOOLS, ChatNode.SYNTHESIZE),
-    (ChatNode.TOOLS, ChatNode.REFUSE),
+    (ChatNode.ASSESS_TOOLS, ChatNode.ASSESS),
+    (ChatNode.ASSESS_TOOLS, ChatNode.SYNTHESIZE),
+    (ChatNode.ASSESS_TOOLS, ChatNode.REFUSE),
     (ChatNode.SYNTHESIZE, END),
     (ChatNode.REFUSE, END),
 )
@@ -381,14 +381,14 @@ this, so an edge added here without redrawing the README fails before it is merg
 
 
 def build_graph() -> CompiledStateGraph[ChatState]:
-    """The compiled (rewrite →) (decompose →) retrieve → (assess ⇄ tools) →
+    """The compiled (rewrite →) (decompose →) retrieve → (assess ⇄ assess_tools) →
     (synthesize | refuse) graph."""
     graph = StateGraph(ChatState)
     graph.add_node(ChatNode.REWRITE, rewrite)
     graph.add_node(ChatNode.DECOMPOSE, decompose)
     graph.add_node(ChatNode.RETRIEVE, retrieve)
     graph.add_node(ChatNode.ASSESS, assess)
-    graph.add_node(ChatNode.TOOLS, tools)
+    graph.add_node(ChatNode.ASSESS_TOOLS, assess_tools)
     graph.add_node(ChatNode.SYNTHESIZE, synthesize)
     graph.add_node(ChatNode.REFUSE, refuse)
     graph.add_conditional_edges(
@@ -406,10 +406,10 @@ def build_graph() -> CompiledStateGraph[ChatState]:
         [ChatNode.ASSESS, ChatNode.SYNTHESIZE, ChatNode.REFUSE],
     )
     graph.add_conditional_edges(
-        ChatNode.ASSESS, tools_or_synthesize, [ChatNode.TOOLS, ChatNode.SYNTHESIZE]
+        ChatNode.ASSESS, assess_tools_or_synthesize, [ChatNode.ASSESS_TOOLS, ChatNode.SYNTHESIZE]
     )
     graph.add_conditional_edges(
-        ChatNode.TOOLS,
+        ChatNode.ASSESS_TOOLS,
         assess_or_synthesize_or_refuse,
         [ChatNode.ASSESS, ChatNode.SYNTHESIZE, ChatNode.REFUSE],
     )

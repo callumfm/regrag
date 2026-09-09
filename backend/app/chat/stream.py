@@ -25,7 +25,7 @@ from app.chat.models import (
     TextEvent,
 )
 from app.chat.service import create_chat_request, load_thread_history
-from app.chat.tools import build_call_step
+from app.chat.toolbox.service import build_call_step
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -48,11 +48,14 @@ def _error_event(exc: Exception) -> ErrorEvent:
 
 
 def _starting_steps(entry: ChatState, node: ChatNode) -> list[ChatStepResult]:
-    """What a node starting announces: a tool round is one step per call it is about to run,
-    read off the state it was handed; every other node is itself."""
-    if node is not ChatNode.TOOLS:
-        return [ChatStepResult(step=node, ms=0, status=ChatStepStatus.RUNNING)]
-    return [build_call_step(call, status=ChatStepStatus.RUNNING) for call in entry.pending_calls]
+    """What a node starting announces: a node handed pending calls is a tool round, and
+    announces one step per call it is about to run; every other node is itself. Read off
+    the state, not the node's name, so a second tool-calling node needs nothing here."""
+    if entry.pending_calls:
+        return [
+            build_call_step(call, status=ChatStepStatus.RUNNING) for call in entry.pending_calls
+        ]
+    return [ChatStepResult(step=node, ms=0, status=ChatStepStatus.RUNNING)]
 
 
 async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, None]:

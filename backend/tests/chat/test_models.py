@@ -10,8 +10,8 @@ from app.chat.models import (
     ChatTurn,
     DecomposedQuestion,
     Refusal,
-    ToolCall,
 )
+from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.core.exceptions import DomainError
 from tests.conftest import search_result

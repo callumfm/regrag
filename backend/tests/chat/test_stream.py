@@ -33,7 +33,7 @@ from tests.chat.conftest import (
     restated_message,
     tool_call_message,
 )
-from tests.conftest import TOKEN_USAGE, search_result
+from tests.conftest import TOKEN_USAGE, junk_result, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -163,7 +163,7 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
     done — and the ledger says refused, with nothing spent past retrieval."""
 
     async def junk_search(session, request):
-        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+        return (junk_result(),)
 
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.search", junk_search)

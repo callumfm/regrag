@@ -51,7 +51,7 @@ export interface components {
          * @description The graph's nodes, as astream keys their updates.
          * @enum {string}
          */
-        ChatNode: "rewrite" | "decompose" | "retrieve" | "assess" | "tools" | "synthesize" | "refuse";
+        ChatNode: "rewrite" | "decompose" | "retrieve" | "assess" | "assess_tools" | "synthesize" | "refuse";
         /**
          * ChatQuery
          * @description The question a caller asks, and the thread it continues — none on a first question,
