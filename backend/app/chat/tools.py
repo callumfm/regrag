@@ -111,7 +111,7 @@ TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
 """The surface as the model is shown it, built once: it depends on nothing at call time."""
 
 
-def fetches_a_shown_division(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:
+def already_in_context(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:
     """Whether the call would only fetch a paragraph the context already shows in full, so
     running it could add nothing. A whole article or annex is never known to be shown in
     full: its chapeau's parts say nothing about what sits under it. A call the surface cannot

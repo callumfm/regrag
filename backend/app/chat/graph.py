@@ -22,7 +22,7 @@ from app.chat.prompts import (
     build_assess_message,
     build_user_message,
 )
-from app.chat.tools import TOOL_DEFINITIONS, fetches_a_shown_division, run_tool_call, tool_step
+from app.chat.tools import TOOL_DEFINITIONS, already_in_context, run_tool_call, tool_step
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -139,7 +139,7 @@ async def call_assess_model(state: ChatState) -> dict[str, Any]:
     useful = [
         call
         for call in (ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls)
-        if not fetches_a_shown_division(call, state.sources)
+        if not already_in_context(call, state.sources)
     ]
     calls = tuple(useful[: config.ASSESS_MAX_CALLS])
     return {"pending_calls": calls, "usage": response.usage_metadata}
