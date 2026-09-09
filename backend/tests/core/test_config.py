@@ -191,6 +191,7 @@ def test_assess_defaults():
     assert assess.ASSESS_MAX_CALLS == 4
     assert assess.ASSESS_SEARCH_LIMIT == 5
     assert assess.ASSESS_EXTRA_CHUNKS == 10
+    assert assess.ASSESS_MAY_REFUSE is True
 
 
 def test_the_judge_is_a_different_model_from_the_one_that_answers():

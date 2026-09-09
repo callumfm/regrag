@@ -181,6 +181,9 @@ class AssessConfig(BaseConfig):
         cannot spend the whole budget in a single call.
     ASSESS_EXTRA_CHUNKS: the most chunks the loop may add on top of the context retrieve
         produced, whatever its size; at 0 the loop reads the context but never grows it.
+    ASSESS_MAY_REFUSE: whether assess is offered the refuse tool, which ends a question
+        nothing in the context bears on in the fixed refusal instead of an answer; off, such
+        a question reaches synthesize and is declined in the model's own words.
     """
 
     ASSESS_ENABLED: bool = True
@@ -190,6 +193,7 @@ class AssessConfig(BaseConfig):
     ASSESS_SEARCH_LIMIT: int = Field(default=5, ge=1)
     ASSESS_FOLLOW_LIMIT: int = Field(default=5, ge=1)
     ASSESS_EXTRA_CHUNKS: int = Field(default=10, ge=0)
+    ASSESS_MAY_REFUSE: bool = True
 
 
 class DecomposeConfig(BaseConfig):

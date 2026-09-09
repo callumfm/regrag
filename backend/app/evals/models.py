@@ -55,6 +55,15 @@ class GateMetrics(FrozenModel):
     refused_a_found_reference: int
 
 
+class AssessMetrics(FrozenModel):
+    """The loop's refusal, once the gate has passed. refusal_rate: out-of-corpus cases assess
+    refused; false_refusals: in-corpus cases it refused — a question the corpus answers,
+    read as one it does not."""
+
+    refusal_rate: float | None
+    false_refusals: int
+
+
 class CitationMetrics(FrozenModel):
     """What the answers cited. cited_references: share of authored references cited;
     markers_in_context: share of [n] markers addressing a block that was in context."""
@@ -96,6 +105,7 @@ class EvalMetrics(FrozenModel):
     retrieval: RetrievalMetrics
     context: ContextMetrics
     gate: GateMetrics
+    assess: AssessMetrics
     citations: CitationMetrics
     judge: JudgeMetrics
     latency: LatencyMetrics

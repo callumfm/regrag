@@ -25,7 +25,12 @@ from app.chat.graph import (
     retrieve,
 )
 from app.chat.models import ChatState, DecomposedQuestion, ToolCall
-from app.chat.prompts import ASSESS_SYSTEM_PROMPT, DECOMPOSE_SYSTEM_PROMPT, REFUSAL_ANSWER
+from app.chat.prompts import (
+    ASSESS_SYSTEM_PROMPT,
+    DECOMPOSE_SYSTEM_PROMPT,
+    REFUSAL_ANSWER,
+    build_assess_system_prompt,
+)
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
@@ -773,7 +778,7 @@ class TestAssessLoop:
         await run_graph()
 
         (prompt,) = assess.received
-        assert prompt[0].content == ASSESS_SYSTEM_PROMPT
+        assert str(prompt[0].content).startswith(ASSESS_SYSTEM_PROMPT)
         assert "[1] (32023R1805" in prompt[1].content
         assert str(prompt[1].content).endswith(f"Question: {QUESTION}")
 
@@ -927,3 +932,104 @@ class TestFollowsOfBlocksAlreadyShown:
         await run_graph()
 
         assert run_calls == [ToolCall(name="follow_reference", args=whole)]
+
+
+class TestAssessRefusal:
+    """Assess may answer that nothing in the context bears on the question and no fetch would
+    change that: that call alone routes to the fixed refusal, with no answer written."""
+
+    REFUSE = {"reason": "no block concerns airline luggage"}
+
+    async def test_refuse_alone_ends_in_the_fixed_refusal_without_an_answer_call(
+        self, loop_on, one_result, answer_model, assess_turns
+    ):
+        assess_turns(tool_call_message("refuse", self.REFUSE))
+
+        state = await run_graph()
+
+        assert state.answer == REFUSAL_ANSWER
+        assert answer_model.received == []
+        assert [r.step for r in state.steps] == [
+            ChatNode.RETRIEVE,
+            ChatNode.ASSESS,
+            ChatNode.REFUSE,
+        ]
+
+    async def test_a_refusal_keeps_the_context_it_was_read_against(
+        self, loop_on, one_result, answer_model, assess_turns
+    ):
+        assess_turns(tool_call_message("refuse", self.REFUSE))
+
+        state = await run_graph()
+
+        assert tuple(chunk.id for chunk in state.sources) == (1,)
+        assert state.refusal_reason == "no block concerns airline luggage"
+
+    async def test_a_refuse_beside_a_fetch_is_dropped_and_the_fetch_runs(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
+    ):
+        """A hedged turn is read as a fetch: the bias is toward answering."""
+        assess_turns(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "refuse", "args": self.REFUSE, "id": "call_1", "type": "tool_call"},
+                    {"name": "search", "args": {"query": "a"}, "id": "call_2", "type": "tool_call"},
+                ],
+            ),
+            AIMessage(content=""),
+        )
+        run_calls = tool_results(search_result(id=2))
+
+        state = await run_graph()
+
+        assert run_calls == [ToolCall(name="search", args={"query": "a"})]
+        assert state.answer == "Answered [1]."
+        assert state.refusal_reason is None
+        assert ChatNode.REFUSE not in {r.step for r in state.steps}
+
+    async def test_a_refuse_without_a_reason_still_refuses(
+        self, loop_on, one_result, answer_model, assess_turns
+    ):
+        assess_turns(tool_call_message("refuse", {}))
+
+        state = await run_graph()
+
+        assert state.answer == REFUSAL_ANSWER
+        assert state.refusal_reason == ""
+
+    def test_the_tool_is_offered_only_while_the_switch_is_on(self, monkeypatch):
+        def offered() -> list[str]:
+            binding = assess_model()
+            assert isinstance(binding, RunnableBinding)
+            return [tool["function"]["name"] for tool in binding.kwargs["tools"]]
+
+        monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", True)
+        assert offered() == ["search", "follow_reference", "refuse"]
+
+        monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", False)
+        assert offered() == ["search", "follow_reference"]
+
+    async def test_the_prompt_tells_assess_when_to_refuse_while_the_switch_is_on(
+        self, loop_on, one_result, answer_model, assess_turns, monkeypatch
+    ):
+        monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", True)
+        assess = assess_turns(AIMessage(content=""))
+
+        await run_graph()
+
+        (prompt,) = assess.received
+        assert prompt[0].content == build_assess_system_prompt(may_refuse=True)
+        assert "refuse" in prompt[0].content
+
+    async def test_the_prompt_says_nothing_of_refusing_while_the_switch_is_off(
+        self, loop_on, one_result, answer_model, assess_turns, monkeypatch
+    ):
+        monkeypatch.setattr(config, "ASSESS_MAY_REFUSE", False)
+        assess = assess_turns(AIMessage(content=""))
+
+        await run_graph()
+
+        (prompt,) = assess.received
+        assert prompt[0].content == ASSESS_SYSTEM_PROMPT
+        assert "refuse" not in prompt[0].content

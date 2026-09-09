@@ -20,14 +20,20 @@ from pydantic import ValidationError
 from app.chat.enums import ChatNode
 from app.chat.models import ChatState, ChatStepResult, DecomposedQuestion, ToolCall
 from app.chat.prompts import (
-    ASSESS_SYSTEM_PROMPT,
     DECOMPOSE_SYSTEM_PROMPT,
     REFUSAL_ANSWER,
     SYSTEM_PROMPT,
     build_assess_message,
+    build_assess_system_prompt,
     build_user_message,
 )
-from app.chat.tools import TOOL_DEFINITIONS, already_in_context, build_call_step, run_tool_call
+from app.chat.tools import (
+    already_in_context,
+    build_call_step,
+    is_refusal,
+    run_tool_call,
+    tool_definitions,
+)
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -190,25 +196,32 @@ async def decompose(state: ChatState) -> dict[str, Any]:
 
 def assess_model() -> Runnable:
     """The assess model as assess calls it: one blocking turn, the tool surface bound."""
-    return chat_model(config.ASSESS_MODEL, streaming=False).bind_tools(TOOL_DEFINITIONS)
+    return chat_model(config.ASSESS_MODEL, streaming=False).bind_tools(tool_definitions())
 
 
 @llm_retry
 @wrap_provider_errors("assess call")
 async def call_assess_model(state: ChatState) -> dict[str, Any]:
-    """One model turn asking what would fill the gaps in the context. A call that would
-    only re-fetch a division the context already shows is dropped, then the rest are capped
-    to the calls a round may run — neither reaches state or the ledger."""
+    """One model turn asking what would fill the gaps in the context — or, called alone,
+    refusing the question for want of anything that bears on it. A refusal beside a fetch is
+    dropped, the fetch being the model's own doubt; a fetch that would only re-fetch a
+    division the context already shows is dropped too, then the rest are capped to the calls
+    a round may run — none of the dropped reaches state or the ledger."""
     messages = [
-        SystemMessage(ASSESS_SYSTEM_PROMPT),
+        SystemMessage(build_assess_system_prompt(may_refuse=config.ASSESS_MAY_REFUSE)),
         HumanMessage(build_assess_message(state.question, state.sources)),
     ]
     response = await assess_model().ainvoke(messages)
-    useful = [
-        call
-        for call in (ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls)
-        if not already_in_context(call, state.sources)
-    ]
+    asked = [ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls]
+    refusals = [call for call in asked if is_refusal(call)]
+    fetches = [call for call in asked if not is_refusal(call)]
+    if refusals and not fetches:
+        reason = str(refusals[0].args.get("reason", ""))
+        logger.info("assess refused the question: %s", reason)
+        return {"pending_calls": (), "refusal_reason": reason, "usage": response.usage_metadata}
+    if refusals:
+        logger.info("assess hedged a refusal with a fetch, so the fetch runs")
+    useful = [call for call in fetches if not already_in_context(call, state.sources)]
     calls = tuple(useful[: config.ASSESS_MAX_CALLS])
     return {"pending_calls": calls, "usage": response.usage_metadata}
 
@@ -265,8 +278,11 @@ def assess_or_synthesize(state: ChatState) -> ChatNode:
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
 
 
-def tools_or_synthesize(state: ChatState) -> ChatNode:
-    """After assess: run what it asked for, or answer when it asked for nothing."""
+def tools_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
+    """After assess: refuse when it found nothing bearing on the question, run what it
+    asked for, or answer when it asked for nothing."""
+    if state.refusal_reason is not None:
+        return ChatNode.REFUSE
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.TOOLS
 
 
@@ -290,6 +306,7 @@ GRAPH_EDGES = (
     (ChatNode.RETRIEVE, ChatNode.REFUSE),
     (ChatNode.ASSESS, ChatNode.TOOLS),
     (ChatNode.ASSESS, ChatNode.SYNTHESIZE),
+    (ChatNode.ASSESS, ChatNode.REFUSE),
     (ChatNode.TOOLS, ChatNode.ASSESS),
     (ChatNode.TOOLS, ChatNode.SYNTHESIZE),
     (ChatNode.SYNTHESIZE, END),
@@ -318,7 +335,9 @@ def build_graph() -> CompiledStateGraph[ChatState]:
         [ChatNode.ASSESS, ChatNode.SYNTHESIZE, ChatNode.REFUSE],
     )
     graph.add_conditional_edges(
-        ChatNode.ASSESS, tools_or_synthesize, [ChatNode.TOOLS, ChatNode.SYNTHESIZE]
+        ChatNode.ASSESS,
+        tools_or_synthesize_or_refuse,
+        [ChatNode.TOOLS, ChatNode.SYNTHESIZE, ChatNode.REFUSE],
     )
     graph.add_conditional_edges(
         ChatNode.TOOLS, assess_or_synthesize, [ChatNode.ASSESS, ChatNode.SYNTHESIZE]

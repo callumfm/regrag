@@ -3,6 +3,7 @@
 from app.evals.judge.enums import JudgeVerdict
 from app.evals.report import format_case_lines
 from tests.evals.conftest import (
+    assess_refused_result,
     eval_case,
     eval_result,
     failed_judgement,
@@ -98,3 +99,17 @@ def test_an_unsplit_case_prints_no_split_line():
     [line] = format_case_lines((eval_result(),))
 
     assert "split:" not in line
+
+
+def test_a_case_assess_refused_shows_its_reason_beneath_it():
+    """Runs persist nothing, so the report is the one place a wrongful refusal is read."""
+    line, reason = format_case_lines((assess_refused_result(),))
+
+    assert "refused" in line
+    assert reason == "    refused: no block concerns the question"
+
+
+def test_a_gate_refusal_prints_no_reason_line():
+    [line] = format_case_lines((refused_result(),))
+
+    assert "refused:" not in line

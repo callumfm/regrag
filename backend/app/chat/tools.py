@@ -62,9 +62,28 @@ async def run_follow_reference(
     return chunks[: config.ASSESS_FOLLOW_LIMIT]
 
 
+class RefuseArgs(FrozenModel):
+    """Assess's word that nothing in the context bears on the question and no fetch would:
+    the one call that ends the question in the fixed refusal rather than an answer."""
+
+    reason: str
+
+
+def tool_definition(name: str, description: str, args_model: type[FrozenModel]) -> dict:
+    """A tool as bind_tools wants it: an openai function-tool dictionary."""
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": args_model.model_json_schema(),
+        },
+    }
+
+
 class ToolSpec(NamedTuple):
-    """One tool the model may call: how it is named and described to the model, the
-    arguments it takes, what runs it, and the step a call to it records."""
+    """One tool the model may call to grow the context: how it is named and described to
+    the model, the arguments it takes, what runs it, and the step a call to it records."""
 
     name: str
     step: ToolStep
@@ -73,15 +92,7 @@ class ToolSpec(NamedTuple):
     description: str
 
     def definition(self) -> dict:
-        """The tool as bind_tools wants it: an openai function-tool dictionary."""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.args_model.model_json_schema(),
-            },
-        }
+        return tool_definition(self.name, self.description, self.args_model)
 
 
 TOOL_SURFACE = {
@@ -107,8 +118,29 @@ TOOL_SURFACE = {
     )
 }
 
-TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
-"""The surface as the model is shown it, built once: it depends on nothing at call time."""
+FETCH_TOOL_DEFINITIONS = [spec.definition() for spec in TOOL_SURFACE.values()]
+"""The tools that grow the context, as the model is shown them: built once, since they
+depend on nothing at call time."""
+
+REFUSE_TOOL_NAME = "refuse"
+REFUSE_TOOL_DEFINITION = tool_definition(
+    REFUSE_TOOL_NAME,
+    "Declare that nothing in the context bears on the question and no search or fetch of "
+    "this corpus could change that. Call it alone, never beside a search or fetch.",
+    RefuseArgs,
+)
+
+
+def tool_definitions() -> list[dict]:
+    """The surface as assess is shown it: the fetch tools, and refuse while it is allowed."""
+    if config.ASSESS_MAY_REFUSE:
+        return [*FETCH_TOOL_DEFINITIONS, REFUSE_TOOL_DEFINITION]
+    return list(FETCH_TOOL_DEFINITIONS)
+
+
+def is_refusal(call: ToolCall) -> bool:
+    """Whether the call is assess's refusal rather than a fetch."""
+    return call.name == REFUSE_TOOL_NAME
 
 
 def already_in_context(call: ToolCall, sources: Sequence[RetrievedChunk]) -> bool:

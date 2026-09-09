@@ -142,3 +142,26 @@ def refused_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
     return EvalResult(
         case=case or out_of_corpus_case(), state=ChatState(question="q?", **{**defaults, **state})
     )
+
+
+ASSESS_REFUSED_PATH = (
+    ChatStepResult(step=ChatNode.RETRIEVE, ms=80),
+    ChatStepResult(step=ChatNode.ASSESS, ms=900, input_tokens=1500, output_tokens=40),
+    ChatStepResult(step=ChatNode.REFUSE, ms=0),
+)
+"""The path assess's refusal leaves: the gate passed, assess read the context and refused."""
+
+
+def assess_refused_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
+    """A case assess refused: context reached it, and it found nothing bearing on the question."""
+    defaults: dict[str, Any] = {
+        "steps": ASSESS_REFUSED_PATH,
+        "hits": (search_result(),),
+        "sources": (retrieved_chunk(),),
+        "refusal_reason": "no block concerns the question",
+        "answer": REFUSAL_ANSWER,
+        "total_ms": 985,
+    }
+    return EvalResult(
+        case=case or out_of_corpus_case(), state=ChatState(question="q?", **{**defaults, **state})
+    )

@@ -12,8 +12,8 @@ curl -N localhost:8000/chat -H 'content-type: application/json' \
 ```
 START ─┬→ decompose ─┐                            DECOMPOSE_ENABLED
        │             ↓
-       └──────────→ retrieve ─┬→ refuse ──────────────→ END   nothing cleared the gate
-                              │
+       └──────────→ retrieve ─┬→ refuse ──────────────→ END   nothing cleared the gate, or assess refused
+                              │      ↑
                               ├→ assess ⇄ tools              while assess asks and the budget remains
                               │      │
                               └──────┴→ synthesize ────→ END   the context is settled
@@ -24,6 +24,8 @@ START ─┬→ decompose ─┐                            DECOMPOSE_ENABLED
 `retrieve` searches the corpus for each query — the parts decompose split off, or the question as asked — each on its own session and at once, and checks each query's hits against the refusal gate on their own ([`../retrieval/README.md`](../retrieval/README.md)), so an out-of-corpus part cannot bring sub-bar hits into the context. The survivors are interleaved by rank, each query's first hit before any query's second, and every query's hits, gated or not, stay on the state as `hits`. If no query clears the gate the context is empty, and the edge takes us to `refuse`, which returns fixed wording and calls no model.
 
 Otherwise the assess loop runs. `assess` makes one blocking model call and answers with the tool calls that would fill what the context is missing — a fresh `search`, or a `follow_reference` fetching a division the context cites. `tools` runs them and merges what they find in, keeping the earlier blocks in place so the `[n]` markers a client already holds keep meaning what they meant. It ends when assess asks for nothing or `ASSESS_MAX_ROUNDS` is spent; `ASSESS_ENABLED=false` skips it entirely, leaving the two-node graph this started as. Either way, `synthesize` makes one streamed call answering from the numbered blocks.
+
+The gate only asks whether the hits are junk, so a question about another regime, or a fact no law states, clears it on real text about something adjacent. Assess has a third answer for that: a `refuse` call, saying why nothing in the context bears on the question and no search or fetch would change that, takes the edge to the same `refuse` node, and the question ends in the fixed wording with no answer written — the ledger reads `refused` either way, and the sources go out first, as on any settled context. A refuse beside a search or fetch is dropped and the fetch runs: the model's own doubt is read as doubt, and the bias stays toward answering. `ASSESS_MAY_REFUSE=false` takes the tool off the surface and the sentence offering it out of the prompt, so such a question reaches synthesize and is declined in the model's own words. Assess sees the context once per round, so a question it tried a search for and found nothing is not refused; it is answered from what there is.
 
 Three bounds keep the loop honest. A search's hits face the same score bar `retrieve` holds its own to, so what the gate would refuse to answer from cannot arrive by the back door. The merge stops once the loop has added `ASSESS_EXTRA_CHUNKS` on top of what retrieval left. And each call runs on its own session, so one that fails on the database costs its own result and no other's.
 

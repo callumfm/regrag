@@ -76,6 +76,19 @@ ASSESS_SYSTEM_PROMPT = (
     "yourself: your output is tool calls, or nothing when the context suffices."
 )
 
+ASSESS_REFUSE_INSTRUCTION = (
+    " If no block bears on the question and no search or fetch of this corpus of EU "
+    "maritime regulation could — it asks about another regime, a fact no law states, or a "
+    "topic outside the corpus — call refuse, alone, saying why. Never refuse a question "
+    "the context answers in part, or one a search or fetch might yet answer."
+)
+
+
+def build_assess_system_prompt(*, may_refuse: bool) -> str:
+    """The assess system prompt, telling the model when to refuse only when it is offered
+    the tool to do it with."""
+    return ASSESS_SYSTEM_PROMPT + (ASSESS_REFUSE_INSTRUCTION if may_refuse else "")
+
 
 def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> str:
     """The full assess turn: the same numbered blocks synthesize will cite, each with the

@@ -9,6 +9,7 @@ from app.chat.graph import assess_or_synthesize_or_refuse
 from app.evals.dataset.enums import EvalKind
 from app.evals.judge.models import CaseJudgement
 from app.evals.models import (
+    AssessMetrics,
     CaseCounts,
     CitationMetrics,
     ContextMetrics,
@@ -194,12 +195,22 @@ def compute_context_metrics(results: Sequence[EvalResult]) -> ContextMetrics:
 # Gate: the pre-model routing decision
 
 
+def _assess_ran(result: EvalResult) -> bool:
+    return any(step.step is ChatNode.ASSESS for step in result.state.steps)
+
+
 def _gate_refused(result: EvalResult) -> bool:
-    """The branch the graph took, observed off the path so a routing bug shows up here.
-    A retrieval-only run never routes, so its gate is read the way the graph would route."""
+    """The branch the graph took, observed off the path so a routing bug shows up here: a
+    refusal before any model call. A retrieval-only run never routes, so its gate is read
+    the way the graph would route."""
     if result.state.outcome is ChatOutcome.ABORTED:
         return assess_or_synthesize_or_refuse(result.state) is ChatNode.REFUSE
-    return result.state.outcome is ChatOutcome.REFUSED
+    return result.state.outcome is ChatOutcome.REFUSED and not _assess_ran(result)
+
+
+def _assess_refused(result: EvalResult) -> bool:
+    """A refusal assess asked for, read off the path the same way: the gate passed."""
+    return result.state.outcome is ChatOutcome.REFUSED and _assess_ran(result)
 
 
 def compute_gate_refusal_rate(results: Sequence[EvalResult]) -> float | None:
@@ -223,6 +234,26 @@ def compute_gate_metrics(results: Sequence[EvalResult]) -> GateMetrics:
         refusal_rate=compute_gate_refusal_rate(results),
         false_refusals=count_false_refusals(results),
         refused_a_found_reference=count_refusals_of_a_found_reference(results),
+    )
+
+
+# Assess: the loop's refusal, after the gate passed
+
+
+def compute_assess_refusal_rate(results: Sequence[EvalResult]) -> float | None:
+    """Share of out-of-corpus cases assess refused."""
+    return mean_or_none([_assess_refused(r) for r in scored_out_of_corpus(results)])
+
+
+def count_assess_false_refusals(results: Sequence[EvalResult]) -> int:
+    """In-corpus cases assess refused."""
+    return sum(_assess_refused(r) for r in scored_in_corpus(results))
+
+
+def compute_assess_metrics(results: Sequence[EvalResult]) -> AssessMetrics:
+    return AssessMetrics(
+        refusal_rate=compute_assess_refusal_rate(results),
+        false_refusals=count_assess_false_refusals(results),
     )
 
 
@@ -351,6 +382,7 @@ def compute_metrics(results: Sequence[EvalResult]) -> EvalMetrics:
         retrieval=compute_retrieval_metrics(results),
         context=compute_context_metrics(results),
         gate=compute_gate_metrics(results),
+        assess=compute_assess_metrics(results),
         citations=compute_citation_metrics(results),
         judge=compute_judge_metrics(results),
         latency=compute_latency_metrics(results),

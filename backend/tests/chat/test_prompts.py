@@ -1,6 +1,13 @@
 """Context formatting: numbered blocks the citation markers bind to."""
 
-from app.chat.prompts import SYSTEM_PROMPT, build_assess_message, build_user_message, format_context
+from app.chat.prompts import (
+    ASSESS_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    build_assess_message,
+    build_assess_system_prompt,
+    build_user_message,
+    format_context,
+)
 from app.ingestion.chunk.models import Reference
 from tests.conftest import retrieved_chunk, search_result
 
@@ -77,3 +84,13 @@ class TestBuildAssessMessage:
         message = build_assess_message("q", sources)
 
         assert "cites:" not in message
+
+
+class TestBuildAssessSystemPrompt:
+    def test_with_refusal_allowed_the_prompt_adds_when_to_refuse(self):
+        prompt = build_assess_system_prompt(may_refuse=True)
+        assert prompt.startswith(ASSESS_SYSTEM_PROMPT)
+        assert "refuse" in prompt[len(ASSESS_SYSTEM_PROMPT) :]
+
+    def test_without_it_the_prompt_is_the_bare_one(self):
+        assert build_assess_system_prompt(may_refuse=False) == ASSESS_SYSTEM_PROMPT
