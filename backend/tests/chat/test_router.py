@@ -2,6 +2,7 @@
 
 import json
 from typing import Any
+from uuid import UUID
 
 import httpx
 
@@ -172,3 +173,36 @@ def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
     assert first_payload(events, "sources") == []
     assert first_payload(events, "text") == REFUSAL_ANSWER
     assert model.received == []
+
+
+def test_done_carries_the_thread_a_first_question_was_recorded_under(
+    client, two_results, monkeypatch
+):
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+
+    with client.stream("POST", "/chat", json={"question": "q"}) as response:
+        events = read_events(response)
+
+    done = first_payload(events, "done")
+    assert set(done) == {"thread_id"}
+    UUID(done["thread_id"])
+
+
+def test_a_supplied_thread_is_echoed_back_on_done(client, two_results, monkeypatch):
+    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+
+    async def no_history(session, thread_id):
+        return ()
+
+    monkeypatch.setattr("app.chat.stream.load_thread_history", no_history)
+    thread_id = "11111111-2222-3333-4444-555555555555"
+
+    with client.stream("POST", "/chat", json={"question": "q", "thread_id": thread_id}) as response:
+        events = read_events(response)
+
+    assert first_payload(events, "done") == {"thread_id": thread_id}
+
+
+def test_a_malformed_thread_id_is_rejected(client):
+    response = client.post("/chat", json={"question": "q", "thread_id": "not-a-uuid"})
+    assert response.status_code == 422

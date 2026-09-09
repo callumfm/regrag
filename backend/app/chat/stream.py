@@ -4,25 +4,30 @@ import logging
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
+from uuid import uuid4
 
 import anyio
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.chat.enums import ChatNode, ChatStepStatus
+from app.chat.exceptions import ThreadFullError
 from app.chat.graph import chat_graph
 from app.chat.models import (
     ChatEvent,
+    ChatQuery,
     ChatState,
     ChatStepResult,
+    ChatThread,
     DoneEvent,
     ErrorEvent,
     SourcesEvent,
     StepEvent,
     TextEvent,
 )
-from app.chat.service import create_chat_request
+from app.chat.service import create_chat_request, load_thread_history
 from app.chat.tools import build_call_step
 from app.core.clock import elapsed_ms
+from app.core.config import config
 from app.core.db.session import get_session
 from app.core.exceptions import DomainError, describe
 from app.core.logger import request_id_var
@@ -90,17 +95,30 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
             if text := chunk.text:
                 yield TextEvent(data=text)
 
-    yield DoneEvent()
+    yield DoneEvent(data=ChatThread(thread_id=state.thread_id))
 
 
-async def stream_chat_events(question: str) -> AsyncGenerator[ChatEvent, None]:
-    """One question's events, ended by an error event if the run raises; however it ends —
-    done, refused, error, or the client leaving, which cancels this task — it is recorded as
-    one chat request, in its own session, shielded from that cancellation. A failed write is
-    logged, not raised: the answer already went out."""
-    state = ChatState(question=question)
+async def open_thread(query: ChatQuery) -> ChatState:
+    """The state a question starts from: on a fresh thread, one minted here and no history;
+    on a continued one, its answered turns — or a refusal to add another once it is full."""
+    if query.thread_id is None:
+        return ChatState(question=query.question)
+    async with get_session(auto_commit=False) as session:
+        history = await load_thread_history(session, query.thread_id)
+    if len(history) >= config.CHAT_THREAD_TURNS:
+        raise ThreadFullError(config.CHAT_THREAD_TURNS)
+    return ChatState(question=query.question, thread_id=query.thread_id, history=history)
+
+
+async def stream_chat_events(query: ChatQuery) -> AsyncGenerator[ChatEvent, None]:
+    """One question's events, ended by an error event if the thread is full or the run
+    raises; however it ends — done, refused, error, or the client leaving, which cancels
+    this task — it is recorded as one chat request, in its own session, shielded from that
+    cancellation. A failed write is logged, not raised: the answer already went out."""
+    state = ChatState(question=query.question, thread_id=query.thread_id or uuid4())
     start = time.perf_counter()
     try:
+        state = await open_thread(query)
         async for event in _stream_graph_events(state):
             yield event
     except Exception as exc:

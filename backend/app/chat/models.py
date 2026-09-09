@@ -15,9 +15,11 @@ from app.retrieval.models import RetrievedChunk, SearchResult
 
 
 class ChatQuery(AppModel):
-    """The question a caller asks."""
+    """The question a caller asks, and the thread it continues — none on a first question,
+    when the server mints one and returns it on the done frame."""
 
     question: str = Field(min_length=1, max_length=2000)
+    thread_id: UUID | None = None
 
 
 class ChatStepResult(FrozenModel):
@@ -228,6 +230,12 @@ class ChatSource(FrozenModel):
         )
 
 
+class ChatThread(FrozenModel):
+    """The thread a turn was recorded under, which a follow-up sends back."""
+
+    thread_id: UUID
+
+
 class ChatEventBase(FrozenModel):
     """One frame of the stream: which event, and that event's data. Each event narrows
     `event` to its own name — what the union discriminates on — defaulted but always sent,
@@ -270,10 +278,10 @@ class TextEvent(ChatEventBase):
 
 
 class DoneEvent(ChatEventBase):
-    """The last event of a completed stream."""
+    """The last event of a completed stream: the thread the turn belongs to."""
 
     event: Literal[ChatEventName.DONE] = ChatEventName.DONE
-    data: dict[str, Any] = Field(default_factory=dict)
+    data: ChatThread
 
 
 class ErrorEvent(ChatEventBase):
