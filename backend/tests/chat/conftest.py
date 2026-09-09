@@ -12,7 +12,8 @@ from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
-from app.chat.models import ChatState, ToolCall
+from app.chat.models import ChatState
+from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.retrieval.models import RetrievedChunk, SearchRequest
 from tests.conftest import USAGE, search_result
@@ -214,7 +215,7 @@ def no_tool_session(monkeypatch: pytest.MonkeyPatch) -> None:
     async def no_session(**kwargs: Any) -> AsyncIterator[None]:
         yield None
 
-    monkeypatch.setattr("app.chat.tools.get_session", no_session)
+    monkeypatch.setattr("app.chat.toolbox.service.get_session", no_session)
 
 
 @pytest.fixture(autouse=True)

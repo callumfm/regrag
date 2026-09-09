@@ -5,7 +5,7 @@ const LABELS: Record<ChatStep["step"], { running: string; done: string }> = {
 	decompose: { running: "Splitting the question", done: "Split the question" },
 	retrieve: { running: "Searching the corpus", done: "Searched the corpus" },
 	assess: { running: "Reviewing the evidence", done: "Reviewed the evidence" },
-	tools: { running: "Running tools", done: "Ran tools" },
+	assess_tools: { running: "Running tools", done: "Ran tools" },
 	tool_search: { running: "Extending the search", done: "Extended the search" },
 	tool_follow_reference: {
 		running: "Following a reference",

@@ -31,7 +31,6 @@ from app.chat.models import (
     DecomposedQuestion,
     Refusal,
     StandaloneQuestion,
-    ToolCall,
 )
 from app.chat.prompts import (
     ASSESS_SYSTEM_PROMPT,
@@ -43,6 +42,7 @@ from app.chat.prompts import (
     build_assess_system_prompt,
     system_prompt,
 )
+from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.core.llm.errors import LLMError
 from app.core.llm.models import TokenUsage

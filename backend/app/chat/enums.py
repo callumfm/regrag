@@ -10,7 +10,7 @@ class ChatNode(StrEnum):
     DECOMPOSE = "decompose"
     RETRIEVE = "retrieve"
     ASSESS = "assess"
-    TOOLS = "tools"
+    ASSESS_TOOLS = "assess_tools"
     SYNTHESIZE = "synthesize"
     REFUSE = "refuse"
 

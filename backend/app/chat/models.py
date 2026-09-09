@@ -15,6 +15,7 @@ from app.chat.enums import (
     RefusalReason,
     ToolStep,
 )
+from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.core.exceptions import DomainError
 from app.core.llm.models import TokenUsage
@@ -54,13 +55,6 @@ class ChatStepResult(FrozenModel):
     ) -> "ChatStepResult":
         """The result of a step that reported usage, or none."""
         return cls(step=step, ms=ms, usage=TokenUsage.from_metadata(usage) if usage else None)
-
-
-class ToolCall(FrozenModel):
-    """One tool call assess asked for, as litellm reports it: the tool, and its arguments."""
-
-    name: str
-    args: dict[str, Any] = {}
 
 
 class DecomposedQuestion(FrozenModel):

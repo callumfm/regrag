@@ -442,3 +442,8 @@ def install_chat_model(monkeypatch: pytest.MonkeyPatch, model: BaseChatModel) ->
 def install_search(monkeypatch: pytest.MonkeyPatch, fake_search: Callable[..., Any]) -> None:
     """Point retrieve at a fake search; the graph imports it by name, so it is set there."""
     monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+
+def junk_result(**overrides: Any) -> SearchResult:
+    """A hit below both retrieval bars, which the gate keeps out of the context."""
+    return search_result(**{"cosine_similarity": 0.2, "reranker_relevance": 0.3, **overrides})
