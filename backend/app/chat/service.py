@@ -28,8 +28,7 @@ async def create_chat_request(session: AsyncSession, state: ChatState) -> None:
             position=idx,
             step=result.step.value,
             ms=result.ms,
-            input_tokens=result.usage.input_tokens if result.usage else None,
-            output_tokens=result.usage.output_tokens if result.usage else None,
+            **(result.usage.model_dump() if result.usage else {}),
         )
         for idx, result in enumerate(state.steps)
     ]
@@ -42,8 +41,7 @@ async def create_chat_request(session: AsyncSession, state: ChatState) -> None:
         model=config.CHAT_MODEL,
         total_ms=state.total_ms,
         sources=len(state.sources),
-        input_tokens=usage.input_tokens if usage else None,
-        output_tokens=usage.output_tokens if usage else None,
+        **(usage.model_dump() if usage else {}),
         error=state.error,
         steps=steps,
     )

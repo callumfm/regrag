@@ -4,7 +4,6 @@ import json
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-import httpx
 import litellm
 import openai
 import pytest
@@ -58,7 +57,7 @@ from tests.chat.conftest import (
     split_message,
     tool_call_message,
 )
-from tests.conftest import TOKEN_USAGE, search_result
+from tests.conftest import TOKEN_USAGE, provider_error, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -66,10 +65,7 @@ QUESTION = "What is the GHG intensity limit?"
 
 
 def rate_limited() -> openai.RateLimitError:
-    request = httpx.Request("POST", "https://api.anthropic.example")
-    return openai.RateLimitError(
-        message="provider said no", response=httpx.Response(429, request=request), body=None
-    )
+    return provider_error(openai.RateLimitError, 429)
 
 
 class FailingModel(RecordingChatModel):

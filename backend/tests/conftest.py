@@ -404,7 +404,7 @@ def retrieved_chunk(**overrides: Any) -> RetrievedChunk:
 
 USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
 """What a faked model reports spending, as langchain carries it."""
-TOKEN_USAGE = TokenUsage(input_tokens=USAGE["input_tokens"], output_tokens=USAGE["output_tokens"])
+TOKEN_USAGE = TokenUsage.from_metadata(USAGE)
 """USAGE as a step records it."""
 
 PROVIDER_REQUEST = httpx.Request("POST", "https://api.provider.example")

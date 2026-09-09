@@ -53,15 +53,7 @@ class ChatStepResult(FrozenModel):
         cls, step: ChatNode | ToolStep, ms: int, usage: UsageMetadata | None
     ) -> "ChatStepResult":
         """The result of a step that reported usage, or none."""
-        if usage is None:
-            return cls(step=step, ms=ms)
-        return cls(
-            step=step,
-            ms=ms,
-            usage=TokenUsage(
-                input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"]
-            ),
-        )
+        return cls(step=step, ms=ms, usage=TokenUsage.from_metadata(usage) if usage else None)
 
 
 class ToolCall(FrozenModel):

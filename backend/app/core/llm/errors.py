@@ -7,7 +7,6 @@ import logging
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any
 
-import litellm
 from fastapi import status
 from litellm.exceptions import ServiceUnavailableError
 from openai import (
@@ -25,9 +24,6 @@ from app.core.exceptions import DomainError
 from app.core.retry import transient_retry
 
 logger = logging.getLogger(__name__)
-
-litellm.suppress_debug_info = True
-"""A failure is logged as ours; litellm's help banner has no place on it."""
 
 TRANSIENT_PROVIDER_ERRORS = (
     RateLimitError,
