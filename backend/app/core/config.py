@@ -183,7 +183,10 @@ class AssessConfig(BaseConfig):
         produced, whatever its size; at 0 the loop reads the context but never grows it.
     ASSESS_MAY_REFUSE: whether assess is offered the refuse tool, which ends a question
         nothing in the context bears on in the fixed refusal instead of an answer; off, such
-        a question reaches synthesize and is declined in the model's own words.
+        a question reaches synthesize and is declined in the model's own words. On by
+        default: over the 40-case golden dataset (RRG-103) it refused 2 of the 6
+        out-of-corpus cases that clear the gate and no in-corpus case, for no extra call.
+        The other 4 run a search or fetch first, and assess is not asked again after it.
     """
 
     ASSESS_ENABLED: bool = True

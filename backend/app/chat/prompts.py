@@ -78,9 +78,11 @@ ASSESS_SYSTEM_PROMPT = (
 
 ASSESS_REFUSE_INSTRUCTION = (
     " If no block bears on the question and no search or fetch of this corpus of EU "
-    "maritime regulation could — it asks about another regime, a fact no law states, or a "
-    "topic outside the corpus — call refuse, alone, saying why. Never refuse a question "
-    "the context answers in part, or one a search or fetch might yet answer."
+    "maritime regulation could — it asks about another regime, about a named company, "
+    "ship or event, for a statistic or a figure no provision states, or about a topic "
+    "outside the corpus — call refuse, alone, saying why. Blocks on the subject the "
+    "question touches that do not answer it are not a part answer. Never refuse a "
+    "question the context answers in part, or one a search or fetch might yet answer."
 )
 
 
