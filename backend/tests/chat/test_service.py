@@ -1,6 +1,7 @@
 """Chat request recording: the row, its node rows, and the log line."""
 
 import logging
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import Select, select
@@ -8,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat import service
 from app.chat.enums import ChatNode, ChatOutcome
-from app.chat.models import ChatState, ChatStepResult, ToolCall
+from app.chat.exceptions import ThreadFullError
+from app.chat.models import ChatState, ChatStepResult, ChatTurn, ToolCall
 from app.chat.schemas import ChatRequest, ChatRequestStep
-from app.chat.service import create_chat_request
+from app.chat.service import create_chat_request, load_thread_history
 from app.chat.tools import build_call_step
 from app.core.config import config
 from app.core.logger import request_id_var
@@ -19,11 +21,14 @@ from tests.conftest import retrieved_chunk
 
 pytestmark = pytest.mark.anyio
 
+THREAD_ID = UUID("11111111-2222-3333-4444-555555555555")
+
 
 def answered_state() -> ChatState:
     """A state as the graph leaves it once an answer has been synthesized."""
     return ChatState(
         question="What must ships report?",
+        thread_id=THREAD_ID,
         steps=(
             ChatStepResult(step=ChatNode.RETRIEVE, ms=120),
             ChatStepResult.from_usage(ChatNode.SYNTHESIZE, 1300, USAGE),
@@ -59,6 +64,8 @@ async def test_recorded_row_reads_the_stats_and_the_request_context(
 
     [row] = (await db_session.scalars(select(ChatRequest))).all()
     assert row.question == "What must ships report?"
+    assert row.thread_id == THREAD_ID
+    assert row.answer == "Ships must report [1]."
     assert row.request_id == "abc123"
     assert row.outcome is ChatOutcome.DONE
     assert row.model == config.CHAT_MODEL
@@ -86,6 +93,8 @@ async def test_failed_run_records_its_error_and_nulls_where_it_never_got(
     [row] = (await db_session.scalars(select(ChatRequest))).all()
     assert row.outcome is ChatOutcome.ERROR
     assert row.error == "embedding call failed"
+    assert row.answer is None
+    assert row.thread_id == failed.thread_id
     assert (row.input_tokens, row.output_tokens) == (None, None)
     assert row.sources == 0
     assert (await db_session.scalars(select(ChatRequestStep))).all() == []
@@ -130,3 +139,80 @@ async def test_a_refused_request_is_recorded_as_such(db_session: AsyncSession, c
     nodes = (await db_session.scalars(node_rows())).all()
     assert [(n.step, n.ms) for n in nodes] == [("retrieve", 90), ("refuse", 0)]
     assert stats_lines(caplog)[0].getMessage() == "chat refused in 95ms"
+
+
+def turn(question: str, answer: str, *, thread_id: UUID, outcome_steps=None) -> ChatState:
+    """A finished turn on a thread, answered unless given a path that ends elsewhere."""
+    steps = (
+        ChatStepResult(step=ChatNode.RETRIEVE, ms=10),
+        ChatStepResult(step=ChatNode.SYNTHESIZE, ms=100),
+    )
+    return ChatState(
+        question=question,
+        thread_id=thread_id,
+        steps=outcome_steps if outcome_steps is not None else steps,
+        answer=answer,
+        total_ms=120,
+    )
+
+
+async def test_a_threads_history_is_its_answered_turns_oldest_first_without_markers(
+    db_session: AsyncSession,
+):
+    thread, other = uuid4(), uuid4()
+    await create_chat_request(
+        db_session, turn("What is FuelEU?", "A regulation.[1]", thread_id=thread)
+    )
+    await create_chat_request(db_session, turn("Unrelated", "Elsewhere.[1]", thread_id=other))
+    refused = (
+        ChatStepResult(step=ChatNode.RETRIEVE, ms=5),
+        ChatStepResult(step=ChatNode.REFUSE, ms=0),
+    )
+    await create_chat_request(
+        db_session,
+        turn("Pizza?", "The corpus doesn't cover this.", thread_id=thread, outcome_steps=refused),
+    )
+    await create_chat_request(db_session, turn("Its penalties?", "Fines.[2][3]", thread_id=thread))
+
+    history = await load_thread_history(db_session, thread)
+
+    assert history == (
+        ChatTurn(question="What is FuelEU?", answer="A regulation."),
+        ChatTurn(question="Its penalties?", answer="Fines."),
+    )
+
+
+async def test_an_answered_row_without_an_answer_is_left_out_of_the_history(
+    db_session: AsyncSession,
+):
+    """A DONE row can hold no answer text; passed through, an empty assistant turn is
+    rewritten by the provider into a placeholder line the thread never said."""
+    thread = uuid4()
+    await create_chat_request(db_session, turn("What is FuelEU?", "", thread_id=thread))
+    await create_chat_request(db_session, turn("Its penalties?", "Fines.[1]", thread_id=thread))
+
+    history = await load_thread_history(db_session, thread)
+
+    assert history == (ChatTurn(question="Its penalties?", answer="Fines."),)
+
+
+async def test_history_is_capped_to_the_latest_thread_turns(db_session: AsyncSession, monkeypatch):
+    monkeypatch.setattr(config, "CHAT_THREAD_TURNS", 2)
+    thread = uuid4()
+    for n in range(3):
+        await create_chat_request(db_session, turn(f"q{n}", f"a{n}", thread_id=thread))
+
+    history = await load_thread_history(db_session, thread)
+
+    assert [t.question for t in history] == ["q1", "q2"]
+
+
+async def test_an_unknown_thread_has_no_history(db_session: AsyncSession):
+    assert await load_thread_history(db_session, uuid4()) == ()
+
+
+def test_a_full_thread_names_its_cap():
+    assert ThreadFullError(5).message == (
+        "This thread has reached its 5 turns; start a new thread to keep asking"
+    )
+    assert ThreadFullError(5).status_code == 409

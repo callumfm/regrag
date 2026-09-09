@@ -16,6 +16,7 @@ from app.core.config import (
     IngestConfig,
     JudgeConfig,
     RetrievalConfig,
+    RewriteConfig,
     StorageBackend,
     StorageConfig,
     config,
@@ -176,7 +177,13 @@ def test_chat_defaults():
     assert chat.CHAT_TEMPERATURE == 0.0
     assert chat.CHAT_SOURCES == 5
     assert chat.CHAT_CONTEXT_CHUNKS == 15
+    assert chat.CHAT_THREAD_TURNS == 5
     assert chat.ANTHROPIC_API_KEY.get_secret_value() == ""
+
+
+def test_rewrite_defaults_and_the_combined_config_carries_them():
+    assert RewriteConfig().REWRITE_MODEL == "anthropic/claude-haiku-4-5"
+    assert "REWRITE_MODEL" in Config.model_fields
 
 
 def test_config_includes_chat_settings():

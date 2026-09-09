@@ -18,6 +18,7 @@ yielded ServerSentEvent, and the response class files it under text/event-stream
 
 @router.post("/chat", response_class=EventSourceResponse, responses=CHAT_RESPONSES)
 async def chat(query: ChatQuery) -> AsyncIterator[ServerSentEvent]:
-    """Stream a cited answer to the question over SSE: sources, tokens, done; or error."""
-    async for event in stream_chat_events(query.question):
+    """Stream a cited answer to the question over SSE: steps, sources, tokens, done with the
+    thread id; or error."""
+    async for event in stream_chat_events(query):
         yield ServerSentEvent(event=event.event, data=event.data)

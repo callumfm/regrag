@@ -10,14 +10,18 @@ curl -N localhost:8000/chat -H 'content-type: application/json' \
 ## The graph
 
 ```
-START ─┬→ decompose ─┐                            DECOMPOSE_ENABLED
-       │             ↓
-       └──────────→ retrieve ─┬→ refuse ──────────────→ END   nothing cleared the gate, or the context is insufficient
-                              │      ↑
-                              ├→ assess ⇄ tools              while assess asks and the budget remains
-                              │      │
-                              └──────┴→ synthesize ────→ END   the context is settled
+START ─┬→ rewrite ─┬→ decompose ──┐                      a follow-up; DECOMPOSE_ENABLED
+       │           └──────────────┤
+       ├→ decompose ──────────────┤                       DECOMPOSE_ENABLED
+       │                          ↓
+       └──────────────────────→ retrieve ─┬→ refuse ──────────────→ END   nothing cleared the gate, or the context is insufficient
+                                          │      ↑
+                                          ├→ assess ⇄ tools              while assess asks and the budget remains
+                                          │      │
+                                          └──────┴→ synthesize ────→ END   the context is settled
 ```
+
+`rewrite` runs only on a follow-up — a question sent with a `thread_id` whose thread has answered turns. It makes one blocking model call on `REWRITE_MODEL`, answering in a fixed shape with the question restated to stand on its own: "what penalties does it impose?" searched as typed clears no gate, so the thread's earlier turns are read to say what "it" is. Retrieve and decompose then work from the restated question, while the answer is written to the question as asked, with the earlier turns in front of the model as message pairs — questions and answers only, markers stripped, never their context blocks. A first question takes the edge below and records no step. The call is best-effort like decompose's: one that fails or answers off its shape searches the question as asked.
 
 `decompose` makes one blocking model call on `DECOMPOSE_MODEL`, answering in a fixed shape with the searches the question needs, one per thing it asks, capped at `DECOMPOSE_MAX_PARTS`. A question asking one thing comes back as one query and is searched exactly as asked, so switching the node off and asking a single-part question run the same retrieval; the only trace is the recorded step. `DECOMPOSE_ENABLED=false` takes the edge straight to `retrieve` and records no step. The call is best-effort: one that fails or answers off its shape logs and searches the question as asked.
 
@@ -62,10 +66,12 @@ The reach has a real edge, though. A question needing more than `ASSESS_MAX_CALL
 | `step` | twice per node or tool call: as it starts, and again once it finishes | what the step was and whether it has finished; once it has, how long it took and the tokens it spent; for a tool call, what it was for |
 | `sources` | once, as soon as the context settles — after retrieval, or after the loop's last round | the context blocks, each bound to the `[n]` marker the answer will cite it by |
 | `text` | repeatedly as the model writes, or once for a refusal | a fragment of the answer |
-| `done` | last, on a completed stream | empty |
+| `done` | last, on a completed stream | the thread id the turn was recorded under; a follow-up sends it back as `thread_id` |
 | `error` | last, in place of everything after it | the app's one error shape, with the request id |
 
 Markers run `1..n` in context order and match the numbering the prompt gave the model, so a client can resolve `[2]` to an act and article on its own.
+
+A thread holds at most `CHAT_THREAD_TURNS` answered turns; the next question on a full one ends in an `error` frame naming `ThreadFullError`, and the client starts a new thread by sending no `thread_id`.
 
 ## The ledger
 
@@ -73,4 +79,4 @@ Every request is recorded however it ended — answered, refused, errored, or ab
 
 This is deliberately the tracing, in place of a tracing library: the request row has to exist for the spend cap anyway, and the per-step timings come with it. It is a flat span list ordered by `position`, not a tree — a tool step's parent is the assess step before it — which is enough while the graph nests only one level deep.
 
-The answer text itself is not stored. Keeping it is a separate decision with its own retention question, and nothing needs it yet.
+The row also holds the thread the request belongs to and the answer it gave. That is what a follow-up reads back: the thread's answered rows, oldest first, are its history, so the ledger is the conversation store and nothing else needs to be.

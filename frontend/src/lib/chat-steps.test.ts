@@ -27,6 +27,22 @@ describe("stepLabel", () => {
 		const unknown = "rerank" as ChatStep["step"]
 		expect(stepLabel(step(unknown))).toBe("rerank")
 	})
+
+	it("names the insufficient-context step by what it found", () => {
+		expect(stepLabel(step("tool_insufficient_context", 0, "running"))).toBe(
+			"Finding nothing that bears on the question",
+		)
+		expect(stepLabel(step("tool_insufficient_context"))).toBe(
+			"Found nothing that bears on the question",
+		)
+	})
+
+	it("names the rewrite step by what it does", () => {
+		expect(stepLabel(step("rewrite", 0, "running"))).toBe(
+			"Rewriting the question",
+		)
+		expect(stepLabel(step("rewrite"))).toBe("Rewrote the question")
+	})
 })
 
 describe("formatDuration", () => {

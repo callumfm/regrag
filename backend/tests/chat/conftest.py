@@ -170,6 +170,26 @@ def split_message(*queries: str) -> AIMessage:
 
 
 @pytest.fixture
+def rewrite_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[..., RecordingChatModel]:
+    """Install a rewrite model answering with the given turns in order, and hand back
+    the fake, whose `received` holds the prompts it saw."""
+
+    def install(*turns: AIMessage) -> RecordingChatModel:
+        model = RecordingChatModel(messages=iter(turns), usage=USAGE)
+        monkeypatch.setattr("app.chat.graph.rewrite_model", lambda: model)
+        return model
+
+    return install
+
+
+def restated_message(question: str) -> AIMessage:
+    """A rewrite turn, shaped as a model bound to the StandaloneQuestion format answers."""
+    return AIMessage(content=json.dumps({"question": question}))
+
+
+@pytest.fixture
 def tool_results(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[ToolCall]]:
     """Install a run_tool_call answering every call with the given chunks, and hand back
     the list the calls it received accumulate in."""

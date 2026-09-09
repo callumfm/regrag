@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+from uuid import UUID
 
 import anyio
 import pytest
@@ -11,11 +12,26 @@ from langchain_core.outputs import ChatGenerationChunk
 from sqlalchemy.exc import OperationalError
 
 from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, ToolStep
-from app.chat.models import DoneEvent, ErrorEvent, SourcesEvent, StepEvent, TextEvent
+from app.chat.models import (
+    ChatQuery,
+    ChatTurn,
+    DoneEvent,
+    ErrorEvent,
+    SourcesEvent,
+    StepEvent,
+    TextEvent,
+)
 from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.stream import stream_chat_events
+from app.core.config import config
 from app.core.llm import LLMError
-from tests.chat.conftest import USAGE, RecordingChatModel, fake_chat_model, tool_call_message
+from tests.chat.conftest import (
+    USAGE,
+    RecordingChatModel,
+    fake_chat_model,
+    restated_message,
+    tool_call_message,
+)
 from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
@@ -27,7 +43,7 @@ async def test_finished_stream_records_timings_sources_and_usage(
     model = fake_chat_model("Two words [1].")
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
-    async for _ in stream_chat_events("q"):
+    async for _ in stream_chat_events(ChatQuery(question="q")):
         pass
 
     [state] = recorded_requests
@@ -49,7 +65,7 @@ async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_reque
 
     monkeypatch.setattr("app.chat.graph.search", failing_search)
 
-    async for _ in stream_chat_events("q"):
+    async for _ in stream_chat_events(ChatQuery(question="q")):
         pass
 
     [state] = recorded_requests
@@ -70,7 +86,7 @@ async def test_unexpected_failure_is_recorded_by_its_type_and_sent_as_the_generi
 
     monkeypatch.setattr("app.chat.graph.search", exploding_search)
 
-    events = [event async for event in stream_chat_events("q")]
+    events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     assert isinstance(events[-1], ErrorEvent)
     assert events[-1].data.message == "An unexpected error occurred"
@@ -83,7 +99,7 @@ async def test_abandoned_stream_still_records(two_results, monkeypatch, recorded
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
-    events = stream_chat_events("q")
+    events = stream_chat_events(ChatQuery(question="q"))
     async for event in events:
         if isinstance(event, SourcesEvent):
             break
@@ -105,9 +121,9 @@ async def test_failed_write_is_logged_not_raised(two_results, monkeypatch, caplo
 
     monkeypatch.setattr("app.chat.stream.create_chat_request", broken_create_chat_request)
 
-    events = [event async for event in stream_chat_events("q")]
+    events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
-    assert events[-1] == DoneEvent()
+    assert isinstance(events[-1], DoneEvent)
     [error] = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert error.getMessage() == "chat request not recorded"
     assert error.exc_info is not None
@@ -129,7 +145,7 @@ async def test_cancelled_stream_still_records(two_results, monkeypatch, recorded
     async with anyio.create_task_group() as tg:
 
         async def consume_until_sources_then_leave():
-            async for event in stream_chat_events("q"):
+            async for event in stream_chat_events(ChatQuery(question="q")):
                 if isinstance(event, SourcesEvent):
                     tg.cancel_scope.cancel()
 
@@ -153,7 +169,9 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
     monkeypatch.setattr("app.chat.graph.search", junk_search)
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
-    events = [event async for event in stream_chat_events("best pizza topping?")]
+    events = [
+        event async for event in stream_chat_events(ChatQuery(question="best pizza topping?"))
+    ]
 
     assert step_frames(events) == [
         (ChatNode.RETRIEVE, ChatStepStatus.RUNNING, None),
@@ -187,7 +205,7 @@ async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_ref
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
 
-    events = [event async for event in stream_chat_events("q")]
+    events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     assert step_frames(events)[4:] == [
         (ToolStep.INSUFFICIENT_CONTEXT, ChatStepStatus.RUNNING, "nothing bears on it"),
@@ -220,7 +238,7 @@ async def test_each_step_is_announced_as_it_starts_and_again_once_it_finishes(
     being true; the running frame is what the reader is actually waiting on."""
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
-    events = [event async for event in stream_chat_events("q")]
+    events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     assert step_frames(events) == [
         (ChatNode.RETRIEVE, ChatStepStatus.RUNNING, None),
@@ -233,7 +251,7 @@ async def test_each_step_is_announced_as_it_starts_and_again_once_it_finishes(
 async def test_retrieve_is_running_before_the_sources_it_finds_arrive(two_results, monkeypatch):
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
-    events = [event async for event in stream_chat_events("q")]
+    events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     first_step = next(i for i, e in enumerate(events) if isinstance(e, StepEvent))
     sources = next(i for i, e in enumerate(events) if isinstance(e, SourcesEvent))
@@ -247,7 +265,7 @@ async def test_a_running_step_reports_no_timing_and_the_ledger_never_sees_one(
     """Timing belongs to work that has happened; the path the ledger keeps is finished work."""
     monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
-    events = [event async for event in stream_chat_events("q")]
+    events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     steps = [event.data for event in events if isinstance(event, StepEvent)]
     running = [step for step in steps if step.status is ChatStepStatus.RUNNING]
@@ -306,7 +324,7 @@ class TestLoopStreaming:
     ):
         monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
-        events = [event async for event in stream_chat_events("q")]
+        events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
         sources_events = [e for e in events if isinstance(e, SourcesEvent)]
         assert len(sources_events) == 1
@@ -322,7 +340,7 @@ class TestLoopStreaming:
             "app.chat.graph.chat_model", lambda *_: fake_chat_model("The answer [1].")
         )
 
-        events = [event async for event in stream_chat_events("q")]
+        events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
         text = "".join(e.data for e in events if isinstance(e, TextEvent))
         assert text == "The answer [1]."
@@ -334,7 +352,7 @@ class TestLoopStreaming:
         so the reader sees what is being searched for while it is being searched for."""
         monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
 
-        events = [event async for event in stream_chat_events("q")]
+        events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
         running, completed = ChatStepStatus.RUNNING, ChatStepStatus.COMPLETED
         assert step_frames(events) == [
@@ -349,3 +367,88 @@ class TestLoopStreaming:
             (ChatNode.SYNTHESIZE, running, None),
             (ChatNode.SYNTHESIZE, completed, None),
         ]
+
+
+THREAD_ID = UUID("11111111-2222-3333-4444-555555555555")
+
+
+def history_of(*turns: ChatTurn):
+    """A load_thread_history answering every thread with these turns, recording the ids
+    asked for."""
+    asked: list[UUID] = []
+
+    async def fake_load(session, thread_id):
+        asked.append(thread_id)
+        return turns
+
+    return fake_load, asked
+
+
+class TestThreads:
+    async def test_a_first_question_mints_a_thread_and_returns_it_on_done(
+        self, two_results, monkeypatch, recorded_requests
+    ):
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+        fake_load, asked = history_of()
+        monkeypatch.setattr("app.chat.stream.load_thread_history", fake_load)
+
+        events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
+
+        done = events[-1]
+        assert isinstance(done, DoneEvent)
+        [state] = recorded_requests
+        assert done.data.thread_id == state.thread_id
+        assert asked == []
+        assert state.history == ()
+
+    async def test_a_follow_up_loads_its_thread_and_answers_on_it(
+        self, monkeypatch, recorded_requests, rewrite_turns
+    ):
+        rewrite_turns(restated_message("What penalties does FuelEU impose?"))
+        model = fake_chat_model("Fines [1].")
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+        prior = ChatTurn(question="What is FuelEU?", answer="A regulation.")
+        fake_load, asked = history_of(prior)
+        monkeypatch.setattr("app.chat.stream.load_thread_history", fake_load)
+
+        async def fake_search(session, request):
+            assert request.query == "What penalties does FuelEU impose?"
+            return (search_result(),)
+
+        monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+        query = ChatQuery(question="What penalties does it impose?", thread_id=THREAD_ID)
+        events = [event async for event in stream_chat_events(query)]
+
+        assert asked == [THREAD_ID]
+        assert [s for s, _, _ in step_frames(events)][:2] == [ChatNode.REWRITE, ChatNode.REWRITE]
+        assert events[-1] == DoneEvent(data={"thread_id": THREAD_ID})
+        [state] = recorded_requests
+        assert state.thread_id == THREAD_ID
+        assert state.history == (prior,)
+        assert state.outcome is ChatOutcome.DONE
+
+    async def test_a_full_thread_is_refused_before_the_graph_runs_and_recorded(
+        self, monkeypatch, recorded_requests
+    ):
+        monkeypatch.setattr(config, "CHAT_THREAD_TURNS", 2)
+        turns = tuple(ChatTurn(question=f"q{n}", answer=f"a{n}") for n in range(2))
+        fake_load, _ = history_of(*turns)
+        monkeypatch.setattr("app.chat.stream.load_thread_history", fake_load)
+        model = fake_chat_model()
+        monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+
+        query = ChatQuery(question="one more?", thread_id=THREAD_ID)
+        events = [event async for event in stream_chat_events(query)]
+
+        [error] = events
+        assert isinstance(error, ErrorEvent)
+        assert error.data.error == "ThreadFullError"
+        assert error.data.message == (
+            "This thread has reached its 2 turns; start a new thread to keep asking"
+        )
+        assert model.received == []
+        [state] = recorded_requests
+        assert state.outcome is ChatOutcome.ERROR
+        assert state.steps == ()
+        assert state.thread_id == THREAD_ID

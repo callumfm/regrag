@@ -7,6 +7,7 @@ from app.chat.prompts import (
     build_assess_system_prompt,
     build_user_message,
     format_context,
+    strip_markers,
 )
 from app.ingestion.chunk.models import Reference
 from tests.conftest import retrieved_chunk, search_result
@@ -94,3 +95,10 @@ class TestBuildAssessSystemPrompt:
 
     def test_without_it_the_prompt_is_the_bare_one(self):
         assert build_assess_system_prompt(may_refuse=False) == ASSESS_SYSTEM_PROMPT
+
+
+def test_strip_markers_removes_every_citation_marker_and_nothing_else():
+    assert strip_markers("Ships must report.[1] Yearly.[2][3] Done.") == (
+        "Ships must report. Yearly. Done."
+    )
+    assert strip_markers("No markers here.") == "No markers here."

@@ -1,6 +1,7 @@
 import type { ChatStep } from "@/api/types"
 
 const LABELS: Record<ChatStep["step"], { running: string; done: string }> = {
+	rewrite: { running: "Rewriting the question", done: "Rewrote the question" },
 	decompose: { running: "Splitting the question", done: "Split the question" },
 	retrieve: { running: "Searching the corpus", done: "Searched the corpus" },
 	assess: { running: "Reviewing the evidence", done: "Reviewed the evidence" },
@@ -9,6 +10,10 @@ const LABELS: Record<ChatStep["step"], { running: string; done: string }> = {
 	tool_follow_reference: {
 		running: "Following a reference",
 		done: "Followed a reference",
+	},
+	tool_insufficient_context: {
+		running: "Finding nothing that bears on the question",
+		done: "Found nothing that bears on the question",
 	},
 	tool_unknown: {
 		running: "Asking for a tool it does not have",
