@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.chat.enums import ChatNode, ToolStep
-from app.chat.models import ChatState, ChatStepResult, DecomposedQuestion, ToolCall
+from app.chat.models import ChatState, ChatStepResult, ChatTurn, DecomposedQuestion, ToolCall
 from app.core.config import config
 from app.core.exceptions import DomainError
 from tests.conftest import search_result
@@ -20,6 +20,32 @@ def test_sync_from_snapshot_folds_the_snapshot_on_and_leaves_the_consumer_fields
 
     assert state.steps == (retrieved,)
     assert (state.total_ms, state.error) == (5, "boom")
+
+
+def test_a_state_is_born_in_a_thread_of_its_own():
+    """A first question has no thread yet: the state mints one, and two states never share it."""
+    assert ChatState(question="q").thread_id != ChatState(question="q").thread_id
+
+
+def test_the_retrieval_question_is_the_standalone_one_when_rewrite_wrote_it():
+    state = ChatState(question="What penalties does it impose?")
+    assert state.retrieval_question == "What penalties does it impose?"
+    state.standalone_question = "What penalties does FuelEU Maritime impose?"
+    assert state.retrieval_question == "What penalties does FuelEU Maritime impose?"
+
+
+def test_log_fields_leave_the_thread_content_out():
+    state = ChatState(
+        question="q",
+        history=(ChatTurn(question="What is FuelEU?", answer="A regulation."),),
+        standalone_question="What penalties does FuelEU impose?",
+    )
+
+    fields = state.log_fields()
+
+    assert "history" not in fields
+    assert "standalone_question" not in fields
+    assert fields["thread_id"] == str(state.thread_id)
 
 
 def test_a_domain_error_is_recorded_by_its_message():

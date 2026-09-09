@@ -31,6 +31,8 @@ async def create_chat_request(session: AsyncSession, state: ChatState) -> None:
     request = ChatRequest(
         request_id=request_id_var.get(),
         question=state.question,
+        thread_id=state.thread_id,
+        answer=state.answer or None,
         outcome=state.outcome,
         model=config.CHAT_MODEL,
         total_ms=state.total_ms,

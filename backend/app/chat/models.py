@@ -2,6 +2,7 @@
 
 import operator
 from typing import Annotated, Any, Literal
+from uuid import UUID, uuid4
 
 from langchain_core.messages.ai import UsageMetadata
 from pydantic import ConfigDict, Field, computed_field
@@ -67,6 +68,14 @@ class DecomposedQuestion(FrozenModel):
     queries: tuple[str, ...]
 
 
+class ChatTurn(FrozenModel):
+    """One earlier turn of the thread as the prompts see it: what was asked, and what was
+    answered with its [n] markers stripped, since they numbered that turn's context."""
+
+    question: str
+    answer: str
+
+
 class ChatState(AppModel):
     """Everything one question produced: what the graph accumulates as it runs, then what
     only the stream's consumer knows once it ends — how long the request lived, and an error.
@@ -81,9 +90,16 @@ class ChatState(AppModel):
     retrieved_sources: how many blocks retrieve left, the base the loop's growth is budgeted
         against; sources grows each round, so the budget cannot be read off it.
     pending_calls: the tool calls assess asked for, not yet executed.
+    thread_id: the thread the question belongs to, minted here when the caller sent none.
+    history: the thread's earlier answered turns, oldest first; empty on a first question.
+    standalone_question: the question as rewrite restated it for retrieval, or empty when
+        there was nothing to restate or the call failed, so the question as asked is searched.
     """
 
     question: str
+    thread_id: UUID = Field(default_factory=uuid4)
+    history: tuple[ChatTurn, ...] = ()
+    standalone_question: str = ""
     queries: tuple[str, ...] = ()
     steps: Annotated[tuple[ChatStepResult, ...], operator.add] = ()
     hits: tuple[SearchResult, ...] = ()
@@ -98,6 +114,12 @@ class ChatState(AppModel):
     def last_step(self) -> ChatNode | ToolStep | None:
         """The step that just finished — what a values update announces — or None before any."""
         return self.steps[-1].step if self.steps else None
+
+    @property
+    def retrieval_question(self) -> str:
+        """What retrieval searches: the restated question when rewrite wrote one, else the
+        question as asked."""
+        return self.standalone_question or self.question
 
     def token_totals(self) -> tuple[int | None, int | None]:
         """Input and output tokens summed over the steps that reported usage — what the
@@ -122,7 +144,16 @@ class ChatState(AppModel):
     def log_fields(self) -> dict[str, Any]:
         """The run as the stats line logs it: everything but the content — which, on a tool
         step, includes what the call was for."""
-        content = ("question", "queries", "hits", "sources", "answer", "pending_calls")
+        content = (
+            "question",
+            "history",
+            "standalone_question",
+            "queries",
+            "hits",
+            "sources",
+            "answer",
+            "pending_calls",
+        )
         exclude_fields: dict[str, Any] = {field: True for field in content} | {
             "steps": {"__all__": {"status", "subject"}}
         }

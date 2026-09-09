@@ -1,6 +1,7 @@
 """Chat request recording: the row, its node rows, and the log line."""
 
 import logging
+from uuid import UUID
 
 import pytest
 from sqlalchemy import Select, select
@@ -19,11 +20,14 @@ from tests.conftest import retrieved_chunk
 
 pytestmark = pytest.mark.anyio
 
+THREAD_ID = UUID("11111111-2222-3333-4444-555555555555")
+
 
 def answered_state() -> ChatState:
     """A state as the graph leaves it once an answer has been synthesized."""
     return ChatState(
         question="What must ships report?",
+        thread_id=THREAD_ID,
         steps=(
             ChatStepResult(step=ChatNode.RETRIEVE, ms=120),
             ChatStepResult.from_usage(ChatNode.SYNTHESIZE, 1300, USAGE),
@@ -59,6 +63,8 @@ async def test_recorded_row_reads_the_stats_and_the_request_context(
 
     [row] = (await db_session.scalars(select(ChatRequest))).all()
     assert row.question == "What must ships report?"
+    assert row.thread_id == THREAD_ID
+    assert row.answer == "Ships must report [1]."
     assert row.request_id == "abc123"
     assert row.outcome is ChatOutcome.DONE
     assert row.model == config.CHAT_MODEL
@@ -86,6 +92,8 @@ async def test_failed_run_records_its_error_and_nulls_where_it_never_got(
     [row] = (await db_session.scalars(select(ChatRequest))).all()
     assert row.outcome is ChatOutcome.ERROR
     assert row.error == "embedding call failed"
+    assert row.answer is None
+    assert row.thread_id == failed.thread_id
     assert (row.input_tokens, row.output_tokens) == (None, None)
     assert row.sources == 0
     assert (await db_session.scalars(select(ChatRequestStep))).all() == []
