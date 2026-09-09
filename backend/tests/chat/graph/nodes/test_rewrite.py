@@ -23,6 +23,7 @@ from tests.chat.conftest import (
     FOLLOW_UP,
     HISTORY,
     RESTATED,
+    TOKEN_USAGE,
     FailingModel,
     hits_for,
     restated_message,
@@ -96,7 +97,7 @@ class TestRewriteInTheGraph:
 
         assert update["standalone_question"] == RESTATED
         [step] = update["steps"]
-        assert (step.step, step.input_tokens, step.output_tokens) == (ChatNode.REWRITE, 1500, 40)
+        assert (step.step, step.usage) == (ChatNode.REWRITE, TOKEN_USAGE)
 
     async def test_an_answer_off_the_schema_searches_the_question_as_asked(
         self, rewrite_turns, caplog

@@ -15,7 +15,7 @@ from app.chat.enums import ChatNode
 from app.chat.models import ChatState, ChatStepResult
 from app.core.clock import elapsed_ms
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.core.models import FrozenModel
 
 logger = logging.getLogger(__name__)

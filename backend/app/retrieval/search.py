@@ -6,7 +6,8 @@ from sqlalchemy import Select, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import config
-from app.core.llm import EmbedInput, embed, llm_retry
+from app.core.llm.embed import EmbedInput, embed
+from app.core.llm.errors import llm_retry
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.retrieval.models import CHUNK_COLUMNS, SearchFilters, SearchRequest, SearchResult
 from app.retrieval.rerank import rerank_results

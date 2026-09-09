@@ -4,6 +4,7 @@ from typing import Any
 
 from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
+from app.core.llm.models import TokenUsage
 from app.core.models import FrozenModel
 from app.evals.dataset.models import CaseSelection, EvalCase
 from app.evals.judge.models import CaseJudgement
@@ -90,13 +91,6 @@ class LatencyMetrics(FrozenModel):
     mean_total_ms: int
 
 
-class UsageMetrics(FrozenModel):
-    """Tokens summed over the run."""
-
-    input_tokens: int
-    output_tokens: int
-
-
 class EvalMetrics(FrozenModel):
     """Every measure of a run, in blocks. A retrieval-only run leaves the blocks past the
     model call unmeasured: None rates, zero counts."""
@@ -109,7 +103,7 @@ class EvalMetrics(FrozenModel):
     citations: CitationMetrics
     judge: JudgeMetrics
     latency: LatencyMetrics
-    usage: UsageMetrics
+    usage: TokenUsage
 
 
 class EvalRun(FrozenModel):

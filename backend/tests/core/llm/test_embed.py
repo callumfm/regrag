@@ -1,4 +1,5 @@
-"""Voyage embedding client: call contract, ordering, and error sanitisation."""
+"""Voyage embedding client: call contract, ordering, error sanitisation, and the transience
+the wrap point stamps on each failure."""
 
 import json
 import subprocess
@@ -7,15 +8,17 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
+import litellm
 import openai
 import pytest
 
-from app.core import llm
-from app.core.llm import TRANSIENT_PROVIDER_ERRORS, EmbedInput, LLMError, embed
+from app.core.config import config
+from app.core.llm.embed import EmbedInput, embed
+from app.core.llm.errors import LLMError
 
 pytestmark = pytest.mark.anyio
 
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _response(vectors: list[list[float]]) -> SimpleNamespace:
@@ -32,10 +35,6 @@ def test_embed_input_query_value():
     assert EmbedInput.QUERY == "query"
 
 
-def test_llm_error_status_code():
-    assert LLMError("x").status_code == 502
-
-
 async def test_embed_empty_input_returns_empty_without_calling_provider(monkeypatch):
     calls = []
 
@@ -43,7 +42,7 @@ async def test_embed_empty_input_returns_empty_without_calling_provider(monkeypa
         calls.append(kwargs)
         return _response([])
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     result = await embed([], input_type=EmbedInput.DOCUMENT)
 
@@ -55,7 +54,7 @@ async def test_embed_returns_vectors_in_input_order(monkeypatch):
     async def fake_aembedding(**kwargs):
         return _response([[float(i)] for i in range(len(kwargs["input"]))])
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     result = await embed(["a", "b", "c"], input_type=EmbedInput.DOCUMENT)
 
@@ -68,7 +67,7 @@ async def test_embed_reorders_shuffled_response_by_index(monkeypatch):
         data = [{"embedding": [float(i)], "index": i} for i in reversed(range(n))]
         return SimpleNamespace(data=data)
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     result = await embed(["a", "b", "c"], input_type=EmbedInput.DOCUMENT)
 
@@ -79,7 +78,7 @@ async def test_embed_raises_on_short_response(monkeypatch):
     async def fake_aembedding(**kwargs):
         return _response([[0.0]])
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     with pytest.raises(LLMError):
         await embed(["a", "b", "c"], input_type=EmbedInput.DOCUMENT)
@@ -92,7 +91,7 @@ async def test_embed_sends_configured_call_kwargs(monkeypatch):
         calls.append(kwargs)
         return _response([[0.0]])
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     await embed(["text"], input_type=EmbedInput.DOCUMENT)
 
@@ -100,7 +99,7 @@ async def test_embed_sends_configured_call_kwargs(monkeypatch):
     call = calls[0]
     assert call["model"] == "voyage/voyage-4-lite"
     assert call["dimensions"] == 1024
-    assert call["api_key"] == llm.config.VOYAGE_API_KEY.get_secret_value()
+    assert call["api_key"] == config.VOYAGE_API_KEY.get_secret_value()
     assert call["timeout"] == 30
     assert "num_retries" not in call
 
@@ -119,7 +118,7 @@ async def test_embed_sends_input_type(monkeypatch, input_type, expected):
         calls.append(kwargs)
         return _response([[0.0]])
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     await embed(["text"], input_type=input_type)
 
@@ -134,24 +133,13 @@ async def test_embed_wraps_provider_error_without_leaking_provider_text(monkeypa
             message=provider_message, request=httpx.Request("POST", "http://voyageai.example")
         )
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     with pytest.raises(LLMError) as exc_info:
         await embed(["text"], input_type=EmbedInput.DOCUMENT)
 
     assert provider_message not in str(exc_info.value)
     assert str(exc_info.value) == "embedding call failed"
-
-
-async def test_wrap_provider_errors_names_the_call_by_its_label_not_its_function():
-    @llm.wrap_provider_errors("frobnicate call")
-    async def _internal_helper_name() -> None:
-        raise openai.APIConnectionError(
-            message="upstream", request=httpx.Request("POST", "http://provider.example")
-        )
-
-    with pytest.raises(LLMError, match="^frobnicate call failed$"):
-        await _internal_helper_name()
 
 
 def test_importing_llm_without_cost_map_pin_makes_no_network_connection():
@@ -215,7 +203,7 @@ async def test_embed_sends_voyage_request_body_and_auth_header(monkeypatch):
         self.client = httpx.AsyncClient(transport=transport)
 
     monkeypatch.setattr(AsyncHTTPHandler, "__init__", patched_init)
-    llm.litellm.in_memory_llm_clients_cache.flush_cache()
+    litellm.in_memory_llm_clients_cache.flush_cache()
 
     result = await embed(["alpha", "beta"], input_type=EmbedInput.QUERY)
 
@@ -226,11 +214,10 @@ async def test_embed_sends_voyage_request_body_and_auth_header(monkeypatch):
     assert captured["body"]["input_type"] == "query"
     assert "num_retries" not in captured["body"]
     assert (
-        captured["headers"]["authorization"]
-        == f"Bearer {llm.config.VOYAGE_API_KEY.get_secret_value()}"
+        captured["headers"]["authorization"] == f"Bearer {config.VOYAGE_API_KEY.get_secret_value()}"
     )
 
-    llm.litellm.in_memory_llm_clients_cache.flush_cache()
+    litellm.in_memory_llm_clients_cache.flush_cache()
 
 
 REQUEST = httpx.Request("POST", "https://api.voyageai.com/v1/embeddings")
@@ -245,14 +232,6 @@ def provider_error(exc_type, status_code: int | None = None):
         response=httpx.Response(status_code, request=REQUEST),
         body=None,
     )
-
-
-def test_llm_error_is_not_transient_by_default():
-    assert LLMError("nope").transient is False
-
-
-def test_llm_error_records_transience_when_told():
-    assert LLMError("nope", transient=True).transient is True
 
 
 @pytest.mark.parametrize(
@@ -270,7 +249,7 @@ async def test_retryable_provider_failures_are_flagged_transient(
     async def fake_aembedding(**kwargs):
         raise provider_error(exc_type, status_code)
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     with pytest.raises(LLMError) as caught:
         await embed(["a chunk"], input_type=EmbedInput.DOCUMENT)
@@ -289,7 +268,7 @@ async def test_client_errors_are_never_flagged_transient(monkeypatch, exc_type, 
     async def fake_aembedding(**kwargs):
         raise provider_error(exc_type, status_code)
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     with pytest.raises(LLMError) as caught:
         await embed(["a chunk"], input_type=EmbedInput.DOCUMENT)
@@ -300,14 +279,8 @@ async def test_a_misaligned_response_is_not_transient(monkeypatch):
     async def fake_aembedding(**kwargs):
         return _response([[1.0]])
 
-    monkeypatch.setattr(llm.litellm, "aembedding", fake_aembedding)
+    monkeypatch.setattr(litellm, "aembedding", fake_aembedding)
 
     with pytest.raises(LLMError) as caught:
         await embed(["a", "b"], input_type=EmbedInput.DOCUMENT)
     assert caught.value.transient is False
-
-
-def test_transient_errors_exclude_the_permanent_ones():
-    assert openai.RateLimitError in TRANSIENT_PROVIDER_ERRORS
-    assert openai.AuthenticationError not in TRANSIENT_PROVIDER_ERRORS
-    assert openai.BadRequestError not in TRANSIENT_PROVIDER_ERRORS

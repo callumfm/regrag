@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.chat.toolbox.models import ToolCall
 from app.chat.toolbox.service import run_tool_call
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.retrieval.models import SearchFilters, SearchRequest
 from tests.conftest import search_result
 

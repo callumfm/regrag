@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.concurrency import run_concurrently
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.ingestion.chunk.service import count_chunks
 from app.ingestion.embed.batch import Batch, embed_batch, iter_batch_pages, store_batch
 from app.ingestion.embed.models import EmbedOutcome

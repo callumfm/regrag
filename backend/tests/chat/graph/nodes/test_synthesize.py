@@ -7,11 +7,12 @@ from app.chat.graph.nodes.synthesize import SYSTEM_PROMPT, build_user_message
 from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from tests.chat.conftest import (
     ANSWER,
     QUESTION,
     THINKING,
+    TOKEN_USAGE,
     FailingModel,
     fake_chat_model,
     litellm_stream,
@@ -95,7 +96,7 @@ async def test_the_chat_client_asks_litellm_for_usage_and_the_node_records_it(
 
     assert calls[0]["stream_options"] == {"include_usage": True}
     [_retrieve, synthesize] = state.steps
-    assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
+    assert synthesize.usage == TOKEN_USAGE
 
 
 async def test_the_chat_client_answers_with_the_text_of_a_reasoning_response(

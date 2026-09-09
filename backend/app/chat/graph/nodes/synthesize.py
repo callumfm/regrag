@@ -9,7 +9,7 @@ from app.chat.graph.node import chat_model, traced
 from app.chat.models import ChatState
 from app.chat.prompts import format_context, system_prompt, thread_messages
 from app.core.config import config
-from app.core.llm import llm_retry, wrap_provider_errors
+from app.core.llm.errors import llm_retry, wrap_provider_errors
 from app.retrieval.models import RetrievedChunk
 
 SYSTEM_PROMPT = (

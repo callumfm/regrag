@@ -18,7 +18,7 @@ from app.chat.toolbox.tools.follow_reference import already_in_context
 from app.chat.toolbox.tools.refuse import is_refusal
 from app.core.clock import elapsed_ms
 from app.core.config import config
-from app.core.llm import LLMError, llm_retry, wrap_provider_errors
+from app.core.llm.errors import LLMError, llm_retry, wrap_provider_errors
 from app.retrieval.models import RetrievedChunk
 
 logger = logging.getLogger(__name__)

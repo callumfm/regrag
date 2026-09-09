@@ -5,7 +5,7 @@ from langchain_core.messages import AIMessage
 
 from app.chat.enums import ChatNode
 from app.chat.graph.node import LLMResponse
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 
 
 class Verdict(LLMResponse):

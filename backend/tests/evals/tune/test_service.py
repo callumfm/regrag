@@ -6,7 +6,7 @@ import pytest
 
 from app.chat.enums import ChatNode, ChatOutcome
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.evals.service import evaluate_case
 from app.evals.tune import service
 from app.evals.tune.models import TunableParam
@@ -35,7 +35,7 @@ async def test_retrieve_graph_drives_the_retrieve_node_alone(found_context: None
     assert result.state.hits == (search_result(),)
     assert result.state.sources == (search_result(),)
     assert [n.step for n in result.state.steps] == [ChatNode.RETRIEVE]
-    assert result.state.token_totals() == (None, None)
+    assert result.state.token_usage() is None
     assert result.state.total_ms is not None
 
 

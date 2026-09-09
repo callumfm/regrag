@@ -18,7 +18,14 @@ from app.chat.models import Refusal
 from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.ingestion.chunk.models import Reference
-from tests.chat.conftest import QUESTION, USAGE, FailingModel, run_graph, tool_call_message
+from tests.chat.conftest import (
+    QUESTION,
+    TOKEN_USAGE,
+    USAGE,
+    FailingModel,
+    run_graph,
+    tool_call_message,
+)
 from tests.conftest import search_result
 
 pytestmark = pytest.mark.anyio
@@ -192,7 +199,7 @@ class TestAssessLoop:
 
         assesses = [r for r in state.steps if r.step is ChatNode.ASSESS]
         assert len(assesses) == 2
-        assert all(r.input_tokens == USAGE["input_tokens"] for r in assesses)
+        assert all(r.usage == TOKEN_USAGE for r in assesses)
 
     async def test_assess_sees_the_question_and_numbered_context(
         self, loop_on, one_result, answer_model, assess_turns

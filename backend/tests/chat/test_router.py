@@ -7,7 +7,7 @@ from uuid import UUID
 import httpx
 
 from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from tests.chat.conftest import THINKING, fake_chat_model, reasoning_chat_model
 from tests.conftest import install_chat_model, search_result
 

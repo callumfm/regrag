@@ -19,10 +19,11 @@ from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
 from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
 from app.core.config import config
+from app.core.llm.models import TokenUsage
 from app.retrieval.models import SearchRequest
 from tests.chat.conftest import (
     QUESTION,
-    USAGE,
+    TOKEN_USAGE,
     FailingModel,
     fake_chat_model,
     hits_for,
@@ -52,7 +53,7 @@ async def test_the_decompose_client_sends_the_output_format_and_the_node_records
     assert calls[0]["stream"] is False
     assert update["queries"] == ("what is A", "what is B")
     [step] = update["steps"]
-    assert (step.input_tokens, step.output_tokens) == (120, 20)
+    assert step.usage == TokenUsage(input_tokens=120, output_tokens=20)
 
 
 class TestDecomposeInTheGraph:
@@ -177,10 +178,7 @@ class TestDecompose:
 
         [step] = update["steps"]
         assert step.step is ChatNode.DECOMPOSE
-        assert (step.input_tokens, step.output_tokens) == (
-            USAGE["input_tokens"],
-            USAGE["output_tokens"],
-        )
+        assert step.usage == TOKEN_USAGE
 
 
 def test_decompose_is_built_on_its_own_model_with_the_output_format_bound(monkeypatch):

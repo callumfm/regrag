@@ -19,10 +19,13 @@ from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState, ChatTurn
 from app.chat.toolbox.models import ToolCall
 from app.core.config import config
+from app.core.llm.models import TokenUsage
 from app.retrieval.models import RetrievedChunk, SearchRequest
 from tests.conftest import install_chat_model, search_result
 
 USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
+TOKEN_USAGE = TokenUsage(input_tokens=1500, output_tokens=40)
+"""USAGE as a step records it."""
 
 
 class RecordingChatModel(GenericFakeChatModel):

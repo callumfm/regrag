@@ -14,7 +14,7 @@ from app.chat.toolbox.tools.refuse import REFUSE, REFUSE_TOOL
 from app.chat.toolbox.tools.search import SEARCH
 from app.core.config import config
 from app.core.db.session import get_session
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.retrieval.models import RetrievedChunk
 
 logger = logging.getLogger(__name__)

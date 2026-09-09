@@ -12,7 +12,7 @@ from app.chat.models import ChatState
 from app.core.citations import find_cited_sources
 from app.core.concurrency import run_concurrently
 from app.core.config import config
-from app.core.llm import LLMError, llm_retry, wrap_provider_errors
+from app.core.llm.errors import LLMError, llm_retry, wrap_provider_errors
 from app.core.models import FrozenModel
 from app.evals.dataset.enums import EvalKind
 from app.evals.dataset.models import EvalCase

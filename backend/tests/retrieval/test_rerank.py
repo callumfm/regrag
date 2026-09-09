@@ -6,7 +6,7 @@ import pytest
 from litellm.types.rerank import RerankResponse
 from tenacity import stop_after_attempt
 
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.retrieval import rerank as rerank_module
 from app.retrieval.models import SearchResult
 from app.retrieval.rerank import _rerank, rerank_results

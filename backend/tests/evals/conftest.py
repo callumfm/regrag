@@ -19,6 +19,7 @@ from app.evals.judge.models import (
     RefusalVerdict,
 )
 from app.evals.models import EvalResult
+from tests.chat.conftest import TOKEN_USAGE
 from tests.conftest import retrieved_chunk, search_result
 
 REFERENCE = CaseReference(celex="32023R1805", article="4")
@@ -75,7 +76,7 @@ def eval_result(
         "question": "q?",
         "steps": (
             ChatStepResult(step=ChatNode.RETRIEVE, ms=100),
-            ChatStepResult(step=ChatNode.SYNTHESIZE, ms=900, input_tokens=1500, output_tokens=40),
+            ChatStepResult(step=ChatNode.SYNTHESIZE, ms=900, usage=TOKEN_USAGE),
         ),
         "hits": (search_result(),),
         "sources": (retrieved_chunk(),),
@@ -147,7 +148,7 @@ def refused_result(case: EvalCase | None = None, **state: Any) -> EvalResult:
 
 ASSESS_REFUSED_PATH = (
     ChatStepResult(step=ChatNode.RETRIEVE, ms=80),
-    ChatStepResult(step=ChatNode.ASSESS, ms=900, input_tokens=1500, output_tokens=40),
+    ChatStepResult(step=ChatNode.ASSESS, ms=900, usage=TOKEN_USAGE),
     ChatStepResult(step=ToolStep.REFUSE, ms=0),
     ChatStepResult(step=ChatNode.REFUSE, ms=0),
 )

@@ -10,7 +10,7 @@ from app.chat.enums import ChatNode
 from app.chat.graph.node import LLMResponse, chat_model, traced
 from app.chat.models import ChatState
 from app.core.config import config
-from app.core.llm import LLMError, llm_retry, wrap_provider_errors
+from app.core.llm.errors import LLMError, llm_retry, wrap_provider_errors
 
 logger = logging.getLogger(__name__)
 

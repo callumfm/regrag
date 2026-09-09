@@ -6,7 +6,7 @@ import litellm
 from litellm.types.rerank import RerankResponseResult
 
 from app.core.config import config
-from app.core.llm import LLMError, llm_retry, wrap_provider_errors
+from app.core.llm.errors import LLMError, llm_retry, wrap_provider_errors
 from app.retrieval.models import SearchResult
 
 logger = logging.getLogger(__name__)
