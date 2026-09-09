@@ -1,4 +1,6 @@
+import { PlusIcon } from "lucide-react"
 import { useRef, useState } from "react"
+import { Button } from "@/components/ui/button"
 import {
 	MessageScroller,
 	MessageScrollerButton,
@@ -21,13 +23,18 @@ type TurnHandlers = {
 }
 
 export function ChatPage() {
-	const { turns, ask, stop, isBusy } = useChatStream()
+	const { turns, ask, stop, newThread, isBusy } = useChatStream()
 	const [openMarker, setOpenMarker] = useState<OpenMarker>(null)
 	const handlersByTurnId = useRef(new Map<string, TurnHandlers>())
 
 	function askQuestion(question: string) {
 		setOpenMarker(null)
 		ask(question)
+	}
+
+	function startNewThread() {
+		setOpenMarker(null)
+		newThread()
 	}
 
 	function getTurnHandlers(turnId: string, question: string): TurnHandlers {
@@ -64,32 +71,45 @@ export function ChatPage() {
 					</h1>
 				</div>
 			) : (
-				<MessageScrollerProvider>
-					<MessageScroller className="flex-1">
-						<MessageScrollerViewport>
-							<MessageScrollerContent className="flex flex-col gap-8 px-6 py-6">
-								{turns.map((turn) => {
-									const handlers = getTurnHandlers(turn.id, turn.question)
-									return (
-										<MessageScrollerItem
-											key={turn.id}
-											messageId={turn.id}
-											scrollAnchor
-										>
-											<ChatTurn
-												turn={turn}
-												isBusy={isBusy}
-												onOpenMarker={handlers.onOpenMarker}
-												onRetry={handlers.onRetry}
-											/>
-										</MessageScrollerItem>
-									)
-								})}
-							</MessageScrollerContent>
-						</MessageScrollerViewport>
-						<MessageScrollerButton />
-					</MessageScroller>
-				</MessageScrollerProvider>
+				<>
+					<div className="flex justify-end px-6 pt-4">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={startNewThread}
+							disabled={isBusy}
+						>
+							<PlusIcon />
+							New thread
+						</Button>
+					</div>
+					<MessageScrollerProvider>
+						<MessageScroller className="flex-1">
+							<MessageScrollerViewport>
+								<MessageScrollerContent className="flex flex-col gap-8 px-6 py-6">
+									{turns.map((turn) => {
+										const handlers = getTurnHandlers(turn.id, turn.question)
+										return (
+											<MessageScrollerItem
+												key={turn.id}
+												messageId={turn.id}
+												scrollAnchor
+											>
+												<ChatTurn
+													turn={turn}
+													isBusy={isBusy}
+													onOpenMarker={handlers.onOpenMarker}
+													onRetry={handlers.onRetry}
+												/>
+											</MessageScrollerItem>
+										)
+									})}
+								</MessageScrollerContent>
+							</MessageScrollerViewport>
+							<MessageScrollerButton />
+						</MessageScroller>
+					</MessageScrollerProvider>
+				</>
 			)}
 			<div className="px-6 pb-6">
 				<PromptForm isBusy={isBusy} onSubmit={askQuestion} onStop={stop} />
