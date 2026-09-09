@@ -5,7 +5,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from app.chat.graph import chat_graph
+from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
 from app.core.clock import elapsed_ms
 from app.core.config import EVAL_CONFIG_SECTIONS, get_config_snapshot

@@ -1,25 +1,18 @@
-"""Chat query, graph state and SSE event values."""
+"""Chat query and graph state values: what a caller asks, and what one question produced."""
 
 import operator
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from langchain_core.messages.ai import UsageMetadata
-from pydantic import ConfigDict, Field, computed_field
+from pydantic import Field, computed_field
 
-from app.chat.enums import (
-    ChatEventName,
-    ChatNode,
-    ChatOutcome,
-    ChatStepStatus,
-    RefusalReason,
-    ToolStep,
-)
+from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, RefusalReason, ToolStep
 from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.core.exceptions import DomainError
 from app.core.llm.models import TokenUsage
-from app.core.models import AppModel, ErrorResponse, FrozenModel
+from app.core.models import AppModel, FrozenModel
 from app.retrieval.models import RetrievedChunk, SearchResult
 
 
@@ -57,13 +50,6 @@ class ChatStepResult(FrozenModel):
         return cls(step=step, ms=ms, usage=TokenUsage.from_metadata(usage) if usage else None)
 
 
-class DecomposedQuestion(FrozenModel):
-    """What decompose splits a question into: one search query per thing it asks, in the
-    order asked. One query means the question asked one thing."""
-
-    queries: tuple[str, ...]
-
-
 class ChatTurn(FrozenModel):
     """One earlier turn of the thread as the prompts see it: what was asked, and what was
     answered with its [n] markers stripped, since they numbered that turn's context."""
@@ -80,23 +66,19 @@ class Refusal(FrozenModel):
     explanation: str = ""
 
 
-class StandaloneQuestion(FrozenModel):
-    """What rewrite makes of a follow-up: the question restated so that it can be
-    searched on its own, naming what the thread's pronouns and shorthand referred to."""
-
-    question: str
-
-
 class ChatState(AppModel):
-    """Everything one question produced: what the graph accumulates as it runs, then what
-    only the stream's consumer knows once it ends — how long the request lived, and an error.
+    """Everything one question produced, in the order it is produced: what was asked, what
+    retrieval built from it, the path the graph took, and how it ended — the last including
+    what only the stream's consumer knows once the graph is done, how long the request
+    lived and whether it raised.
+
+    Each field is one graph channel, since a node returns only the fields it sets and the
+    graph merges them by name; they are grouped here, not nested, for that reason.
 
     thread_id: the thread the question belongs to, minted here when the caller sent none.
     history: the thread's earlier answered turns, oldest first; empty on a first question.
     standalone_question: the question as rewrite restated it for retrieval, or empty when
         there was nothing to restate or the call failed, so the question as asked is searched.
-    steps: the path taken, each node appending its result as it returns and a tool round one
-    per call; a sequence, since the loop visits a node more than once.
     queries: the searches decompose split the question into, in the order asked; empty
         when the node was skipped, found one part, or failed, so retrieve searches the
         question as asked.
@@ -107,23 +89,32 @@ class ChatState(AppModel):
     pending_calls: the tool calls assess asked for, not yet executed. Only a tool round
         starts holding any, since each round clears the calls it ran; the stream reads a
         round off that.
+    steps: the path taken, each node appending its result as it returns and a tool round one
+        per call; a sequence, since the loop visits a node more than once.
     refusal: why the question ended without an answer, set by the tool round that ran
         assess's refuse call, and by the refuse node itself when nothing was retrieved to
         assess; None on any run that has not refused.
     """
 
+    # What was asked
     question: str
     thread_id: UUID = Field(default_factory=uuid4)
     history: tuple[ChatTurn, ...] = ()
     standalone_question: str = ""
+
+    # What retrieval built
     queries: tuple[str, ...] = ()
-    steps: Annotated[tuple[ChatStepResult, ...], operator.add] = ()
     hits: tuple[SearchResult, ...] = ()
     sources: tuple[RetrievedChunk, ...] = ()
     retrieved_sources: int = 0
     pending_calls: tuple[ToolCall, ...] = ()
-    refusal: Refusal | None = None
+
+    # The path
+    steps: Annotated[tuple[ChatStepResult, ...], operator.add] = ()
+
+    # How it ended
     answer: str = ""
+    refusal: Refusal | None = None
     total_ms: int | None = None
     error: str | None = None
 
@@ -166,8 +157,8 @@ class ChatState(AppModel):
             "queries",
             "hits",
             "sources",
-            "answer",
             "pending_calls",
+            "answer",
         )
         exclude_fields: dict[str, Any] = {field: True for field in content} | {
             "steps": {"__all__": {"status", "subject"}}
@@ -211,93 +202,3 @@ class ChatState(AppModel):
         if ChatNode.SYNTHESIZE in visited:
             return ChatOutcome.DONE
         return ChatOutcome.ABORTED
-
-
-class ChatSource(FrozenModel):
-    """One context block as the sources event reports it, binding marker to chunk."""
-
-    marker: int
-    chunk_id: int
-    celex: str
-    citation: str
-    title: str | None
-    text: str
-
-    @classmethod
-    def from_result(cls, marker: int, result: RetrievedChunk) -> "ChatSource":
-        """The event payload for one retrieved chunk at one marker position."""
-        return cls(
-            marker=marker,
-            chunk_id=result.id,
-            celex=result.celex,
-            citation=result.citation,
-            title=result.title,
-            text=result.text,
-        )
-
-
-class ChatThread(FrozenModel):
-    """The thread a turn was recorded under, which a follow-up sends back."""
-
-    thread_id: UUID
-
-
-class ChatEventBase(FrozenModel):
-    """One frame of the stream: which event, and that event's data. Each event narrows
-    `event` to its own name — what the union discriminates on — defaulted but always sent,
-    so the schema marks it required."""
-
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
-
-    event: ChatEventName
-
-
-class SourcesEvent(ChatEventBase):
-    """Sent once, first: the [n] markers the answer will cite, bound to their chunks."""
-
-    event: Literal[ChatEventName.SOURCES] = ChatEventName.SOURCES
-    data: tuple[ChatSource, ...]
-
-    @classmethod
-    def from_results(cls, results: tuple[RetrievedChunk, ...]) -> "SourcesEvent":
-        """Markers run 1..n in context order, matching the prompt's numbering."""
-        return cls(
-            data=tuple(
-                ChatSource.from_result(marker, result)
-                for marker, result in enumerate(results, start=1)
-            )
-        )
-
-
-class StepEvent(ChatEventBase):
-    """One step of the path, sent as it starts and again as it finishes."""
-
-    event: Literal[ChatEventName.STEP] = ChatEventName.STEP
-    data: ChatStepResult
-
-
-class TextEvent(ChatEventBase):
-    """One fragment of the answer's text, as the model streams it — or the whole refusal."""
-
-    event: Literal[ChatEventName.TEXT] = ChatEventName.TEXT
-    data: str
-
-
-class DoneEvent(ChatEventBase):
-    """The last event of a completed stream: the thread the turn belongs to."""
-
-    event: Literal[ChatEventName.DONE] = ChatEventName.DONE
-    data: ChatThread
-
-
-class ErrorEvent(ChatEventBase):
-    """The last event of a failed stream, in the app's one error shape."""
-
-    event: Literal[ChatEventName.ERROR] = ChatEventName.ERROR
-    data: ErrorResponse
-
-
-ChatEvent = Annotated[
-    SourcesEvent | StepEvent | TextEvent | DoneEvent | ErrorEvent, Field(discriminator="event")
-]
-"""Every frame a chat stream carries, told apart by its event name."""

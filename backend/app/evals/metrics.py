@@ -3,8 +3,8 @@ and the run's measures, each a plain function over its results."""
 
 from collections.abc import Sequence
 
+from app.chat.citations import find_cited_markers, find_cited_sources
 from app.chat.enums import ChatOutcome, RefusalReason
-from app.chat.prompts import MARKER
 from app.core.llm.models import TokenUsage
 from app.evals.dataset.enums import EvalKind
 from app.evals.judge.models import CaseJudgement
@@ -40,25 +40,6 @@ def score_reference_recall(
         return 0.0
     retrieved = {_division(chunk) for chunk in chunks}
     return sum(_division(target) in retrieved for target in targets) / len(targets)
-
-
-def find_cited_markers(answer: str) -> tuple[int, ...]:
-    """The distinct [n] markers the answer leans on, in the order it first cites them.
-    Distinct, so citing one block repeatedly does not weight it by how often it is named."""
-    seen = dict.fromkeys(int(match) for match in MARKER.findall(answer))
-    return tuple(seen)
-
-
-def find_cited_sources(
-    answer: str, sources: Sequence[RetrievedChunk]
-) -> tuple[tuple[int, RetrievedChunk], ...]:
-    """Each marker the answer cites paired with the block it addresses, in cited order; a
-    marker addressing no block is left out."""
-    return tuple(
-        (marker, sources[marker - 1])
-        for marker in find_cited_markers(answer)
-        if 1 <= marker <= len(sources)
-    )
 
 
 def score_citation_validity(answer: str, sources: Sequence[RetrievedChunk]) -> float | None:

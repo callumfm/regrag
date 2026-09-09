@@ -6,10 +6,10 @@ from uuid import UUID
 
 import httpx
 
-from app.chat.prompts import REFUSAL_ANSWER
+from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
 from app.core.llm.errors import LLMError
 from tests.chat.conftest import THINKING, fake_chat_model, reasoning_chat_model
-from tests.conftest import junk_result
+from tests.conftest import install_chat_model, install_search
 
 
 def read_events(response: httpx.Response) -> list[tuple[str, Any]]:
@@ -32,7 +32,7 @@ def first_payload(events: list[tuple[str, Any]], name: str) -> Any:
 
 def test_stream_orders_steps_then_sources_then_text_then_done(client, two_results, monkeypatch):
     model = fake_chat_model("Two words [1].")
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     with client.stream("POST", "/chat", json={"question": "What is FuelEU?"}) as response:
         assert response.status_code == 200
@@ -49,7 +49,7 @@ def test_stream_orders_steps_then_sources_then_text_then_done(client, two_result
 
 
 def test_block_list_content_streams_text_without_reasoning(client, two_results, monkeypatch):
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: reasoning_chat_model())
+    install_chat_model(monkeypatch, reasoning_chat_model())
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
@@ -61,7 +61,7 @@ def test_block_list_content_streams_text_without_reasoning(client, two_results, 
 
 def test_stream_tells_proxies_and_browsers_not_to_buffer(client, two_results, monkeypatch):
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         assert response.headers["cache-control"] == "no-cache"
@@ -70,7 +70,7 @@ def test_stream_tells_proxies_and_browsers_not_to_buffer(client, two_results, mo
 
 def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch):
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
@@ -84,7 +84,7 @@ def test_sources_event_binds_markers_to_chunks(client, two_results, monkeypatch)
 
 def test_sources_event_carries_the_paragraph_text(client, two_results, monkeypatch):
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    install_chat_model(monkeypatch, model)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
@@ -99,7 +99,7 @@ def test_stream_failure_emits_an_error_event(client, monkeypatch):
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.graph.search", failing_search)
+    install_search(monkeypatch, failing_search)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         assert response.status_code == 200
@@ -117,7 +117,7 @@ def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
     async def exploding_search(session, request):
         raise RuntimeError("secret internals")
 
-    monkeypatch.setattr("app.chat.graph.search", exploding_search)
+    install_search(monkeypatch, exploding_search)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
@@ -150,14 +150,7 @@ def test_the_frames_are_documented_as_an_event_stream(client):
     assert set(text_event["required"]) == {"event", "data"}
 
 
-def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
-    async def junk_search(session, request):
-        return (junk_result(),)
-
-    model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.search", junk_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
-
+def test_a_refused_question_streams_the_refusal_then_done(client, one_junk_result, answer_model):
     with client.stream("POST", "/chat", json={"question": "best pizza topping?"}) as response:
         events = read_events(response)
 
@@ -172,14 +165,12 @@ def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
     ]
     assert first_payload(events, "sources") == []
     assert first_payload(events, "text") == REFUSAL_ANSWER
-    assert model.received == []
+    assert answer_model.received == []
 
 
 def test_done_carries_the_thread_a_first_question_was_recorded_under(
-    client, two_results, monkeypatch
+    client, two_results, answer_model
 ):
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
-
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
 
@@ -188,9 +179,7 @@ def test_done_carries_the_thread_a_first_question_was_recorded_under(
     UUID(done["thread_id"])
 
 
-def test_a_supplied_thread_is_echoed_back_on_done(client, two_results, monkeypatch):
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
-
+def test_a_supplied_thread_is_echoed_back_on_done(client, two_results, answer_model, monkeypatch):
     async def no_history(session, thread_id):
         return ()
 

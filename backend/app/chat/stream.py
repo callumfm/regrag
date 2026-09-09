@@ -10,13 +10,8 @@ import anyio
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.chat.enums import ChatNode, ChatStepStatus
-from app.chat.exceptions import ThreadFullError
-from app.chat.graph import chat_graph
-from app.chat.models import (
+from app.chat.events import (
     ChatEvent,
-    ChatQuery,
-    ChatState,
-    ChatStepResult,
     ChatThread,
     DoneEvent,
     ErrorEvent,
@@ -24,6 +19,9 @@ from app.chat.models import (
     StepEvent,
     TextEvent,
 )
+from app.chat.exceptions import ThreadFullError
+from app.chat.graph.service import chat_graph
+from app.chat.models import ChatQuery, ChatState, ChatStepResult
 from app.chat.service import create_chat_request, load_thread_history
 from app.chat.toolbox.service import build_call_step
 from app.core.clock import elapsed_ms

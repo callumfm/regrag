@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 import litellm
 
+from app.chat.citations import find_cited_sources
 from app.chat.enums import ChatOutcome
 from app.chat.models import ChatState
 from app.core.concurrency import run_concurrently
@@ -28,7 +29,6 @@ from app.evals.judge.prompts import (
     build_faithfulness_message,
     build_refusal_message,
 )
-from app.evals.metrics import find_cited_sources
 from app.evals.models import EvalResult
 
 logger = logging.getLogger(__name__)
