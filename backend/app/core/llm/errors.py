@@ -1,5 +1,6 @@
 """The provider error contract: the one error a failed call raises, which failures are
-worth retrying, and the wrap point that translates a provider's failure into ours."""
+worth retrying, the wrap point that translates a provider's failure into ours, and the
+read-back that treats an answer off its schema as a failed call."""
 
 import functools
 import logging
@@ -17,6 +18,7 @@ from openai import (
 from openai import (
     OpenAIError as ProviderError,
 )
+from pydantic import BaseModel, ValidationError
 
 from app.core.exceptions import DomainError
 from app.core.retry import transient_retry
@@ -72,3 +74,16 @@ def wrap_provider_errors[**P, R](
         return wrapper
 
     return decorate
+
+
+def parse_model_answer[T: BaseModel](
+    output: type[T], text: str, *, label: str, stopped_on: str | None = None
+) -> T:
+    """The answer in the shape the call bound it to. One off the schema is a failed call
+    named for its label, not a value — with why the model stopped, when the caller knows."""
+    try:
+        return output.model_validate_json(text)
+    except ValidationError as exc:
+        stopped = f", stopped on {stopped_on}" if stopped_on else ""
+        logger.warning("%s answered off its schema%s: %s", label, stopped, exc)
+        raise LLMError(f"{label} answered off its schema") from exc

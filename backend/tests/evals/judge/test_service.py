@@ -113,7 +113,7 @@ async def test_an_answer_off_the_schema_is_a_failed_call_that_says_why_it_stoppe
 
     assert judgement.refusal is None
     assert "judge answered off its schema, stopped on length" in caplog.text
-    assert "RefusalVerdict left unjudged: judge call failed" in caplog.text
+    assert "RefusalVerdict left unjudged: judge answered off its schema" in caplog.text
 
 
 async def test_a_transient_provider_failure_is_retried_then_left_unjudged(
