@@ -15,9 +15,7 @@ from pydantic import Field
 from app.chat.models import ChatState, ToolCall
 from app.core.config import config
 from app.retrieval.models import RetrievedChunk, SearchRequest
-from tests.conftest import search_result
-
-USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
+from tests.conftest import USAGE, search_result
 
 
 class RecordingChatModel(GenericFakeChatModel):

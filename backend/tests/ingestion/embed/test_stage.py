@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import EMBED_DIMENSIONS, config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.ingestion.chunk.models import ChunkQuery
 from app.ingestion.chunk.schemas import DocumentChunk
 from app.ingestion.chunk.service import get_chunks

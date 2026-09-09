@@ -12,7 +12,7 @@ from app.chat.enums import ChatStepStatus, ToolStep
 from app.chat.models import ChatStepResult, ToolCall
 from app.core.config import config
 from app.core.db.session import get_session
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.core.models import FrozenModel
 from app.retrieval.follow import follow_reference
 from app.retrieval.models import ReferenceTarget, RetrievedChunk, SearchFilters, SearchRequest

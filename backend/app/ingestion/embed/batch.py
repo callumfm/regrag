@@ -8,7 +8,8 @@ from typing import NamedTuple
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import config
-from app.core.llm import EMBED_BATCH_SIZE, EmbedInput, embed, llm_retry
+from app.core.llm.embed import EMBED_BATCH_SIZE, EmbedInput, embed
+from app.core.llm.errors import llm_retry
 from app.ingestion.chunk.models import ChunkQuery
 from app.ingestion.chunk.service import get_chunks, update_chunks
 

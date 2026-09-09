@@ -7,12 +7,13 @@ import pytest
 
 from app.chat.enums import ChatNode, ChatOutcome
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
+from app.core.llm.models import TokenUsage
 from app.evals import service
 from app.evals.dataset.enums import EvalTrait
 from app.evals.service import evaluate_all_cases, evaluate_case
-from tests.chat.conftest import USAGE, fake_chat_model
-from tests.conftest import search_result
+from tests.chat.conftest import fake_chat_model
+from tests.conftest import install_chat_model, install_search, search_result
 from tests.evals.conftest import eval_case, eval_dataset
 
 pytestmark = pytest.mark.anyio
@@ -30,8 +31,8 @@ def answering_graph(monkeypatch: pytest.MonkeyPatch) -> None:
         return (search_result(),)
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model("Half of it [1]."))
+    install_search(monkeypatch, fake_search)
+    install_chat_model(monkeypatch, fake_chat_model("Half of it [1]."))
 
 
 async def test_a_case_runs_through_the_graph_and_keeps_the_state_it_ended_in(
@@ -46,7 +47,7 @@ async def test_a_case_runs_through_the_graph_and_keeps_the_state_it_ended_in(
     assert [n.step for n in result.state.steps] == [ChatNode.RETRIEVE, ChatNode.SYNTHESIZE]
     assert result.state.outcome is ChatOutcome.DONE
     assert result.state.total_ms is not None
-    assert result.state.token_totals() == (USAGE["input_tokens"], USAGE["output_tokens"])
+    assert result.state.token_usage() == TokenUsage(input_tokens=1500, output_tokens=40)
 
 
 async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
@@ -57,7 +58,7 @@ async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.graph.search", failing_search)
+    install_search(monkeypatch, failing_search)
 
     with caplog.at_level(logging.WARNING):
         result = await evaluate_case(eval_case())

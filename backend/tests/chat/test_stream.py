@@ -25,7 +25,7 @@ from app.chat.models import (
 from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.stream import stream_chat_events
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from tests.chat.conftest import (
     USAGE,
     RecordingChatModel,
@@ -33,7 +33,7 @@ from tests.chat.conftest import (
     restated_message,
     tool_call_message,
 )
-from tests.conftest import search_result
+from tests.conftest import TOKEN_USAGE, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -52,8 +52,7 @@ async def test_finished_stream_records_timings_sources_and_usage(
     assert state.outcome is ChatOutcome.DONE
     retrieve, synthesize = state.steps
     assert (retrieve.step, synthesize.step) == (ChatNode.RETRIEVE, ChatNode.SYNTHESIZE)
-    assert (retrieve.input_tokens, retrieve.output_tokens) == (None, None)
-    assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
+    assert (retrieve.usage, synthesize.usage) == (None, TOKEN_USAGE)
     assert len(state.sources) == 2
     assert state.total_ms is not None
     assert 0 <= sum(result.ms for result in state.steps) <= state.total_ms
@@ -74,7 +73,7 @@ async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_reque
     assert state.error == "embedding call failed"
     assert state.steps == ()
     assert state.sources == ()
-    assert state.token_totals() == (None, None)
+    assert state.token_usage() is None
 
 
 async def test_unexpected_failure_is_recorded_by_its_type_and_sent_as_the_generic_error(
@@ -187,7 +186,7 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
     assert state.outcome is ChatOutcome.REFUSED
     assert [result.step for result in state.steps] == [ChatNode.RETRIEVE, ChatNode.REFUSE]
     assert state.sources == ()
-    assert state.token_totals() == (None, None)
+    assert state.token_usage() is None
 
 
 async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_refusal(

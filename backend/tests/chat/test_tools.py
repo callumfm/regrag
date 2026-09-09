@@ -13,7 +13,7 @@ from app.chat.tools import (
     tool_definitions,
 )
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
 from app.retrieval.models import ReferenceTarget, SearchFilters, SearchRequest
 from tests.conftest import search_result
 

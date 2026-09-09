@@ -45,7 +45,8 @@ from app.chat.prompts import (
     system_prompt,
 )
 from app.core.config import config
-from app.core.llm import LLMError
+from app.core.llm.errors import LLMError
+from app.core.llm.models import TokenUsage
 from app.retrieval.models import SearchRequest
 from tests.chat.conftest import (
     ANSWER,
@@ -57,7 +58,7 @@ from tests.chat.conftest import (
     split_message,
     tool_call_message,
 )
-from tests.conftest import search_result
+from tests.conftest import TOKEN_USAGE, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -208,7 +209,7 @@ async def test_the_chat_client_asks_litellm_for_usage_and_the_node_records_it(
 
     assert calls[0]["stream_options"] == {"include_usage": True}
     [_retrieve, synthesize] = state.steps
-    assert (synthesize.input_tokens, synthesize.output_tokens) == (1500, 40)
+    assert synthesize.usage == TOKEN_USAGE
 
 
 def litellm_completion(monkeypatch, content: str, usage: dict[str, int]) -> list[dict[str, Any]]:
@@ -245,7 +246,7 @@ async def test_the_decompose_client_sends_the_output_format_and_the_node_records
     assert calls[0]["stream"] is False
     assert update["queries"] == ("what is A", "what is B")
     [step] = update["steps"]
-    assert (step.input_tokens, step.output_tokens) == (120, 20)
+    assert step.usage == TokenUsage(input_tokens=120, output_tokens=20)
 
 
 async def test_the_chat_client_answers_with_the_text_of_a_reasoning_response(
@@ -641,10 +642,7 @@ class TestDecompose:
 
         [step] = update["steps"]
         assert step.step is ChatNode.DECOMPOSE
-        assert (step.input_tokens, step.output_tokens) == (
-            USAGE["input_tokens"],
-            USAGE["output_tokens"],
-        )
+        assert step.usage == TOKEN_USAGE
 
 
 def test_decompose_is_built_on_its_own_model_with_the_output_format_bound(monkeypatch):
@@ -798,7 +796,7 @@ class TestAssessLoop:
 
         assesses = [r for r in state.steps if r.step is ChatNode.ASSESS]
         assert len(assesses) == 2
-        assert all(r.input_tokens == USAGE["input_tokens"] for r in assesses)
+        assert all(r.usage == TOKEN_USAGE for r in assesses)
 
     async def test_assess_sees_the_question_and_numbered_context(
         self, loop_on, one_result, answer_model, assess_turns
@@ -944,7 +942,7 @@ class TestRewriteInTheGraph:
 
         assert update["standalone_question"] == RESTATED
         [step] = update["steps"]
-        assert (step.step, step.input_tokens, step.output_tokens) == (ChatNode.REWRITE, 1500, 40)
+        assert (step.step, step.usage) == (ChatNode.REWRITE, TOKEN_USAGE)
 
     async def test_an_answer_off_the_schema_searches_the_question_as_asked(
         self, rewrite_turns, caplog

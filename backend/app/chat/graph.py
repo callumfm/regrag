@@ -15,7 +15,6 @@ from langchain_core.runnables import Runnable
 from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import ValidationError
 
 from app.chat.enums import ChatNode, RefusalReason
 from app.chat.models import (
@@ -48,7 +47,7 @@ from app.chat.tools import (
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
-from app.core.llm import LLMError, llm_retry, wrap_provider_errors
+from app.core.llm.errors import LLMError, llm_retry, parse_model_answer, wrap_provider_errors
 from app.retrieval.expand import expand_sections
 from app.retrieval.models import RetrievedChunk, SearchRequest, SearchResult
 from app.retrieval.search import search
@@ -190,11 +189,7 @@ async def call_decompose_model(state: ChatState) -> dict[str, Any]:
     so retrieve searches the question as asked; an answer off the schema is a failed call."""
     messages = [SystemMessage(DECOMPOSE_SYSTEM_PROMPT), HumanMessage(state.retrieval_question)]
     response = await decompose_model().ainvoke(messages)
-    try:
-        split = DecomposedQuestion.model_validate_json(response.text)
-    except ValidationError as exc:
-        logger.warning("decompose answered off its schema: %s", exc)
-        raise LLMError("decompose answered off its schema") from exc
+    split = parse_model_answer(DecomposedQuestion, response.text, label="decompose")
     queries = split.queries[: config.DECOMPOSE_MAX_PARTS]
     return {"queries": queries if len(queries) > 1 else (), "usage": response.usage_metadata}
 
@@ -228,11 +223,7 @@ async def call_rewrite_model(state: ChatState) -> dict[str, Any]:
         HumanMessage(build_rewrite_message(state.question, state.history)),
     ]
     response = await rewrite_model().ainvoke(messages)
-    try:
-        restated = StandaloneQuestion.model_validate_json(response.text)
-    except ValidationError as exc:
-        logger.warning("rewrite answered off its schema: %s", exc)
-        raise LLMError("rewrite answered off its schema") from exc
+    restated = parse_model_answer(StandaloneQuestion, response.text, label="rewrite")
     return {"standalone_question": restated.question, "usage": response.usage_metadata}
 
 

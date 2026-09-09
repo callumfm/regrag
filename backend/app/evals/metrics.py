@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 from app.chat.enums import ChatOutcome, RefusalReason
 from app.chat.prompts import MARKER
+from app.core.llm.models import TokenUsage
 from app.evals.dataset.enums import EvalKind
 from app.evals.judge.models import CaseJudgement
 from app.evals.models import (
@@ -18,7 +19,6 @@ from app.evals.models import (
     JudgeMetrics,
     LatencyMetrics,
     RetrievalMetrics,
-    UsageMetrics,
 )
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
 
@@ -353,19 +353,10 @@ def compute_latency_metrics(results: Sequence[EvalResult]) -> LatencyMetrics:
 # Usage
 
 
-def compute_input_tokens(results: Sequence[EvalResult]) -> int:
-    return sum(r.state.token_totals()[0] or 0 for r in _scored(results))
-
-
-def compute_output_tokens(results: Sequence[EvalResult]) -> int:
-    return sum(r.state.token_totals()[1] or 0 for r in _scored(results))
-
-
-def compute_usage_metrics(results: Sequence[EvalResult]) -> UsageMetrics:
-    return UsageMetrics(
-        input_tokens=compute_input_tokens(results),
-        output_tokens=compute_output_tokens(results),
-    )
+def compute_usage(results: Sequence[EvalResult]) -> TokenUsage:
+    """Tokens summed over the run; zero, not unmeasured, when no case called a model."""
+    reported = TokenUsage.sum_reported(r.state.token_usage() for r in _scored(results))
+    return reported or TokenUsage(input_tokens=0, output_tokens=0)
 
 
 # The run
@@ -382,5 +373,5 @@ def compute_metrics(results: Sequence[EvalResult]) -> EvalMetrics:
         citations=compute_citation_metrics(results),
         judge=compute_judge_metrics(results),
         latency=compute_latency_metrics(results),
-        usage=compute_usage_metrics(results),
+        usage=compute_usage(results),
     )

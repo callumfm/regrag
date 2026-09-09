@@ -1,14 +1,11 @@
-"""Voyage embeddings through LiteLLM: one call, wrapped errors."""
+"""The provider error contract: the one error a failed call raises, which failures are
+worth retrying, the wrap point that translates a provider's failure into ours, and the
+read-back that treats an answer off its schema as a failed call."""
 
 import functools
 import logging
-import os
 from collections.abc import Awaitable, Callable, Coroutine
-from enum import StrEnum
-from operator import itemgetter
 from typing import Any
-
-os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "true")
 
 import litellm
 from fastapi import status
@@ -22,17 +19,15 @@ from openai import (
 from openai import (
     OpenAIError as ProviderError,
 )
+from pydantic import BaseModel, ValidationError
 
-from app.core.config import EMBED_DIMENSIONS, config
 from app.core.exceptions import DomainError
 from app.core.retry import transient_retry
 
-litellm.suppress_debug_info = True
-
 logger = logging.getLogger(__name__)
 
-EMBED_BATCH_SIZE = 128
-"""Voyage's ceiling on texts per embedding request."""
+litellm.suppress_debug_info = True
+"""A failure is logged as ours; litellm's help banner has no place on it."""
 
 TRANSIENT_PROVIDER_ERRORS = (
     RateLimitError,
@@ -42,13 +37,6 @@ TRANSIENT_PROVIDER_ERRORS = (
     ServiceUnavailableError,
 )
 """Provider failures worth retrying; 400, 401, 403 and 404 never are."""
-
-
-class EmbedInput(StrEnum):
-    """Which side of an asymmetric embedding a text is on."""
-
-    DOCUMENT = "document"
-    QUERY = "query"
 
 
 class LLMError(DomainError):
@@ -92,24 +80,14 @@ def wrap_provider_errors[**P, R](
     return decorate
 
 
-@wrap_provider_errors("embedding call")
-async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]]:
-    """Embed texts in one provider call, in input order. Retries are the caller's."""
-    if not texts:
-        return []
-    response = await litellm.aembedding(
-        model=config.EMBED_MODEL,
-        input=texts,
-        input_type=input_type.value,
-        dimensions=EMBED_DIMENSIONS,
-        api_key=config.VOYAGE_API_KEY.get_secret_value(),
-        timeout=config.EMBED_TIMEOUT,
-    )
-    if len(response.data) != len(texts):
-        logger.warning(
-            "embedding response misaligned: got %d items for %d inputs",
-            len(response.data),
-            len(texts),
-        )
-        raise LLMError("embedding call failed")
-    return [item["embedding"] for item in sorted(response.data, key=itemgetter("index"))]
+def parse_model_answer[T: BaseModel](
+    output: type[T], text: str, *, label: str, stopped_on: str | None = None
+) -> T:
+    """The answer in the shape the call bound it to. One off the schema is a failed call
+    named for its label, not a value — with why the model stopped, when the caller knows."""
+    try:
+        return output.model_validate_json(text)
+    except ValidationError as exc:
+        stopped = f", stopped on {stopped_on}" if stopped_on else ""
+        logger.warning("%s answered off its schema%s: %s", label, stopped, exc)
+        raise LLMError(f"{label} answered off its schema") from exc

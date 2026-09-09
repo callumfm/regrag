@@ -4,7 +4,6 @@ import asyncio
 import logging
 from typing import Any
 
-import httpx
 import litellm
 import pytest
 from litellm import Choices, Message, ModelResponse, Usage
@@ -23,6 +22,7 @@ from app.evals.judge.models import (
 )
 from app.evals.judge.prompts import CORRECTNESS_PROMPT, REFUSAL_PROMPT, build_refusal_message
 from app.evals.judge.service import call_judge_model, judge_case, judge_results
+from tests.conftest import provider_error
 from tests.evals.conftest import eval_case, eval_result, out_of_corpus_case, refused_result
 
 pytestmark = pytest.mark.anyio
@@ -113,14 +113,13 @@ async def test_an_answer_off_the_schema_is_a_failed_call_that_says_why_it_stoppe
 
     assert judgement.refusal is None
     assert "judge answered off its schema, stopped on length" in caplog.text
-    assert "RefusalVerdict left unjudged: judge call failed" in caplog.text
+    assert "RefusalVerdict left unjudged: judge answered off its schema" in caplog.text
 
 
 async def test_a_transient_provider_failure_is_retried_then_left_unjudged(
     judge_answers, caplog
 ) -> None:
-    request = httpx.Request("POST", "https://api.anthropic.com")
-    calls = judge_answers(*[APIConnectionError(request=request)] * 3)
+    calls = judge_answers(*[provider_error(APIConnectionError)] * 3)
 
     with caplog.at_level(logging.WARNING):
         judgement = await judge_case(out_of_corpus_case(), eval_result().state)
