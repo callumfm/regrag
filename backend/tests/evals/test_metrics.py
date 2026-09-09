@@ -1,8 +1,8 @@
 """Eval scoring: what counts as a retrieved reference, a correct citation, a refusal."""
 
 from app.chat.enums import ChatNode
+from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
 from app.chat.models import ChatStepResult
-from app.chat.prompts import REFUSAL_ANSWER
 from app.evals.judge.enums import JudgeVerdict
 from app.evals.judge.models import CaseJudgement, CorrectnessVerdict
 from app.evals.metrics import (

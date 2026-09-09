@@ -1,5 +1,5 @@
-"""The wording more than one node shares: the fixed refusal, the thread note, and the
-numbered-context formatting a citation marker refers to."""
+"""The wording more than one node shares: the thread note, and the numbered-context
+formatting a citation marker refers to."""
 
 import re
 from collections.abc import Sequence
@@ -9,11 +9,6 @@ from pydantic import ValidationError
 
 from app.chat.models import ChatTurn
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
-
-REFUSAL_ANSWER = (
-    "The corpus doesn't cover this. RegRag answers questions about the EU maritime "
-    "regulation it has ingested; try asking about that."
-)
 
 THREAD_NOTE = (
     " Earlier turns of the conversation come before the context; read them only to "

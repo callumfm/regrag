@@ -15,9 +15,9 @@ from app.chat.graph.nodes.decompose import (
     decompose,
     decompose_model,
 )
+from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
 from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
-from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.retrieval.models import SearchRequest
 from tests.chat.conftest import (

@@ -4,9 +4,9 @@ fixed refusal."""
 import pytest
 
 from app.chat.enums import RefusalReason
+from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
 from app.chat.graph.service import GRAPH_EDGES, chat_graph
 from app.chat.models import ChatState, Refusal
-from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.retrieval.models import SearchRequest
 from tests.chat.conftest import QUESTION, fake_chat_model

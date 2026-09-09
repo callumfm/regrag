@@ -13,8 +13,8 @@ from app.chat.graph.nodes.assess import (
     build_assess_system_prompt,
     merge_sources,
 )
+from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
 from app.chat.models import Refusal
-from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.toolbox.models import ToolCall
 from app.core.config import config
 from app.ingestion.chunk.models import Reference

@@ -13,8 +13,8 @@ from sqlalchemy.exc import OperationalError
 
 from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, RefusalReason, ToolStep
 from app.chat.events import DoneEvent, ErrorEvent, SourcesEvent, StepEvent, TextEvent
+from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
 from app.chat.models import ChatQuery, ChatTurn, Refusal
-from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.stream import stream_chat_events
 from app.core.config import config
 from app.core.llm import LLMError

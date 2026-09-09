@@ -8,9 +8,10 @@ from langgraph.graph.state import CompiledStateGraph
 from app.chat.enums import ChatNode
 from app.chat.graph.nodes.assess import assess, assess_tools
 from app.chat.graph.nodes.decompose import decompose
+from app.chat.graph.nodes.refuse import refuse
 from app.chat.graph.nodes.retrieve import retrieve
 from app.chat.graph.nodes.rewrite import rewrite
-from app.chat.graph.nodes.synthesize import refuse, synthesize
+from app.chat.graph.nodes.synthesize import synthesize
 from app.chat.models import ChatState
 from app.core.config import config
 

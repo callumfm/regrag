@@ -1,14 +1,13 @@
-"""synthesize | refuse: how a run ends — a cited answer, or the fixed decline."""
+"""synthesize: one streamed model call answering from the context with [n] citations."""
 
 from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.chat.enums import RefusalReason
 from app.chat.graph.node import chat_model, traced
-from app.chat.models import ChatState, Refusal
-from app.chat.prompts import REFUSAL_ANSWER, format_context, system_prompt, thread_messages
+from app.chat.models import ChatState
+from app.chat.prompts import format_context, system_prompt, thread_messages
 from app.core.config import config
 from app.core.llm import llm_retry, wrap_provider_errors
 from app.retrieval.models import RetrievedChunk
@@ -49,12 +48,3 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
     ]
     response = await chat_model(config.CHAT_MODEL).ainvoke(messages)
     return {"answer": response.text, "usage": response.usage_metadata}
-
-
-@traced
-async def refuse(state: ChatState) -> dict[str, Any]:
-    """The fixed refusal, in place of an answer, for a question without context: assess's
-    own refusal where it made one, else the gate's, which nothing before this node records
-    — retrieve only found nothing, and a run cut short there refused nothing."""
-    refusal = state.refusal or Refusal(reason=RefusalReason.NOTHING_RETRIEVED)
-    return {"answer": REFUSAL_ANSWER, "refusal": refusal}
