@@ -5,6 +5,9 @@ from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
+import litellm
+import openai
 import pytest
 from langchain_core.language_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
@@ -12,10 +15,11 @@ from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
-from app.chat.models import ChatState, ToolCall
+from app.chat.graph import chat_graph
+from app.chat.models import ChatState, ChatTurn, ToolCall
 from app.core.config import config
 from app.retrieval.models import RetrievedChunk, SearchRequest
-from tests.conftest import search_result
+from tests.conftest import install_chat_model, search_result
 
 USAGE = UsageMetadata(input_tokens=1500, output_tokens=40, total_tokens=1540)
 
@@ -236,3 +240,100 @@ def recorded_requests(monkeypatch: pytest.MonkeyPatch) -> list[ChatState]:
     monkeypatch.setattr("app.chat.stream.get_session", no_session)
     monkeypatch.setattr("app.chat.stream.create_chat_request", fake_create_chat_request)
     return states
+
+
+QUESTION = "What is the GHG intensity limit?"
+
+
+def rate_limited() -> openai.RateLimitError:
+    request = httpx.Request("POST", "https://api.anthropic.example")
+    return openai.RateLimitError(
+        message="provider said no", response=httpx.Response(429, request=request), body=None
+    )
+
+
+class FailingModel(RecordingChatModel):
+    """Refuses the first `failures` prompts as a rate limit, then answers."""
+
+    failures: int = 1
+
+    def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> ChatResult:
+        if len(self.received) < self.failures:
+            self.received.append(list(messages))
+            raise rate_limited()
+        return super()._generate(messages, *args, **kwargs)
+
+
+def streamed_text(data: Any) -> str:
+    """The text of one messages-mode stream item, a (chunk, metadata) pair."""
+    chunk, _ = data
+    return chunk.text
+
+
+def litellm_stream(
+    monkeypatch, *deltas: dict[str, Any], usage: dict[str, int] | None = None
+) -> list[dict[str, Any]]:
+    """Stand litellm's completion call in with these deltas — and, as litellm reports it
+    when asked, a trailing usage-only chunk; the calls made are returned."""
+    calls: list[dict[str, Any]] = []
+
+    async def fake_acompletion(**kwargs: Any) -> AsyncIterator[dict[str, Any]]:
+        calls.append(kwargs)
+
+        async def chunks() -> AsyncIterator[dict[str, Any]]:
+            for delta in deltas:
+                yield {"choices": [{"delta": delta, "finish_reason": None}]}
+            if usage:
+                yield {"choices": [], "usage": usage}
+
+        return chunks()
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    return calls
+
+
+def litellm_completion(monkeypatch, content: str, usage: dict[str, int]) -> list[dict[str, Any]]:
+    """Stand litellm's completion call in for one blocking answer, returning the calls made."""
+    calls: list[dict[str, Any]] = []
+
+    async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
+            ],
+            "usage": usage,
+        }
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    return calls
+
+
+@pytest.fixture
+def answer_model(monkeypatch):
+    model = fake_chat_model("Answered [1].")
+    install_chat_model(monkeypatch, lambda *_: model)
+    return model
+
+
+async def run_graph() -> ChatState:
+    """The graph run, folded back onto the state it started from."""
+    state = ChatState(question=QUESTION)
+    state.sync_from_snapshot(await chat_graph.ainvoke(state))
+    return state
+
+
+def hits_for(**per_query: tuple) -> tuple[Callable, list[SearchRequest]]:
+    """A search answering each query with its own hits, recording the requests made."""
+    requests: list[SearchRequest] = []
+
+    async def fake_search(session, request):
+        requests.append(request)
+        return per_query[request.query]
+
+    return fake_search, requests
+
+
+FOLLOW_UP = "What penalties does it impose?"
+RESTATED = "What penalties does FuelEU Maritime impose?"
+HISTORY = (ChatTurn(question="What is FuelEU Maritime?", answer="A regulation on fuel."),)

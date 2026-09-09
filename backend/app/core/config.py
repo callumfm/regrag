@@ -168,13 +168,13 @@ class ChatConfig(BaseConfig):
 
 
 class AssessConfig(BaseConfig):
-    """The assess ⇄ tools loop, which grows the retrieved context before the answer.
+    """The assess ⇄ assess_tools loop, which grows the retrieved context before the answer.
 
     ASSESS_ENABLED: the loop's off switch; off, the graph answers from retrieval alone.
         On by default: over the 40-case golden dataset (RRG-98) it lifted expanded recall
         0.84 to 0.93 and cited references 0.76 to 0.82, both clear of the cite metric's
-        ±0.07 noise, repairing 7 cases and regressing 2, for 2.1x the latency and 2.9x the
-        input tokens. The gain sits in the multi-hop cases, which is what the loop is for.
+        ±0.07 noise, for 2.1x the latency and 2.9x the input tokens, and the gain sits in
+        the multi-hop cases the loop is for.
     ASSESS_MODEL: which model reviews the context and asks for the tool calls, separate from
         the one that writes the answer: the two jobs are tuned against different measures.
     ASSESS_MAX_ROUNDS: times assess may ask for tool calls before the answer is written.

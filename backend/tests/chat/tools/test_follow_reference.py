@@ -1,0 +1,47 @@
+"""follow_reference: the division it addresses, and the cap one call is held to."""
+
+import pytest
+
+from app.chat.models import ToolCall
+from app.chat.toolbox import run_tool_call
+from app.core.config import config
+from app.retrieval.models import ReferenceTarget
+from tests.conftest import search_result
+
+pytestmark = pytest.mark.anyio
+
+
+async def test_follow_reference_call_dispatches_to_the_named_division(monkeypatch):
+    targets: list[ReferenceTarget] = []
+
+    async def fake_follow(session, target):
+        targets.append(target)
+        return (search_result(id=7),)
+
+    monkeypatch.setattr("app.chat.tools.follow_reference.follow_reference", fake_follow)
+    call = ToolCall(name="follow_reference", args={"celex": "32023R1805", "article": "6"})
+
+    found = await run_tool_call(call)
+
+    assert found == (search_result(id=7),)
+    assert targets == [ReferenceTarget(celex="32023R1805", article="6")]
+
+
+async def test_an_act_without_a_division_returns_nothing():
+    call = ToolCall(name="follow_reference", args={"celex": "32023R1805"})
+    assert await run_tool_call(call) == ()
+
+
+async def test_a_long_division_is_capped_to_the_follow_limit(monkeypatch):
+    """One wide annex would otherwise spend the round's whole budget on a single call."""
+    monkeypatch.setattr(config, "ASSESS_FOLLOW_LIMIT", 2)
+
+    async def wide_follow(session, target):
+        return tuple(search_result(id=n) for n in range(1, 6))
+
+    monkeypatch.setattr("app.chat.tools.follow_reference.follow_reference", wide_follow)
+    call = ToolCall(name="follow_reference", args={"celex": "32023R1805", "annex": "I"})
+
+    found = await run_tool_call(call)
+
+    assert tuple(chunk.id for chunk in found) == (1, 2)
