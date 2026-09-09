@@ -37,9 +37,14 @@ from app.chat.prompts import (
     thread_messages,
 )
 from app.chat.toolbox.models import ToolCall
-from app.chat.toolbox.service import build_call_step, run_tool_call, tool_definitions
-from app.chat.toolbox.tools.follow_reference import already_in_context
-from app.chat.toolbox.tools.refuse import is_refusal
+from app.chat.toolbox.service import (
+    already_in_context,
+    build_call_step,
+    is_refusal,
+    refusal_from,
+    run_tool_call,
+    tool_definitions,
+)
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -310,10 +315,9 @@ async def assess_tools(state: ChatState) -> dict[str, Any]:
         start = time.perf_counter()
         fetched.extend(await run_tool_call(call))
         steps.append(build_call_step(call, ms=elapsed_ms(start)))
-        if is_refusal(call):
-            explanation = str(call.args.get("explanation", ""))
-            refusal = Refusal(reason=RefusalReason.INSUFFICIENT_CONTEXT, explanation=explanation)
-            logger.info("assess refused for want of context: %s", explanation)
+        if refused := refusal_from(call):
+            refusal = refused
+            logger.info("assess refused for want of context: %s", refused.explanation)
 
     cap = state.retrieved_sources + config.ASSESS_EXTRA_CHUNKS
     return {
@@ -329,13 +333,13 @@ def assess_or_synthesize(state: ChatState) -> ChatNode:
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS
 
 
-def tools_or_synthesize(state: ChatState) -> ChatNode:
+def assess_tools_or_synthesize(state: ChatState) -> ChatNode:
     """After assess: run what it asked for, or answer when it asked for nothing."""
     return ChatNode.SYNTHESIZE if state.context_settled else ChatNode.ASSESS_TOOLS
 
 
 def assess_or_synthesize_or_refuse(state: ChatState) -> ChatNode:
-    """After retrieve or tools: refuse for want of context — none cleared the gate, or
+    """After retrieve or assess_tools: refuse for want of context — none cleared the gate, or
     assess found what there is bears on nothing — else review or answer."""
     if not state.sources or state.refusal is not None:
         return ChatNode.REFUSE
@@ -402,7 +406,7 @@ def build_graph() -> CompiledStateGraph[ChatState]:
         [ChatNode.ASSESS, ChatNode.SYNTHESIZE, ChatNode.REFUSE],
     )
     graph.add_conditional_edges(
-        ChatNode.ASSESS, tools_or_synthesize, [ChatNode.ASSESS_TOOLS, ChatNode.SYNTHESIZE]
+        ChatNode.ASSESS, assess_tools_or_synthesize, [ChatNode.ASSESS_TOOLS, ChatNode.SYNTHESIZE]
     )
     graph.add_conditional_edges(
         ChatNode.ASSESS_TOOLS,

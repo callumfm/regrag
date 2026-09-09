@@ -57,7 +57,7 @@ from tests.chat.conftest import (
     split_message,
     tool_call_message,
 )
-from tests.conftest import TOKEN_USAGE, provider_error, search_result
+from tests.conftest import TOKEN_USAGE, junk_result, provider_error, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -302,7 +302,7 @@ async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_
 
     async def junk_search(session, request):
         searches.append(request)
-        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+        return (junk_result(),)
 
     model = fake_chat_model()
     monkeypatch.setattr("app.chat.graph.search", junk_search)
@@ -320,7 +320,7 @@ async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_
 async def test_a_refused_question_still_keeps_what_search_found(monkeypatch):
     """The hits the gate judged stay on the state, so a refusal can be told from a miss:
     what search found, and how it scored, is what an eval reads a too-tight gate from."""
-    junk = (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+    junk = (junk_result(),)
 
     async def junk_search(session, request):
         return junk
@@ -350,7 +350,7 @@ async def test_an_empty_search_is_refused_before_any_model_call(monkeypatch):
 
 async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
     async def junk_search(session, request):
-        return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
+        return (junk_result(),)
 
     async def refuse_to_expand(session, chunks, *, limit):
         raise AssertionError("expansion ran for a question the gate refused")
@@ -473,7 +473,7 @@ class TestRetrieveOverQueries:
     async def test_a_query_below_the_bar_keeps_its_hits_but_adds_no_sources(self, monkeypatch):
         """The out-of-corpus part cannot admit sub-bar hits to the context, yet what search
         found for it stays on the state so the split can be read against it."""
-        junk = search_result(id=9, cosine_similarity=0.2, reranker_relevance=0.3)
+        junk = junk_result(id=9)
         fake_search, _ = hits_for(a=(search_result(id=1),), b=(junk,))
         monkeypatch.setattr("app.chat.graph.search", fake_search)
 
@@ -483,7 +483,7 @@ class TestRetrieveOverQueries:
         assert tuple(chunk.id for chunk in update["sources"]) == (1,)
 
     async def test_no_query_clearing_the_bar_leaves_the_context_empty(self, monkeypatch):
-        junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
+        junk = junk_result()
         fake_search, _ = hits_for(a=(junk,), b=(junk,))
         monkeypatch.setattr("app.chat.graph.search", fake_search)
 
@@ -570,7 +570,7 @@ class TestDecomposeInTheGraph:
         self, decompose_on, decompose_turns, monkeypatch
     ):
         decompose_turns(split_message("pizza", "pasta"))
-        junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
+        junk = junk_result()
         fake_search, _ = hits_for(pizza=(junk,), pasta=(junk,))
         model = fake_chat_model()
         monkeypatch.setattr("app.chat.graph.search", fake_search)

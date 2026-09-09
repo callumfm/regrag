@@ -1,9 +1,11 @@
 """refuse: assess's word that nothing in the context bears on the question, and no fetch
 of this corpus would."""
 
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.enums import ToolStep
+from app.chat.enums import RefusalReason, ToolStep
+from app.chat.models import Refusal
 from app.chat.toolbox.models import ToolCall, ToolSpec
 from app.core.models import FrozenModel
 from app.retrieval.models import RetrievedChunk
@@ -31,9 +33,20 @@ REFUSE = ToolSpec(
     "or fetch of this corpus could change that. Call it alone, never beside a "
     "search or fetch.",
 )
-"""The one tool that grows nothing: assess's word that the question cannot be answered."""
 
 
 def is_refusal(call: ToolCall) -> bool:
     """Whether the call is assess's word that the context cannot answer, rather than a fetch."""
     return call.name == REFUSE.name
+
+
+def refusal_from(call: ToolCall) -> Refusal | None:
+    """The refusal a refuse call carries, its explanation read through the tool's arguments;
+    an explanation the model left off or malformed is recorded as empty. None for a fetch."""
+    if not is_refusal(call):
+        return None
+    try:
+        explanation = RefuseArgs.model_validate(call.args).explanation
+    except ValidationError:
+        explanation = ""
+    return Refusal(reason=RefusalReason.INSUFFICIENT_CONTEXT, explanation=explanation)
