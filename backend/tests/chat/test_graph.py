@@ -14,18 +14,7 @@ from langchain_core.runnables import RunnableBinding
 from langchain_litellm import ChatLiteLLM
 
 from app.chat.enums import ChatNode, RefusalReason, ToolStep
-from app.chat.graph import (
-    GRAPH_EDGES,
-    assess_model,
-    chat_graph,
-    decompose,
-    decompose_model,
-    interleave_by_rank,
-    merge_sources,
-    retrieve,
-    rewrite,
-    rewrite_model,
-)
+from app.chat.graph import GRAPH_EDGES, chat_graph
 from app.chat.models import (
     ChatState,
     ChatTurn,
@@ -34,16 +23,17 @@ from app.chat.models import (
     StandaloneQuestion,
     ToolCall,
 )
-from app.chat.prompts import (
+from app.chat.nodes.assess import (
     ASSESS_SYSTEM_PROMPT,
-    DECOMPOSE_SYSTEM_PROMPT,
-    REFUSAL_ANSWER,
-    REWRITE_SYSTEM_PROMPT,
-    SYSTEM_PROMPT,
-    THREAD_NOTE,
+    assess_model,
     build_assess_system_prompt,
-    system_prompt,
+    merge_sources,
 )
+from app.chat.nodes.decompose import DECOMPOSE_SYSTEM_PROMPT, decompose, decompose_model
+from app.chat.nodes.retrieve import interleave_by_rank, retrieve
+from app.chat.nodes.rewrite import REWRITE_SYSTEM_PROMPT, rewrite, rewrite_model
+from app.chat.nodes.synthesize import SYSTEM_PROMPT
+from app.chat.prompts import REFUSAL_ANSWER, THREAD_NOTE, system_prompt
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchRequest
@@ -57,7 +47,7 @@ from tests.chat.conftest import (
     split_message,
     tool_call_message,
 )
-from tests.conftest import search_result
+from tests.conftest import install_chat_model, search_result
 
 pytestmark = pytest.mark.anyio
 
@@ -85,7 +75,7 @@ class FailingModel(RecordingChatModel):
 
 async def test_graph_retrieves_then_answers(one_result, monkeypatch):
     model = fake_chat_model("Yes, Article 4 [1].")
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    install_chat_model(monkeypatch, lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -99,8 +89,8 @@ async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
         return (search_result(text="A very specific clause."),)
 
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+    install_chat_model(monkeypatch, lambda *_: model)
 
     await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -112,7 +102,7 @@ async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
 
 async def test_a_transient_provider_failure_is_retried(one_result, monkeypatch):
     model = FailingModel(messages=iter(["Second time lucky [1]."]), failures=1)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    install_chat_model(monkeypatch, lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -122,7 +112,7 @@ async def test_a_transient_provider_failure_is_retried(one_result, monkeypatch):
 
 async def test_a_persistent_provider_failure_becomes_a_transient_llm_error(one_result, monkeypatch):
     model = FailingModel(messages=iter([]), failures=10)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    install_chat_model(monkeypatch, lambda *_: model)
 
     with pytest.raises(LLMError) as exc_info:
         await chat_graph.ainvoke(ChatState(question=QUESTION))
@@ -274,8 +264,8 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, m
         return widened
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
-    monkeypatch.setattr("app.chat.graph.expand_sections", fake_expand)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+    monkeypatch.setattr("app.chat.nodes.retrieve.expand_sections", fake_expand)
+    install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -289,8 +279,8 @@ async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, mo
     async def refuse(session, chunks, *, limit):
         raise AssertionError("expansion ran with EXPAND_SECTIONS off")
 
-    monkeypatch.setattr("app.chat.graph.expand_sections", refuse)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+    monkeypatch.setattr("app.chat.nodes.retrieve.expand_sections", refuse)
+    install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -308,8 +298,8 @@ async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_
         return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
 
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.search", junk_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    monkeypatch.setattr("app.chat.nodes.retrieve.search", junk_search)
+    install_chat_model(monkeypatch, lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question="What is the best pizza topping?"))
 
@@ -328,8 +318,8 @@ async def test_a_refused_question_still_keeps_what_search_found(monkeypatch):
     async def junk_search(session, request):
         return junk
 
-    monkeypatch.setattr("app.chat.graph.search", junk_search)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+    monkeypatch.setattr("app.chat.nodes.retrieve.search", junk_search)
+    install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question="What is the best pizza topping?"))
 
@@ -342,8 +332,8 @@ async def test_an_empty_search_is_refused_before_any_model_call(monkeypatch):
         return ()
 
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.graph.search", nothing)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    monkeypatch.setattr("app.chat.nodes.retrieve.search", nothing)
+    install_chat_model(monkeypatch, lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -359,9 +349,9 @@ async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
         raise AssertionError("expansion ran for a question the gate refused")
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
-    monkeypatch.setattr("app.chat.graph.search", junk_search)
-    monkeypatch.setattr("app.chat.graph.expand_sections", refuse_to_expand)
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: fake_chat_model())
+    monkeypatch.setattr("app.chat.nodes.retrieve.search", junk_search)
+    monkeypatch.setattr("app.chat.nodes.retrieve.expand_sections", refuse_to_expand)
+    install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
 
@@ -371,7 +361,7 @@ async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
 @pytest.fixture
 def answer_model(monkeypatch):
     model = fake_chat_model("Answered [1].")
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+    install_chat_model(monkeypatch, lambda *_: model)
     return model
 
 
@@ -463,7 +453,7 @@ class TestRetrieveOverQueries:
         fake_search, requests = hits_for(
             a=(search_result(id=1), search_result(id=2)), b=(search_result(id=3),)
         )
-        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -478,7 +468,7 @@ class TestRetrieveOverQueries:
         found for it stays on the state so the split can be read against it."""
         junk = search_result(id=9, cosine_similarity=0.2, reranker_relevance=0.3)
         fake_search, _ = hits_for(a=(search_result(id=1),), b=(junk,))
-        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -488,7 +478,7 @@ class TestRetrieveOverQueries:
     async def test_no_query_clearing_the_bar_leaves_the_context_empty(self, monkeypatch):
         junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
         fake_search, _ = hits_for(a=(junk,), b=(junk,))
-        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -511,8 +501,8 @@ class TestRetrieveOverQueries:
             return (*chunks, search_result(id=3))
 
         monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
-        monkeypatch.setattr("app.chat.graph.search", fake_search)
-        monkeypatch.setattr("app.chat.graph.expand_sections", fake_expand)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.nodes.retrieve.expand_sections", fake_expand)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -537,7 +527,7 @@ class TestDecomposeInTheGraph:
         fake_search, requests = hits_for(
             **{"what is A": (search_result(id=1),), "what is B": (search_result(id=2),)}
         )
-        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
 
         state = ChatState(question="What are A and B?")
         state.sync_from_snapshot(await chat_graph.ainvoke(state))
@@ -576,8 +566,8 @@ class TestDecomposeInTheGraph:
         junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
         fake_search, _ = hits_for(pizza=(junk,), pasta=(junk,))
         model = fake_chat_model()
-        monkeypatch.setattr("app.chat.graph.search", fake_search)
-        monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+        install_chat_model(monkeypatch, lambda *_: model)
 
         state = await chat_graph.ainvoke(ChatState(question="Best pizza and pasta?"))
 
@@ -626,7 +616,8 @@ class TestDecompose:
 
     async def test_a_failing_call_falls_back_to_the_question(self, monkeypatch, caplog):
         monkeypatch.setattr(
-            "app.chat.graph.decompose_model", lambda: FailingModel(messages=iter([]), failures=9)
+            "app.chat.nodes.decompose.decompose_model",
+            lambda: FailingModel(messages=iter([]), failures=9),
         )
 
         update = await decompose(ChatState(question=QUESTION))
@@ -818,7 +809,7 @@ class TestAssessLoop:
         async def empty_search(session, request):
             return ()
 
-        monkeypatch.setattr("app.chat.graph.search", empty_search)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", empty_search)
 
         state = await run_graph()
 
@@ -831,7 +822,7 @@ class TestAssessLoop:
         """An assess round is best-effort: it must never destroy a request that already
         has answerable context, even when the model keeps failing."""
         assess = FailingModel(messages=iter([]), failures=10, usage=USAGE)
-        monkeypatch.setattr("app.chat.graph.assess_model", lambda: assess)
+        monkeypatch.setattr("app.chat.nodes.assess.assess_model", lambda: assess)
 
         state = await run_graph()
 
@@ -914,7 +905,7 @@ class TestRewriteInTheGraph:
     ):
         rewrite = rewrite_turns(restated_message(RESTATED))
         fake_search, requests = hits_for(**{RESTATED: (search_result(),)})
-        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
 
         state = ChatState(question=FOLLOW_UP, history=HISTORY)
         state.sync_from_snapshot(await chat_graph.ainvoke(state))
@@ -958,7 +949,8 @@ class TestRewriteInTheGraph:
 
     async def test_a_failing_call_searches_the_question_as_asked(self, monkeypatch, caplog):
         monkeypatch.setattr(
-            "app.chat.graph.rewrite_model", lambda: FailingModel(messages=iter([]), failures=9)
+            "app.chat.nodes.rewrite.rewrite_model",
+            lambda: FailingModel(messages=iter([]), failures=9),
         )
 
         update = await rewrite(ChatState(question=FOLLOW_UP, history=HISTORY))
@@ -1049,7 +1041,7 @@ class TestFollowsOfBlocksAlreadyShown:
         async def fake_search(session, request):
             return (search_result(part=1, parts=2),)
 
-        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
         assess_turns(tool_call_message("follow_reference", self.SHOWN_ARGS), AIMessage(content=""))
         run_calls = tool_results()
 
@@ -1066,7 +1058,7 @@ class TestFollowsOfBlocksAlreadyShown:
         async def fake_search(session, request):
             return (search_result(citation="Article 4", article="4"),)
 
-        monkeypatch.setattr("app.chat.graph.search", fake_search)
+        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
         whole = {"celex": "32023R1805", "article": "4"}
         assess_turns(tool_call_message("follow_reference", whole), AIMessage(content=""))
         run_calls = tool_results()

@@ -5,13 +5,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.chat.enums import ChatStepStatus, ToolStep
 from app.chat.models import ToolCall
-from app.chat.tools import (
-    build_call_step,
-    describe_call,
-    is_refusal,
-    run_tool_call,
-    tool_definitions,
-)
+from app.chat.toolbox import build_call_step, describe_call, run_tool_call, tool_definitions
+from app.chat.tools.refuse import is_refusal
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import ReferenceTarget, SearchFilters, SearchRequest
@@ -71,7 +66,7 @@ async def test_search_call_dispatches_with_filters_and_the_assess_limit(monkeypa
         requests.append(request)
         return (search_result(),)
 
-    monkeypatch.setattr("app.chat.tools.search", fake_search)
+    monkeypatch.setattr("app.chat.tools.search.search", fake_search)
     call = ToolCall(name="search", args={"query": "penalties", "celex": "32023R1805"})
 
     found = await run_tool_call(call)
@@ -93,7 +88,7 @@ async def test_follow_reference_call_dispatches_to_the_named_division(monkeypatc
         targets.append(target)
         return (search_result(id=7),)
 
-    monkeypatch.setattr("app.chat.tools.follow_reference", fake_follow)
+    monkeypatch.setattr("app.chat.tools.follow_reference.follow_reference", fake_follow)
     call = ToolCall(name="follow_reference", args={"celex": "32023R1805", "article": "6"})
 
     found = await run_tool_call(call)
@@ -120,7 +115,7 @@ async def test_a_search_call_that_raises_llmerror_returns_nothing(monkeypatch):
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.tools.search", failing_search)
+    monkeypatch.setattr("app.chat.tools.search.search", failing_search)
     call = ToolCall(name="search", args={"query": "penalties"})
 
     assert await run_tool_call(call) == ()
@@ -130,7 +125,7 @@ async def test_a_search_call_that_raises_a_database_error_returns_nothing(monkey
     async def failing_search(session, request):
         raise SQLAlchemyError("connection lost")
 
-    monkeypatch.setattr("app.chat.tools.search", failing_search)
+    monkeypatch.setattr("app.chat.tools.search.search", failing_search)
     call = ToolCall(name="search", args={"query": "penalties"})
 
     assert await run_tool_call(call) == ()
@@ -142,7 +137,7 @@ async def test_hits_below_the_retrieval_bar_are_not_added_to_the_context(monkeyp
     async def junk_search(session, request):
         return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
 
-    monkeypatch.setattr("app.chat.tools.search", junk_search)
+    monkeypatch.setattr("app.chat.tools.search.search", junk_search)
     call = ToolCall(name="search", args={"query": "best pizza topping"})
 
     assert await run_tool_call(call) == ()
@@ -155,7 +150,7 @@ async def test_a_long_division_is_capped_to_the_follow_limit(monkeypatch):
     async def wide_follow(session, target):
         return tuple(search_result(id=n) for n in range(1, 6))
 
-    monkeypatch.setattr("app.chat.tools.follow_reference", wide_follow)
+    monkeypatch.setattr("app.chat.tools.follow_reference.follow_reference", wide_follow)
     call = ToolCall(name="follow_reference", args={"celex": "32023R1805", "annex": "I"})
 
     found = await run_tool_call(call)
@@ -174,7 +169,7 @@ async def test_a_call_that_fails_on_the_database_leaves_the_next_call_working(mo
             raise SQLAlchemyError("connection lost")
         return (search_result(id=9),)
 
-    monkeypatch.setattr("app.chat.tools.search", flaky_search)
+    monkeypatch.setattr("app.chat.tools.search.search", flaky_search)
 
     first = await run_tool_call(ToolCall(name="search", args={"query": "first"}))
     second = await run_tool_call(ToolCall(name="search", args={"query": "second"}))

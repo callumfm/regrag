@@ -13,7 +13,7 @@ from app.chat.exceptions import ThreadFullError
 from app.chat.models import ChatState, ChatStepResult, ChatTurn, ToolCall
 from app.chat.schemas import ChatRequest, ChatRequestStep
 from app.chat.service import create_chat_request, load_thread_history
-from app.chat.tools import build_call_step
+from app.chat.toolbox import build_call_step
 from app.core.config import config
 from app.core.logger import request_id_var
 from tests.chat.conftest import USAGE

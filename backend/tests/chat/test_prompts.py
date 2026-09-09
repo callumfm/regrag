@@ -1,14 +1,12 @@
 """Context formatting: numbered blocks the citation markers bind to."""
 
-from app.chat.prompts import (
+from app.chat.nodes.assess import (
     ASSESS_SYSTEM_PROMPT,
-    SYSTEM_PROMPT,
     build_assess_message,
     build_assess_system_prompt,
-    build_user_message,
-    format_context,
-    strip_markers,
 )
+from app.chat.nodes.synthesize import SYSTEM_PROMPT, build_user_message
+from app.chat.prompts import format_context, strip_markers
 from app.ingestion.chunk.models import Reference
 from tests.conftest import retrieved_chunk, search_result
 

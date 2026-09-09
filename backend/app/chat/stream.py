@@ -25,7 +25,7 @@ from app.chat.models import (
     TextEvent,
 )
 from app.chat.service import create_chat_request, load_thread_history
-from app.chat.tools import build_call_step
+from app.chat.toolbox import build_call_step
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.db.session import get_session
@@ -50,7 +50,7 @@ def _error_event(exc: Exception) -> ErrorEvent:
 def _starting_steps(entry: ChatState, node: ChatNode) -> list[ChatStepResult]:
     """What a node starting announces: a tool round is one step per call it is about to run,
     read off the state it was handed; every other node is itself."""
-    if node is not ChatNode.TOOLS:
+    if node is not ChatNode.ASSESS_TOOLS:
         return [ChatStepResult(step=node, ms=0, status=ChatStepStatus.RUNNING)]
     return [build_call_step(call, status=ChatStepStatus.RUNNING) for call in entry.pending_calls]
 
