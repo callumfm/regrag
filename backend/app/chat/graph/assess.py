@@ -8,13 +8,14 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
 
-from app.chat.base import chat_model, traced
 from app.chat.enums import RefusalReason
-from app.chat.models import ChatState, ChatStepResult, Refusal, ToolCall
+from app.chat.graph.node import chat_model, traced
+from app.chat.models import ChatState, ChatStepResult, Refusal
 from app.chat.prompts import format_context, system_prompt, thread_messages
-from app.chat.toolbox import build_call_step, run_tool_call, tool_definitions
 from app.chat.tools.follow_reference import already_in_context
+from app.chat.tools.models import ToolCall
 from app.chat.tools.refuse import is_refusal
+from app.chat.tools.service import build_call_step, run_tool_call, tool_definitions
 from app.core.clock import elapsed_ms
 from app.core.config import config
 from app.core.llm import LLMError, llm_retry, wrap_provider_errors

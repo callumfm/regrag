@@ -1,0 +1,101 @@
+"""SSE event values: every frame a chat stream carries, and what each one holds."""
+
+from typing import Annotated, Literal
+from uuid import UUID
+
+from pydantic import ConfigDict, Field
+
+from app.chat.enums import ChatEventName
+from app.chat.models import ChatStepResult
+from app.core.models import ErrorResponse, FrozenModel
+from app.retrieval.models import RetrievedChunk
+
+
+class ChatSource(FrozenModel):
+    """One context block as the sources event reports it, binding marker to chunk."""
+
+    marker: int
+    chunk_id: int
+    celex: str
+    citation: str
+    title: str | None
+    text: str
+
+    @classmethod
+    def from_result(cls, marker: int, result: RetrievedChunk) -> "ChatSource":
+        """The event payload for one retrieved chunk at one marker position."""
+        return cls(
+            marker=marker,
+            chunk_id=result.id,
+            celex=result.celex,
+            citation=result.citation,
+            title=result.title,
+            text=result.text,
+        )
+
+
+class ChatThread(FrozenModel):
+    """The thread a turn was recorded under, which a follow-up sends back."""
+
+    thread_id: UUID
+
+
+class ChatEventBase(FrozenModel):
+    """One frame of the stream: which event, and that event's data. Each event narrows
+    `event` to its own name — what the union discriminates on — defaulted but always sent,
+    so the schema marks it required."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    event: ChatEventName
+
+
+class SourcesEvent(ChatEventBase):
+    """Sent once, first: the [n] markers the answer will cite, bound to their chunks."""
+
+    event: Literal[ChatEventName.SOURCES] = ChatEventName.SOURCES
+    data: tuple[ChatSource, ...]
+
+    @classmethod
+    def from_results(cls, results: tuple[RetrievedChunk, ...]) -> "SourcesEvent":
+        """Markers run 1..n in context order, matching the prompt's numbering."""
+        return cls(
+            data=tuple(
+                ChatSource.from_result(marker, result)
+                for marker, result in enumerate(results, start=1)
+            )
+        )
+
+
+class StepEvent(ChatEventBase):
+    """One step of the path, sent as it starts and again as it finishes."""
+
+    event: Literal[ChatEventName.STEP] = ChatEventName.STEP
+    data: ChatStepResult
+
+
+class TextEvent(ChatEventBase):
+    """One fragment of the answer's text, as the model streams it — or the whole refusal."""
+
+    event: Literal[ChatEventName.TEXT] = ChatEventName.TEXT
+    data: str
+
+
+class DoneEvent(ChatEventBase):
+    """The last event of a completed stream: the thread the turn belongs to."""
+
+    event: Literal[ChatEventName.DONE] = ChatEventName.DONE
+    data: ChatThread
+
+
+class ErrorEvent(ChatEventBase):
+    """The last event of a failed stream, in the app's one error shape."""
+
+    event: Literal[ChatEventName.ERROR] = ChatEventName.ERROR
+    data: ErrorResponse
+
+
+ChatEvent = Annotated[
+    SourcesEvent | StepEvent | TextEvent | DoneEvent | ErrorEvent, Field(discriminator="event")
+]
+"""Every frame a chat stream carries, told apart by its event name."""

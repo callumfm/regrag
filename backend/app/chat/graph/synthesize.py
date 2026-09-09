@@ -5,8 +5,8 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.chat.base import chat_model, traced
 from app.chat.enums import RefusalReason
+from app.chat.graph.node import chat_model, traced
 from app.chat.models import ChatState, Refusal
 from app.chat.prompts import REFUSAL_ANSWER, format_context, system_prompt, thread_messages
 from app.core.config import config

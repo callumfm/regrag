@@ -3,9 +3,9 @@
 import pytest
 
 from app.chat.enums import ToolStep
-from app.chat.models import ToolCall
-from app.chat.toolbox import build_call_step, run_tool_call, tool_definitions
+from app.chat.tools.models import ToolCall
 from app.chat.tools.refuse import is_refusal
+from app.chat.tools.service import build_call_step, run_tool_call, tool_definitions
 from app.core.config import config
 
 pytestmark = pytest.mark.anyio

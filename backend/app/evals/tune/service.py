@@ -5,8 +5,8 @@ from typing import Any
 
 import litellm
 
+from app.chat.graph.retrieve import retrieve
 from app.chat.models import ChatState
-from app.chat.nodes.retrieve import retrieve
 from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
 from app.evals.dataset.models import EvalCase, EvalDataset
 from app.evals.metrics import compute_metrics

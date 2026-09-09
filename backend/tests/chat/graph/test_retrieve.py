@@ -2,9 +2,9 @@
 
 import pytest
 
-from app.chat.graph import chat_graph
+from app.chat.graph.retrieve import interleave_by_rank, retrieve
+from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
-from app.chat.nodes.retrieve import interleave_by_rank, retrieve
 from app.core.config import config
 from app.retrieval.models import SearchRequest
 from tests.chat.conftest import QUESTION, fake_chat_model, hits_for
@@ -23,7 +23,7 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(one_result, m
         return widened
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
-    monkeypatch.setattr("app.chat.nodes.retrieve.expand_sections", fake_expand)
+    monkeypatch.setattr("app.chat.graph.retrieve.expand_sections", fake_expand)
     install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
@@ -38,7 +38,7 @@ async def test_retrieve_leaves_search_alone_when_expansion_is_off(one_result, mo
     async def refuse(session, chunks, *, limit):
         raise AssertionError("expansion ran with EXPAND_SECTIONS off")
 
-    monkeypatch.setattr("app.chat.nodes.retrieve.expand_sections", refuse)
+    monkeypatch.setattr("app.chat.graph.retrieve.expand_sections", refuse)
     install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
@@ -82,7 +82,7 @@ class TestRetrieveOverQueries:
         fake_search, requests = hits_for(
             a=(search_result(id=1), search_result(id=2)), b=(search_result(id=3),)
         )
-        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -97,7 +97,7 @@ class TestRetrieveOverQueries:
         found for it stays on the state so the split can be read against it."""
         junk = search_result(id=9, cosine_similarity=0.2, reranker_relevance=0.3)
         fake_search, _ = hits_for(a=(search_result(id=1),), b=(junk,))
-        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -107,7 +107,7 @@ class TestRetrieveOverQueries:
     async def test_no_query_clearing_the_bar_leaves_the_context_empty(self, monkeypatch):
         junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
         fake_search, _ = hits_for(a=(junk,), b=(junk,))
-        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 
@@ -130,8 +130,8 @@ class TestRetrieveOverQueries:
             return (*chunks, search_result(id=3))
 
         monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
-        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
-        monkeypatch.setattr("app.chat.nodes.retrieve.expand_sections", fake_expand)
+        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.retrieve.expand_sections", fake_expand)
 
         update = await retrieve(ChatState(question="A and B?", queries=("a", "b")))
 

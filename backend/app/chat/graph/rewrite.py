@@ -6,10 +6,10 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
-from pydantic import ValidationError
 
-from app.chat.base import chat_model, traced
-from app.chat.models import ChatState, ChatTurn, StandaloneQuestion
+from app.chat.enums import ChatNode
+from app.chat.graph.node import LLMResponse, chat_model, traced
+from app.chat.models import ChatState, ChatTurn
 from app.core.config import config
 from app.core.llm import LLMError, llm_retry, wrap_provider_errors
 
@@ -32,6 +32,15 @@ def build_rewrite_message(question: str, history: Sequence[ChatTurn]) -> str:
     return f"Conversation so far:\n\n{transcript}\n\nLatest question: {question}"
 
 
+class StandaloneQuestion(LLMResponse):
+    """What rewrite makes of a follow-up: the question restated so that it can be
+    searched on its own, naming what the thread's pronouns and shorthand referred to."""
+
+    node = ChatNode.REWRITE
+
+    question: str
+
+
 def rewrite_model() -> Runnable:
     """The rewrite model as rewrite calls it: one blocking turn, answering in the
     StandaloneQuestion shape."""
@@ -50,11 +59,7 @@ async def call_rewrite_model(state: ChatState) -> dict[str, Any]:
         HumanMessage(build_rewrite_message(state.question, state.history)),
     ]
     response = await rewrite_model().ainvoke(messages)
-    try:
-        restated = StandaloneQuestion.model_validate_json(response.text)
-    except ValidationError as exc:
-        logger.warning("rewrite answered off its schema: %s", exc)
-        raise LLMError("rewrite answered off its schema") from exc
+    restated = StandaloneQuestion.from_response(response)
     return {"standalone_question": restated.question, "usage": response.usage_metadata}
 
 

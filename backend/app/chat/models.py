@@ -1,24 +1,17 @@
-"""Chat query, graph state and SSE event values."""
+"""Chat query and graph state values: what a caller asks, and what one question produced."""
 
 import operator
-from collections.abc import Awaitable, Callable
-from typing import Annotated, Any, Literal, NamedTuple
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from langchain_core.messages.ai import UsageMetadata
-from pydantic import ConfigDict, Field, computed_field
+from pydantic import Field, computed_field
 
-from app.chat.enums import (
-    ChatEventName,
-    ChatNode,
-    ChatOutcome,
-    ChatStepStatus,
-    RefusalReason,
-    ToolStep,
-)
+from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, RefusalReason, ToolStep
+from app.chat.tools.models import ToolCall
 from app.core.config import config
 from app.core.exceptions import DomainError
-from app.core.models import AppModel, ErrorResponse, FrozenModel
+from app.core.models import AppModel, FrozenModel
 from app.retrieval.models import RetrievedChunk, SearchResult
 
 
@@ -64,42 +57,6 @@ class ChatStepResult(FrozenModel):
         )
 
 
-class ToolCall(FrozenModel):
-    """One tool call assess asked for, as litellm reports it: the tool, and its arguments."""
-
-    name: str
-    args: dict[str, Any] = {}
-
-
-class ToolSpec(NamedTuple):
-    """One tool the model may call: how it is named and described to the model, the
-    arguments it takes, what runs it, and the step a call to it records."""
-
-    name: str
-    step: ToolStep
-    args_model: type[FrozenModel]
-    run: Callable[..., Awaitable[tuple[RetrievedChunk, ...]]]
-    description: str
-
-    def definition(self) -> dict:
-        """The tool as bind_tools wants it: an openai function-tool dictionary."""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.args_model.model_json_schema(),
-            },
-        }
-
-
-class DecomposedQuestion(FrozenModel):
-    """What decompose splits a question into: one search query per thing it asks, in the
-    order asked. One query means the question asked one thing."""
-
-    queries: tuple[str, ...]
-
-
 class ChatTurn(FrozenModel):
     """One earlier turn of the thread as the prompts see it: what was asked, and what was
     answered with its [n] markers stripped, since they numbered that turn's context."""
@@ -114,13 +71,6 @@ class Refusal(FrozenModel):
 
     reason: RefusalReason
     explanation: str = ""
-
-
-class StandaloneQuestion(FrozenModel):
-    """What rewrite makes of a follow-up: the question restated so that it can be
-    searched on its own, naming what the thread's pronouns and shorthand referred to."""
-
-    question: str
 
 
 class ChatState(AppModel):
@@ -247,93 +197,3 @@ class ChatState(AppModel):
         if ChatNode.SYNTHESIZE in visited:
             return ChatOutcome.DONE
         return ChatOutcome.ABORTED
-
-
-class ChatSource(FrozenModel):
-    """One context block as the sources event reports it, binding marker to chunk."""
-
-    marker: int
-    chunk_id: int
-    celex: str
-    citation: str
-    title: str | None
-    text: str
-
-    @classmethod
-    def from_result(cls, marker: int, result: RetrievedChunk) -> "ChatSource":
-        """The event payload for one retrieved chunk at one marker position."""
-        return cls(
-            marker=marker,
-            chunk_id=result.id,
-            celex=result.celex,
-            citation=result.citation,
-            title=result.title,
-            text=result.text,
-        )
-
-
-class ChatThread(FrozenModel):
-    """The thread a turn was recorded under, which a follow-up sends back."""
-
-    thread_id: UUID
-
-
-class ChatEventBase(FrozenModel):
-    """One frame of the stream: which event, and that event's data. Each event narrows
-    `event` to its own name — what the union discriminates on — defaulted but always sent,
-    so the schema marks it required."""
-
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
-
-    event: ChatEventName
-
-
-class SourcesEvent(ChatEventBase):
-    """Sent once, first: the [n] markers the answer will cite, bound to their chunks."""
-
-    event: Literal[ChatEventName.SOURCES] = ChatEventName.SOURCES
-    data: tuple[ChatSource, ...]
-
-    @classmethod
-    def from_results(cls, results: tuple[RetrievedChunk, ...]) -> "SourcesEvent":
-        """Markers run 1..n in context order, matching the prompt's numbering."""
-        return cls(
-            data=tuple(
-                ChatSource.from_result(marker, result)
-                for marker, result in enumerate(results, start=1)
-            )
-        )
-
-
-class StepEvent(ChatEventBase):
-    """One step of the path, sent as it starts and again as it finishes."""
-
-    event: Literal[ChatEventName.STEP] = ChatEventName.STEP
-    data: ChatStepResult
-
-
-class TextEvent(ChatEventBase):
-    """One fragment of the answer's text, as the model streams it — or the whole refusal."""
-
-    event: Literal[ChatEventName.TEXT] = ChatEventName.TEXT
-    data: str
-
-
-class DoneEvent(ChatEventBase):
-    """The last event of a completed stream: the thread the turn belongs to."""
-
-    event: Literal[ChatEventName.DONE] = ChatEventName.DONE
-    data: ChatThread
-
-
-class ErrorEvent(ChatEventBase):
-    """The last event of a failed stream, in the app's one error shape."""
-
-    event: Literal[ChatEventName.ERROR] = ChatEventName.ERROR
-    data: ErrorResponse
-
-
-ChatEvent = Annotated[
-    SourcesEvent | StepEvent | TextEvent | DoneEvent | ErrorEvent, Field(discriminator="event")
-]
-"""Every frame a chat stream carries, told apart by its event name."""

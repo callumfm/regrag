@@ -4,7 +4,7 @@ of this corpus would."""
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.enums import ToolStep
-from app.chat.models import ToolCall, ToolSpec
+from app.chat.tools.models import ToolCall, ToolSpec
 from app.core.models import FrozenModel
 from app.retrieval.models import RetrievedChunk
 
@@ -32,11 +32,11 @@ def is_refusal(call: ToolCall) -> bool:
 
 
 REFUSE = ToolSpec(
-    REFUSE_TOOL,
-    ToolStep.REFUSE,
-    RefuseArgs,
-    run_refusal,
-    "Refuse the question, because nothing in the context bears on it and no search "
+    name=REFUSE_TOOL,
+    step=ToolStep.REFUSE,
+    args_model=RefuseArgs,
+    run=run_refusal,
+    description="Refuse the question, because nothing in the context bears on it and no search "
     "or fetch of this corpus could change that. Call it alone, never beside a "
     "search or fetch.",
 )

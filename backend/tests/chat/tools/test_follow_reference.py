@@ -2,8 +2,8 @@
 
 import pytest
 
-from app.chat.models import ToolCall
-from app.chat.toolbox import run_tool_call
+from app.chat.tools.models import ToolCall
+from app.chat.tools.service import run_tool_call
 from app.core.config import config
 from app.retrieval.models import ReferenceTarget
 from tests.conftest import search_result

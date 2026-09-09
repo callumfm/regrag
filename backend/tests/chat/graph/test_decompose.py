@@ -6,11 +6,17 @@ import pytest
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.runnables import RunnableBinding
 from langchain_litellm import ChatLiteLLM
+from pydantic import ValidationError
 
 from app.chat.enums import ChatNode
-from app.chat.graph import chat_graph
-from app.chat.models import ChatState, DecomposedQuestion
-from app.chat.nodes.decompose import DECOMPOSE_SYSTEM_PROMPT, decompose, decompose_model
+from app.chat.graph.decompose import (
+    DECOMPOSE_SYSTEM_PROMPT,
+    DecomposedQuestion,
+    decompose,
+    decompose_model,
+)
+from app.chat.graph.service import chat_graph
+from app.chat.models import ChatState
 from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.retrieval.models import SearchRequest
@@ -66,7 +72,7 @@ class TestDecomposeInTheGraph:
         fake_search, requests = hits_for(
             **{"what is A": (search_result(id=1),), "what is B": (search_result(id=2),)}
         )
-        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
 
         state = ChatState(question="What are A and B?")
         state.sync_from_snapshot(await chat_graph.ainvoke(state))
@@ -105,7 +111,7 @@ class TestDecomposeInTheGraph:
         junk = search_result(cosine_similarity=0.2, reranker_relevance=0.3)
         fake_search, _ = hits_for(pizza=(junk,), pasta=(junk,))
         model = fake_chat_model()
-        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
         install_chat_model(monkeypatch, lambda *_: model)
 
         state = await chat_graph.ainvoke(ChatState(question="Best pizza and pasta?"))
@@ -155,7 +161,7 @@ class TestDecompose:
 
     async def test_a_failing_call_falls_back_to_the_question(self, monkeypatch, caplog):
         monkeypatch.setattr(
-            "app.chat.nodes.decompose.decompose_model",
+            "app.chat.graph.decompose.decompose_model",
             lambda: FailingModel(messages=iter([]), failures=9),
         )
 
@@ -190,3 +196,11 @@ def test_decompose_is_built_on_its_own_model_with_the_output_format_bound(monkey
     assert model.model == "anthropic/decompose-model"
     assert model.streaming is False
     assert binding.kwargs["response_format"] is DecomposedQuestion
+
+
+def test_a_decomposed_question_is_frozen_and_holds_its_queries_in_order():
+    split = DecomposedQuestion(queries=("what is A", "what is B"))
+
+    assert split.queries == ("what is A", "what is B")
+    with pytest.raises(ValidationError):
+        split.queries = ()  # type: ignore

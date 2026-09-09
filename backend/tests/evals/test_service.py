@@ -30,7 +30,7 @@ def answering_graph(monkeypatch: pytest.MonkeyPatch) -> None:
         return (search_result(),)
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", False)
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
     install_chat_model(monkeypatch, lambda *_: fake_chat_model("Half of it [1]."))
 
 
@@ -57,7 +57,7 @@ async def test_a_case_the_graph_raises_on_is_recorded_rather_than_raised(
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", failing_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", failing_search)
 
     with caplog.at_level(logging.WARNING):
         result = await evaluate_case(eval_case())

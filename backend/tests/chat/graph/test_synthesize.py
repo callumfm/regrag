@@ -3,9 +3,9 @@
 import pytest
 from langchain_core.messages import SystemMessage
 
-from app.chat.graph import chat_graph
+from app.chat.graph.service import chat_graph
+from app.chat.graph.synthesize import SYSTEM_PROMPT, build_user_message
 from app.chat.models import ChatState
-from app.chat.nodes.synthesize import SYSTEM_PROMPT, build_user_message
 from app.core.config import config
 from app.core.llm import LLMError
 from tests.chat.conftest import (
@@ -27,7 +27,7 @@ async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
         return (search_result(text="A very specific clause."),)
 
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
     install_chat_model(monkeypatch, lambda *_: model)
 
     await chat_graph.ainvoke(ChatState(question=QUESTION))

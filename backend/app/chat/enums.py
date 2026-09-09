@@ -23,8 +23,6 @@ class ToolStep(StrEnum):
     FOLLOW_REFERENCE = "tool_follow_reference"
     REFUSE = "tool_refuse"
     UNKNOWN = "tool_unknown"
-    """A call to a tool the surface does not have, kept in the path because a model asking
-    for one is worth seeing, and because a round that ran must leave a step behind."""
 
 
 class ChatStepStatus(StrEnum):

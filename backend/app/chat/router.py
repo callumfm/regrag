@@ -6,7 +6,8 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from app.chat.models import ChatEvent, ChatQuery
+from app.chat.events import ChatEvent
+from app.chat.models import ChatQuery
 from app.chat.stream import stream_chat_events
 
 router = APIRouter(tags=["chat"])

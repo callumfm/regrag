@@ -5,8 +5,8 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.chat.enums import ChatStepStatus, ToolStep
-from app.chat.models import ToolCall
-from app.chat.toolbox import build_call_step, describe_call, run_tool_call, tool_definitions
+from app.chat.tools.models import ToolCall
+from app.chat.tools.service import build_call_step, describe_call, run_tool_call, tool_definitions
 from app.core.config import config
 from tests.conftest import search_result
 

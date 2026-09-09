@@ -12,16 +12,8 @@ from langchain_core.outputs import ChatGenerationChunk
 from sqlalchemy.exc import OperationalError
 
 from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, RefusalReason, ToolStep
-from app.chat.models import (
-    ChatQuery,
-    ChatTurn,
-    DoneEvent,
-    ErrorEvent,
-    Refusal,
-    SourcesEvent,
-    StepEvent,
-    TextEvent,
-)
+from app.chat.events import DoneEvent, ErrorEvent, SourcesEvent, StepEvent, TextEvent
+from app.chat.models import ChatQuery, ChatTurn, Refusal
 from app.chat.prompts import REFUSAL_ANSWER
 from app.chat.stream import stream_chat_events
 from app.core.config import config
@@ -64,7 +56,7 @@ async def test_failed_stream_records_what_it_reached(monkeypatch, recorded_reque
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", failing_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", failing_search)
 
     async for _ in stream_chat_events(ChatQuery(question="q")):
         pass
@@ -85,7 +77,7 @@ async def test_unexpected_failure_is_recorded_by_its_type_and_sent_as_the_generi
     async def exploding_search(session, request):
         raise RuntimeError("pool exhausted")
 
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", exploding_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", exploding_search)
 
     events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
@@ -167,7 +159,7 @@ async def test_refused_stream_carries_the_refusal_as_its_answer_and_records_it(
         return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
 
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", junk_search)
     install_chat_model(monkeypatch, lambda *_: model)
 
     events = [
@@ -200,7 +192,7 @@ async def test_a_refusal_assess_asked_for_sends_the_context_it_read_then_the_ref
         messages=iter([tool_call_message("refuse", {"explanation": "nothing bears on it"})]),
         usage=USAGE,
     )
-    monkeypatch.setattr("app.chat.nodes.assess.assess_model", lambda: assess)
+    monkeypatch.setattr("app.chat.graph.assess.assess_model", lambda: assess)
     model = fake_chat_model()
     install_chat_model(monkeypatch, lambda *_: model)
 
@@ -313,12 +305,12 @@ class TestLoopStreaming:
             messages=iter([tool_call_message("search", {"query": "gap"}), AIMessage(content="")]),
             usage=USAGE,
         )
-        monkeypatch.setattr("app.chat.nodes.assess.assess_model", lambda: assess)
+        monkeypatch.setattr("app.chat.graph.assess.assess_model", lambda: assess)
 
         async def fake_run_tool_call(call):
             return (search_result(id=2, citation="Article 5(1)"),)
 
-        monkeypatch.setattr("app.chat.nodes.assess.run_tool_call", fake_run_tool_call)
+        monkeypatch.setattr("app.chat.graph.assess.run_tool_call", fake_run_tool_call)
 
     async def test_sources_arrive_once_with_the_merged_context(
         self, loop_on, one_result, one_assess_round, monkeypatch
@@ -414,7 +406,7 @@ class TestThreads:
             assert request.query == "What penalties does FuelEU impose?"
             return (search_result(),)
 
-        monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+        monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
 
         query = ChatQuery(question="What penalties does it impose?", thread_id=THREAD_ID)
         events = [event async for event in stream_chat_events(query)]

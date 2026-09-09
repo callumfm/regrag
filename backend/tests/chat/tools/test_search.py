@@ -3,8 +3,8 @@
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.chat.models import ToolCall
-from app.chat.toolbox import run_tool_call
+from app.chat.tools.models import ToolCall
+from app.chat.tools.service import run_tool_call
 from app.core.config import config
 from app.core.llm import LLMError
 from app.retrieval.models import SearchFilters, SearchRequest

@@ -15,8 +15,9 @@ from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
-from app.chat.graph import chat_graph
-from app.chat.models import ChatState, ChatTurn, ToolCall
+from app.chat.graph.service import chat_graph
+from app.chat.models import ChatState, ChatTurn
+from app.chat.tools.models import ToolCall
 from app.core.config import config
 from app.retrieval.models import RetrievedChunk, SearchRequest
 from tests.conftest import install_chat_model, search_result
@@ -92,7 +93,7 @@ def one_result(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
         calls.append(request)
         return (search_result(),)
 
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
     return calls
 
 
@@ -101,7 +102,7 @@ def two_results(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_search(session, request):
         return (search_result(), search_result(id=2, citation="Article 5(1)"))
 
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", fake_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", fake_search)
 
 
 @pytest.fixture(autouse=True)
@@ -147,7 +148,7 @@ def assess_turns(
 
     def install(*turns: AIMessage) -> RecordingChatModel:
         model = RecordingChatModel(messages=iter(turns), usage=USAGE)
-        monkeypatch.setattr("app.chat.nodes.assess.assess_model", lambda: model)
+        monkeypatch.setattr("app.chat.graph.assess.assess_model", lambda: model)
         return model
 
     return install
@@ -162,7 +163,7 @@ def decompose_turns(
 
     def install(*turns: AIMessage) -> RecordingChatModel:
         model = RecordingChatModel(messages=iter(turns), usage=USAGE)
-        monkeypatch.setattr("app.chat.nodes.decompose.decompose_model", lambda: model)
+        monkeypatch.setattr("app.chat.graph.decompose.decompose_model", lambda: model)
         return model
 
     return install
@@ -182,7 +183,7 @@ def rewrite_turns(
 
     def install(*turns: AIMessage) -> RecordingChatModel:
         model = RecordingChatModel(messages=iter(turns), usage=USAGE)
-        monkeypatch.setattr("app.chat.nodes.rewrite.rewrite_model", lambda: model)
+        monkeypatch.setattr("app.chat.graph.rewrite.rewrite_model", lambda: model)
         return model
 
     return install
@@ -205,7 +206,7 @@ def tool_results(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[ToolCall
             calls.append(call)
             return found
 
-        monkeypatch.setattr("app.chat.nodes.assess.run_tool_call", fake_run_tool_call)
+        monkeypatch.setattr("app.chat.graph.assess.run_tool_call", fake_run_tool_call)
         return calls
 
     return install
@@ -220,7 +221,7 @@ def no_tool_session(monkeypatch: pytest.MonkeyPatch) -> None:
     async def no_session(**kwargs: Any) -> AsyncIterator[None]:
         yield None
 
-    monkeypatch.setattr("app.chat.toolbox.get_session", no_session)
+    monkeypatch.setattr("app.chat.tools.service.get_session", no_session)
 
 
 @pytest.fixture(autouse=True)

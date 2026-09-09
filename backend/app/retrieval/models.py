@@ -35,7 +35,8 @@ class SearchRequest(FrozenModel):
 
 
 class ReferenceTarget(FrozenModel):
-    """Which division of which act to look up, named as a citation names it."""
+    """Which division of which act to look up, addressed as a citation addresses it: an
+    article, optionally one of its paragraphs, or an annex."""
 
     celex: str
     article: str | None = None

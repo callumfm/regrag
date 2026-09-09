@@ -6,30 +6,17 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.enums import ToolStep
-from app.chat.models import ToolCall, ToolSpec
+from app.chat.tools.models import ToolCall, ToolSpec
 from app.core.config import config
-from app.core.models import FrozenModel
 from app.retrieval.follow import follow_reference
 from app.retrieval.models import ReferenceTarget, RetrievedChunk
 
 
-class FollowReferenceArgs(FrozenModel):
-    """A cited division to fetch outright, addressed as the citation addresses it."""
-
-    celex: str
-    article: str | None = None
-    paragraph: str | None = None
-    annex: str | None = None
-
-
 async def run_follow_reference(
-    session: AsyncSession, args: FollowReferenceArgs
+    session: AsyncSession, target: ReferenceTarget
 ) -> tuple[RetrievedChunk, ...]:
     """The division's text from the top, capped: a long article or annex would otherwise
     spend the round's whole budget on one call. No score to gate on — the context cited it."""
-    target = ReferenceTarget(
-        celex=args.celex, article=args.article, paragraph=args.paragraph, annex=args.annex
-    )
     chunks = await follow_reference(session, target)
     return chunks[: config.ASSESS_FOLLOW_LIMIT]
 
@@ -53,10 +40,10 @@ def already_in_context(call: ToolCall, sources: Sequence[RetrievedChunk]) -> boo
 
 
 FOLLOW_REFERENCE = ToolSpec(
-    "follow_reference",
-    ToolStep.FOLLOW_REFERENCE,
-    FollowReferenceArgs,
-    run_follow_reference,
-    "Fetch the full text of one cited division: an article (optionally one paragraph) "
+    name="follow_reference",
+    step=ToolStep.FOLLOW_REFERENCE,
+    args_model=ReferenceTarget,
+    run=run_follow_reference,
+    description="Fetch the full text of one cited division: an article (optionally one paragraph) "
     "or an annex of an act (celex). Use the addresses on the context's cites lines.",
 )

@@ -4,7 +4,7 @@ fixed refusal."""
 import pytest
 
 from app.chat.enums import RefusalReason
-from app.chat.graph import GRAPH_EDGES, chat_graph
+from app.chat.graph.service import GRAPH_EDGES, chat_graph
 from app.chat.models import ChatState, Refusal
 from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
@@ -37,7 +37,7 @@ async def test_a_question_the_corpus_does_not_cover_is_refused_before_any_model_
         return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
 
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", junk_search)
     install_chat_model(monkeypatch, lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question="What is the best pizza topping?"))
@@ -57,7 +57,7 @@ async def test_a_refused_question_still_keeps_what_search_found(monkeypatch):
     async def junk_search(session, request):
         return junk
 
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", junk_search)
     install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question="What is the best pizza topping?"))
@@ -71,7 +71,7 @@ async def test_an_empty_search_is_refused_before_any_model_call(monkeypatch):
         return ()
 
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", nothing)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", nothing)
     install_chat_model(monkeypatch, lambda *_: model)
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))
@@ -88,8 +88,8 @@ async def test_a_refused_question_is_not_widened_to_sections(monkeypatch):
         raise AssertionError("expansion ran for a question the gate refused")
 
     monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", junk_search)
-    monkeypatch.setattr("app.chat.nodes.retrieve.expand_sections", refuse_to_expand)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.expand_sections", refuse_to_expand)
     install_chat_model(monkeypatch, lambda *_: fake_chat_model())
 
     state = await chat_graph.ainvoke(ChatState(question=QUESTION))

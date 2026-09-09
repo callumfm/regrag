@@ -7,8 +7,9 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.chat.enums import ChatStepStatus, ToolStep
-from app.chat.models import ChatStepResult, ToolCall
+from app.chat.models import ChatStepResult
 from app.chat.tools.follow_reference import FOLLOW_REFERENCE
+from app.chat.tools.models import ToolCall
 from app.chat.tools.refuse import REFUSE, REFUSE_TOOL
 from app.chat.tools.search import SEARCH
 from app.core.config import config

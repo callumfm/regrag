@@ -3,7 +3,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.enums import ToolStep
-from app.chat.models import ToolSpec
+from app.chat.tools.models import ToolSpec
 from app.core.config import config
 from app.core.models import FrozenModel
 from app.retrieval.models import RetrievedChunk, SearchFilters, SearchRequest
@@ -31,11 +31,11 @@ async def run_search(session: AsyncSession, args: SearchArgs) -> tuple[Retrieved
 
 
 SEARCH = ToolSpec(
-    "search",
-    ToolStep.SEARCH,
-    SearchArgs,
-    run_search,
-    "Search the corpus for text matching a query, optionally within one act (celex). "
+    name="search",
+    step=ToolStep.SEARCH,
+    args_model=SearchArgs,
+    run=run_search,
+    description="Search the corpus for text matching a query, optionally within one act (celex). "
     "Use for concepts the context names without citing, or question parts with no "
     "context at all.",
 )

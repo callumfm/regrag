@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from itertools import zip_longest
 from typing import Any
 
-from app.chat.base import traced
+from app.chat.graph.node import traced
 from app.chat.models import ChatState
 from app.core.config import config
 from app.core.db.session import get_session
@@ -52,8 +52,10 @@ async def retrieve(state: ChatState) -> dict[str, Any]:
     cleared = [found for found in per_query if meets_thresholds(found)]
     if not cleared:
         return {"hits": hits, "sources": (), "retrieved_sources": 0}
+
     sources: tuple[RetrievedChunk, ...] = interleave_by_rank(cleared)
     if config.EXPAND_SECTIONS:
         async with get_session(auto_commit=False) as session:
             sources = await expand_sections(session, sources, limit=config.CHAT_CONTEXT_CHUNKS)
+
     return {"hits": hits, "sources": sources, "retrieved_sources": len(sources)}

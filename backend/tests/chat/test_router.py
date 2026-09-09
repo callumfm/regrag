@@ -99,7 +99,7 @@ def test_stream_failure_emits_an_error_event(client, monkeypatch):
     async def failing_search(session, request):
         raise LLMError("embedding call failed")
 
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", failing_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", failing_search)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         assert response.status_code == 200
@@ -117,7 +117,7 @@ def test_unexpected_failure_emits_a_generic_error_event(client, monkeypatch):
     async def exploding_search(session, request):
         raise RuntimeError("secret internals")
 
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", exploding_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", exploding_search)
 
     with client.stream("POST", "/chat", json={"question": "q"}) as response:
         events = read_events(response)
@@ -155,7 +155,7 @@ def test_a_refused_question_streams_the_refusal_then_done(client, monkeypatch):
         return (search_result(cosine_similarity=0.2, reranker_relevance=0.3),)
 
     model = fake_chat_model()
-    monkeypatch.setattr("app.chat.nodes.retrieve.search", junk_search)
+    monkeypatch.setattr("app.chat.graph.retrieve.search", junk_search)
     install_chat_model(monkeypatch, lambda *_: model)
 
     with client.stream("POST", "/chat", json={"question": "best pizza topping?"}) as response:

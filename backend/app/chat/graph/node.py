@@ -1,17 +1,24 @@
 """What every chat node is built from: the contract a node fulfils, the wrapper that times
-it, and the model client its call is made with."""
+it, the model client its call is made with, and the shape it reads the answer back in."""
 
 import functools
+import logging
 import time
 from collections.abc import Awaitable
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol, Self
 
+from langchain_core.messages import BaseMessage
 from langchain_litellm import ChatLiteLLM
+from pydantic import ValidationError
 
 from app.chat.enums import ChatNode
 from app.chat.models import ChatState, ChatStepResult
 from app.core.clock import elapsed_ms
 from app.core.config import config
+from app.core.llm import LLMError
+from app.core.models import FrozenModel
+
+logger = logging.getLogger(__name__)
 
 
 class NodeFn(Protocol):
@@ -58,3 +65,20 @@ def chat_model(model: str, *, streaming: bool = True) -> ChatLiteLLM:
         streaming=streaming,
         stream_options={"include_usage": True},
     )
+
+
+class LLMResponse(FrozenModel):
+    """A shape a node binds its model's answer to, and reads that answer back in. The node
+    is named on the subclass, so a bad answer is logged and raised as that node's."""
+
+    node: ClassVar[ChatNode]
+
+    @classmethod
+    def from_response(cls, response: BaseMessage) -> Self:
+        """The answer in this shape; one off the schema is a failed call, which the node
+        settles rather than failing the run."""
+        try:
+            return cls.model_validate_json(response.text)
+        except ValidationError as exc:
+            logger.warning("%s answered off its schema: %s", cls.node, exc)
+            raise LLMError(f"{cls.node} answered off its schema") from exc

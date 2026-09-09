@@ -5,10 +5,10 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
-from pydantic import ValidationError
 
-from app.chat.base import chat_model, traced
-from app.chat.models import ChatState, DecomposedQuestion
+from app.chat.enums import ChatNode
+from app.chat.graph.node import LLMResponse, chat_model, traced
+from app.chat.models import ChatState
 from app.core.config import config
 from app.core.llm import LLMError, llm_retry, wrap_provider_errors
 
@@ -23,6 +23,15 @@ DECOMPOSE_SYSTEM_PROMPT = (
     "naming the act or scheme the question names, so that searching it without the "
     "others finds the right provision."
 )
+
+
+class DecomposedQuestion(LLMResponse):
+    """What decompose splits a question into: one search query per thing it asks, in the
+    order asked. One query means the question asked one thing."""
+
+    node = ChatNode.DECOMPOSE
+
+    queries: tuple[str, ...]
 
 
 def decompose_model() -> Runnable:
@@ -41,11 +50,7 @@ async def call_decompose_model(state: ChatState) -> dict[str, Any]:
     so retrieve searches the question as asked; an answer off the schema is a failed call."""
     messages = [SystemMessage(DECOMPOSE_SYSTEM_PROMPT), HumanMessage(state.retrieval_question)]
     response = await decompose_model().ainvoke(messages)
-    try:
-        split = DecomposedQuestion.model_validate_json(response.text)
-    except ValidationError as exc:
-        logger.warning("decompose answered off its schema: %s", exc)
-        raise LLMError("decompose answered off its schema") from exc
+    split = DecomposedQuestion.from_response(response)
     queries = split.queries[: config.DECOMPOSE_MAX_PARTS]
     return {"queries": queries if len(queries) > 1 else (), "usage": response.usage_metadata}
 
