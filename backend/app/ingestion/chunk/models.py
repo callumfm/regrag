@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from typing import ClassVar
 
 from pydantic import computed_field
@@ -9,14 +10,23 @@ from pydantic import computed_field
 from app.core.models import FrozenModel
 from app.ingestion.enums import SectionKind
 
+POINT_LINE = re.compile(r"^\(([0-9a-z]+)\) ", re.MULTILINE)
+"""A line opening with a point's label, '(e) ' or '(15) ', the way a definitions article
+lists its terms."""
+
 
 def format_citation(
-    article: str | None = None, paragraph: str | None = None, annex: str | None = None
+    article: str | None = None,
+    paragraph: str | None = None,
+    annex: str | None = None,
+    point: str | None = None,
 ) -> str:
-    """A division as a lawyer would cite it: 'Article 6(2)', 'Annex I'; empty outside any."""
+    """A division as a lawyer would cite it: 'Article 6(2)', 'Article 3, point (e)', 'Annex I';
+    empty outside any."""
     if article is not None:
         suffix = f"({paragraph})" if paragraph else ""
-        return f"Article {article}{suffix}"
+        tail = f", point ({point})" if point else ""
+        return f"Article {article}{suffix}{tail}"
     if annex is not None:
         return f"Annex {annex}".rstrip()
     return ""
@@ -29,6 +39,7 @@ class Reference(FrozenModel):
     instrument: str | None = None
     article: str | None = None
     paragraph: str | None = None
+    point: str | None = None
     annex: str | None = None
 
 
@@ -46,7 +57,7 @@ class Locator(FrozenModel):
 class Chunk(Locator):
     """One retrievable unit of a regulation, with its citation and cross-references."""
 
-    METADATA: ClassVar[set[str]] = {"citation", "position", "references", "topic"}
+    METADATA: ClassVar[set[str]] = {"citation", "points", "position", "references", "topic"}
     """Fields outside content_hash: topic records where the chunk came from, position is
     placement, the rest derive from what is hashed."""
 
@@ -65,6 +76,12 @@ class Chunk(Locator):
     def citation(self) -> str:
         """The locator as a lawyer would cite it, or its title outside any division."""
         return format_citation(self.article, self.paragraph, self.annex) or self.title or ""
+
+    @computed_field
+    @property
+    def points(self) -> tuple[str, ...]:
+        """The points the text opens lines with, so a citation by point reaches this chunk."""
+        return tuple(POINT_LINE.findall(self.text))
 
     @property
     def content_hash(self) -> str:

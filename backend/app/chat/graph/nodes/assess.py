@@ -61,8 +61,8 @@ def build_assess_system_prompt(*, may_refuse: bool) -> str:
 
 def reference_addresses(source: RetrievedChunk) -> list[str]:
     """Each followable address once, as 'celex division': a reference naming no division is
-    skipped, on the same rule follow_reference's target enforces, and several points of one
-    article are the one address."""
+    skipped, on the same rule follow_reference's target enforces, and a borrowed definition
+    is addressed by its point."""
     addresses = []
     for reference in source.references:
         try:
