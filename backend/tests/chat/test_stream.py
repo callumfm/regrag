@@ -241,9 +241,9 @@ async def test_retrieve_is_running_before_the_sources_it_finds_arrive(two_result
 async def test_retrieve_is_reported_finished_before_the_sources_it_found_arrive(
     two_results, answer_model
 ):
-    """A node's finished frame is read off its task result, the sources off the state
-    snapshot the superstep ends with; were that order to flip, the sources would land while
-    the trail still said retrieve was running."""
+    """The finished frame comes from the node's task result, the sources from the state
+    snapshot after it. Were that order to flip, the sources would land while the trail still
+    said retrieve was running."""
     events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     finished = next(
