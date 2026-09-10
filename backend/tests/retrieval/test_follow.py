@@ -288,17 +288,24 @@ async def test_a_division_with_no_stored_chunks_hashes_to_nothing(
 
 
 DEFINITIONS_PARTS = (
-    "For the purposes of this Regulation:\n(a) ‘ship’ means a seagoing vessel;",
-    "(e) ‘gross tonnage’ means the tonnage on the certificate;\n(f) ‘verifier’ means a body;",
-    "(15) ‘ship at berth’ means a moored ship;\n(16) ‘ship at anchorage’ means a ship not moored;",
+    ("For the purposes of this Regulation:\n(a) ‘ship’ means a seagoing vessel;", ["a"]),
+    (
+        "(e) ‘gross tonnage’ means the tonnage on the certificate;\n(f) ‘verifier’ means a body;",
+        ["e", "f"],
+    ),
+    (
+        "(15) ‘ship at berth’ means a moored ship;\n(16) ‘anchorage’ means not moored",
+        ["15", "16"],
+    ),
 )
+"""A definitions article's text as the chunker splits it, with the points each part lists."""
 
 
 async def store_definitions_article(
     session: AsyncSession, ingest_run: IngestRun, make_chunk_row: Callable[..., DocumentChunk]
 ) -> None:
     """A definitions article as the chunker stores one: no paragraph, split into parts."""
-    for part, text in enumerate(DEFINITIONS_PARTS, start=1):
+    for part, (text, points) in enumerate(DEFINITIONS_PARTS, start=1):
         session.add(
             make_chunk_row(
                 ingest_run,
@@ -310,6 +317,7 @@ async def store_definitions_article(
                 position=part,
                 citation="Article 3",
                 text=text,
+                points=points,
                 content_hash=f"{part:064d}",
             )
         )
@@ -317,24 +325,24 @@ async def store_definitions_article(
 
 
 @pytest.mark.parametrize(("point", "part"), [("e", 2), ("16", 3)])
-async def test_a_point_of_a_definitions_article_reaches_the_part_that_defines_it(
+async def test_a_point_of_a_definitions_article_reaches_the_part_that_lists_it(
     db_session: AsyncSession,
     ingest_run: IngestRun,
     make_chunk_row: Callable[..., DocumentChunk],
     point: str,
     part: int,
 ) -> None:
-    """A definitions article numbers no paragraphs, so a citation's point is found in the text."""
+    """A definitions article numbers no paragraphs; its points are stored on the parts."""
     await store_definitions_article(db_session, ingest_run, make_chunk_row)
 
     found = await follow_reference(
-        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", paragraph=point)
+        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", point=point)
     )
 
     assert [chunk.part for chunk in found] == [part]
 
 
-async def test_a_point_no_part_defines_returns_nothing_rather_than_the_whole_article(
+async def test_a_point_no_part_lists_returns_nothing_rather_than_the_whole_article(
     db_session: AsyncSession,
     ingest_run: IngestRun,
     make_chunk_row: Callable[..., DocumentChunk],
@@ -342,7 +350,74 @@ async def test_a_point_no_part_defines_returns_nothing_rather_than_the_whole_art
     await store_definitions_article(db_session, ingest_run, make_chunk_row)
 
     found = await follow_reference(
-        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", paragraph="z")
+        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="3", point="z")
     )
 
     assert found == ()
+
+
+async def test_a_point_under_a_paragraph_narrows_to_that_paragraph(
+    db_session: AsyncSession,
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    """'Article 6(2), point (a)': both paragraphs list an (a), only paragraph 2's is wanted."""
+    for paragraph in ("1", "2"):
+        db_session.add(
+            make_chunk_row(
+                ingest_run,
+                celex=INVENTED_CELEX,
+                article="6",
+                paragraph=paragraph,
+                citation=f"Article 6({paragraph})",
+                text="The following apply:\n(a) a condition;",
+                points=["a"],
+                content_hash=f"{int(paragraph):064d}",
+            )
+        )
+    await db_session.flush()
+
+    found = await follow_reference(
+        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="6", paragraph="2", point="a")
+    )
+
+    assert [chunk.citation for chunk in found] == ["Article 6(2)"]
+
+
+async def test_a_paragraph_does_not_match_a_chapeau_that_opens_a_line_with_its_number(
+    db_session: AsyncSession,
+    ingest_run: IngestRun,
+    make_chunk_row: Callable[..., DocumentChunk],
+) -> None:
+    """Paragraph 2 of an article is its paragraph, never a point '(2)' listed by its chapeau."""
+    db_session.add(
+        make_chunk_row(
+            ingest_run,
+            celex=INVENTED_CELEX,
+            article="7",
+            paragraph=None,
+            citation="Article 7",
+            text="Member States shall:\n(1) report;\n(2) verify;",
+            points=["1", "2"],
+            content_hash=f"{1:064d}",
+        )
+    )
+    db_session.add(
+        make_chunk_row(
+            ingest_run,
+            celex=INVENTED_CELEX,
+            article="7",
+            paragraph="2",
+            citation="Article 7(2)",
+            text="The Commission shall verify.",
+            points=[],
+            content_hash=f"{2:064d}",
+        )
+    )
+    await db_session.flush()
+
+    found = await follow_reference(
+        db_session, ReferenceTarget(celex=INVENTED_CELEX, article="7", paragraph="2")
+    )
+
+    assert [chunk.citation for chunk in found] == ["Article 7(2)"]

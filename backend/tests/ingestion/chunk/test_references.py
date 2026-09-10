@@ -292,8 +292,26 @@ def test_attributes_an_article_cited_by_point_to_the_instrument_after_the_point(
             raw="Article 3, point (e), of Regulation (EU) 2015/757",
             instrument="32015R0757",
             article="3",
+            point="e",
         ),
     )
+    assert references[0].point == "e"
+
+
+def test_keeps_a_numbered_point_under_the_paragraph_it_belongs_to() -> None:
+    references = extract_references(
+        "the ship at berth in Article 3(1), point (15), of Regulation (EU) 2023/1805"
+    )
+    assert references == (
+        Reference(
+            raw="Article 3(1), point (15), of Regulation (EU) 2023/1805",
+            instrument="32023R1805",
+            article="3",
+            paragraph="1",
+            point="15",
+        ),
+    )
+    assert references[0].point == "15"
 
 
 def test_attributes_an_article_cited_by_subparagraph_to_the_instrument_after_it() -> None:

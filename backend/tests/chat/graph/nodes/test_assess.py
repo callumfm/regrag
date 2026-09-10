@@ -320,6 +320,18 @@ class TestFollowsOfBlocksAlreadyShown:
 
         assert run_calls == [ToolCall(name="search", args={"query": "a"})]
 
+    async def test_a_follow_of_a_point_under_a_paragraph_already_shown_is_dropped(
+        self, loop_on, one_result, answer_model, assess_turns, tool_results
+    ):
+        """A point sits inside the paragraph's text, so a paragraph shown in full shows it."""
+        by_point = {**self.SHOWN_ARGS, "point": "a"}
+        assess_turns(tool_call_message("follow_reference", by_point), AIMessage(content=""))
+        run_calls = tool_results()
+
+        await run_graph()
+
+        assert run_calls == []
+
     async def test_a_follow_of_a_paragraph_shown_only_in_part_still_runs(
         self, loop_on, answer_model, assess_turns, tool_results, monkeypatch
     ):
@@ -501,12 +513,14 @@ class TestBuildAssessMessage:
 
         assert "cites: 32015R0757 Article 3" in message
 
-    def test_names_an_address_once_however_many_points_of_it_are_cited(self):
+    def test_names_each_borrowed_point_as_its_own_address(self):
+        """Three terms borrowed from one definitions article are three places to fetch."""
         references = tuple(
             Reference(
                 raw=f"Article 3, point ({point}), of Regulation X",
                 instrument="32015R0757",
                 article="3",
+                point=point,
             )
             for point in "cen"
         )
@@ -514,7 +528,10 @@ class TestBuildAssessMessage:
 
         message = build_assess_message("q", sources)
 
-        assert message.count("32015R0757 Article 3") == 1
+        assert (
+            "cites: 32015R0757 Article 3, point (c), 32015R0757 Article 3, point (e), "
+            "32015R0757 Article 3, point (n)"
+        ) in message
 
     def test_skips_references_that_name_no_division(self):
         reference = Reference(raw="Regulation (EU) 2015/757", instrument="32015R0757")

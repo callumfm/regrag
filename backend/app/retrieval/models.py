@@ -40,6 +40,7 @@ class ReferenceTarget(FrozenModel):
     celex: str
     article: str | None = None
     paragraph: str | None = None
+    point: str | None = None
     annex: str | None = None
 
     @classmethod
@@ -49,13 +50,15 @@ class ReferenceTarget(FrozenModel):
             celex=reference.instrument or citing,
             article=reference.article,
             paragraph=reference.paragraph,
+            point=reference.point,
             annex=reference.annex,
         )
 
     @property
     def citation(self) -> str:
-        """The division as a citation names it: 'Article 6(2)', 'Annex I'."""
-        return format_citation(self.article, self.paragraph, self.annex)
+        """The division as a citation names it: 'Article 6(2)', 'Article 3, point (e)',
+        'Annex I'."""
+        return format_citation(self.article, self.paragraph, self.annex, self.point)
 
     @model_validator(mode="after")
     def _addresses_a_division(self) -> "ReferenceTarget":

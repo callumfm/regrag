@@ -12,8 +12,9 @@ from app.ingestion import celex
 from app.ingestion.chunk.models import Reference, format_citation
 
 ORDINALS = ("first", "second", "third", "fourth", "fifth", "last")
-SUBDIVISION = rf"point\s+\([0-9a-z]+\)|(?:{'|'.join(ORDINALS)})\s+subparagraph"
-"""A part named after the division it belongs to: 'point (e)', 'second subparagraph'."""
+SUBDIVISION = rf"point\s+\((?P<point>[0-9a-z]+)\)|(?:{'|'.join(ORDINALS)})\s+subparagraph"
+"""A part named after the division it belongs to: 'point (e)', 'second subparagraph'. The point
+is kept, since it is how one act borrows a definition from another."""
 
 QUALIFIER = re.compile(rf"^(?:,\s*(?:{SUBDIVISION}),?)?\s+(?:of|to|in)\s+(?:that\s+|the\s+)?$")
 """What may sit between a division and the instrument qualifying it: the qualifier alone, or
@@ -149,9 +150,13 @@ def _attribute_division(
     text: str, division: DivisionMention, owner: InstrumentMention
 ) -> Reference:
     """A division re-pointed at the instrument qualifying it, its raw text stretched forward
-    over the qualifier to cover that instrument."""
+    over the qualifier to cover that instrument, and carrying the point the qualifier named."""
+    qualifier = QUALIFIER.match(text[division.end : owner.start])
+    point = qualifier.group("point") if qualifier else None
     raw = division.reference.raw + text[division.end : owner.end]
-    return division.reference.model_copy(update={"raw": raw, "instrument": owner.celex})
+    return division.reference.model_copy(
+        update={"raw": raw, "instrument": owner.celex, "point": point}
+    )
 
 
 def _cite_unclaimed_instruments(
