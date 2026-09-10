@@ -1,10 +1,13 @@
 import type { Element, Root } from "hast"
 import { describe, expect, it } from "vitest"
+import type { ChatSource } from "@/api/types"
 import {
+	citedSources,
 	extractCitedMarkers,
 	moveMarkersAfterPunctuation,
 	numberCitations,
 	rehypeCitationMarkers,
+	renumberCitations,
 	splitCitationMarkers,
 } from "./citations"
 
@@ -216,5 +219,62 @@ describe("rehypeCitationMarkers", () => {
 				(child) => child.type === "element" && child.tagName === "cite-marker",
 			),
 		).toHaveLength(2)
+	})
+})
+
+function source(
+	marker: number,
+	overrides: Partial<ChatSource> = {},
+): ChatSource {
+	return {
+		marker,
+		chunk_id: marker,
+		celex: "32023R1805",
+		act: "Regulation (EU) 2023/1805",
+		citation: "Article 4(1)",
+		title: "Greenhouse gas intensity limit",
+		text: "The limit applies from 2025.",
+		...overrides,
+	}
+}
+
+describe("citedSources", () => {
+	const sources = [source(1), source(7), source(12)]
+
+	it("returns the cited sources with the number the answer shows", () => {
+		expect(citedSources("claim [7] and [12].", sources)).toEqual([
+			{ source: sources[1], label: 1 },
+			{ source: sources[2], label: 2 },
+		])
+	})
+
+	it("leaves out a retrieved source the answer never cites", () => {
+		expect(citedSources("claim [7].", sources)).toEqual([
+			{ source: sources[1], label: 1 },
+		])
+	})
+
+	it("is empty when the answer cites nothing", () => {
+		expect(citedSources("claim.", sources)).toEqual([])
+	})
+})
+
+describe("renumberCitations", () => {
+	const sources = [source(1), source(7), source(12)]
+
+	it("rewrites markers as the numbers the reader saw", () => {
+		expect(renumberCitations("claim [7] and [12].", sources)).toBe(
+			"claim [1] and [2].",
+		)
+	})
+
+	it("gives a repeated marker the same number each time", () => {
+		expect(renumberCitations("claim [7], again [7].", sources)).toBe(
+			"claim [1], again [1].",
+		)
+	})
+
+	it("leaves a marker that was never retrieved alone", () => {
+		expect(renumberCitations("claim [9].", sources)).toBe("claim [9].")
 	})
 })

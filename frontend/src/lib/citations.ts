@@ -1,5 +1,6 @@
 import type { Element, Root, Text } from "hast"
 import { visit } from "unist-util-visit"
+import type { ChatSource } from "@/api/types"
 
 const MARKER_PATTERN = /\[(\d+)\]/g
 const MARKER_RUN_BEFORE_PUNCTUATION = / ?((?:\[\d+\])+)([.,;:])/g
@@ -115,4 +116,32 @@ export function rehypeCitationMarkers(known: ReadonlySet<number>) {
 			return index + segments.length
 		})
 	}
+}
+
+export type CitedSource = { source: ChatSource; label: number }
+
+/** The sources an answer cites, in the order its markers first appear. */
+export function citedSources(
+	answer: string,
+	sources: ChatSource[],
+): CitedSource[] {
+	const byMarker = new Map(sources.map((source) => [source.marker, source]))
+	const numbers = numberCitations(answer, new Set(byMarker.keys()))
+	return [...numbers].flatMap(([marker, label]) => {
+		const source = byMarker.get(marker)
+		return source === undefined ? [] : [{ source, label }]
+	})
+}
+
+/** The answer with its markers rewritten as the numbers the reader saw, for copying out. */
+export function renumberCitations(
+	answer: string,
+	sources: ChatSource[],
+): string {
+	const known = new Set(sources.map((source) => source.marker))
+	const numbers = numberCitations(answer, known)
+	return answer.replace(MARKER_PATTERN, (whole: string, marker: string) => {
+		const label = numbers.get(Number(marker))
+		return label === undefined ? whole : `[${label}]`
+	})
 }

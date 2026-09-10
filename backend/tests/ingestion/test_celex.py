@@ -132,3 +132,22 @@ def test_consolidated_versions_share_their_act_stem() -> None:
     stem = celex.consolidated_stem("32015R0757")
     assert "02015R0757-20250101".startswith(stem)
     assert not "02023R1805-20250101".startswith(stem)
+
+
+@pytest.mark.parametrize(
+    ("celex_id", "expected"),
+    [
+        ("32023R1805", "Regulation (EU) 2023/1805"),
+        ("32015R0757", "Regulation (EU) 2015/757"),
+        ("32026R0394", "Regulation (EU) 2026/394"),
+        ("32023L0959", "Directive (EU) 2023/959"),
+        ("32023D0852", "Decision (EU) 2023/852"),
+    ],
+)
+def test_act_names_read_as_the_act_is_cited(celex_id: str, expected: str) -> None:
+    assert celex.format_act_name(celex_id) == expected
+
+
+@pytest.mark.parametrize("celex_id", ["32008R0765", "31992L0043", "02015R0757-20250101", "3201"])
+def test_act_names_fall_back_to_the_id_outside_the_year_first_scheme(celex_id: str) -> None:
+    assert celex.format_act_name(celex_id) == celex_id

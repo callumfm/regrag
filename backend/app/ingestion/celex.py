@@ -7,6 +7,7 @@ CONSOLIDATED = "0"
 CENTURIES = ("19", "20")
 LENGTH = 10
 KIND_LETTERS = {"regulation": "R", "directive": "L", "decision": "D"}
+KIND_NAMES = {letter: kind.capitalize() for kind, letter in KIND_LETTERS.items()}
 YEAR_FIRST_KINDS = ("directive", "decision")
 """Numbered year-first in every era; only regulations ever led with the act number."""
 YEAR_FIRST_SCHEME = 2015
@@ -54,6 +55,14 @@ def is_legislation(celex: str) -> bool:
     return (
         celex.startswith(LEGISLATION) and len(celex) == LENGTH and celex[5] in KIND_LETTERS.values()
     )
+
+
+def format_act_name(celex: str) -> str:
+    """An act as it is cited: 'Regulation (EU) 2023/1805'. Acts numbered before the year-first
+    scheme are left as their id, since naming them needs the treaty era they were made under."""
+    if not is_legislation(celex) or int(celex[1:5]) < YEAR_FIRST_SCHEME:
+        return celex
+    return f"{KIND_NAMES[celex[5]]} (EU) {celex[1:5]}/{int(celex[6:])}"
 
 
 def consolidated_stem(celex: str) -> str:
