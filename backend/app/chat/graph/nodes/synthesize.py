@@ -8,7 +8,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.chat.graph.node import chat_model, traced
 from app.chat.models import ChatState
 from app.chat.prompts import format_context, system_prompt, thread_messages
-from app.core.config import config
 from app.core.llm.errors import llm_retry, wrap_provider_errors
 from app.retrieval.models import RetrievedChunk
 
@@ -46,5 +45,5 @@ async def synthesize(state: ChatState) -> dict[str, Any]:
         *thread_messages(state.history),
         HumanMessage(build_user_message(state.question, state.sources)),
     ]
-    response = await chat_model(config.CHAT_MODEL).ainvoke(messages)
+    response = await chat_model().ainvoke(messages)
     return {"answer": response.text, "usage": response.usage_metadata}

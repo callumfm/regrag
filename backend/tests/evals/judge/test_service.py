@@ -83,11 +83,25 @@ async def test_a_judge_call_asks_for_the_verdicts_shape_and_drops_what_the_model
     [call] = calls
     assert call["model"] == "anthropic/claude-sonnet-5"
     assert call["response_format"] is RefusalVerdict
-    assert call["drop_params"] is True
+    assert call["api_key"] == config.ANTHROPIC_API_KEY.get_secret_value()
     assert call["messages"] == [
         {"role": "system", "content": REFUSAL_PROMPT},
         {"role": "user", "content": "user turn"},
     ]
+
+
+async def test_a_judge_call_waits_the_judges_own_timeout(
+    judge_answers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tier above the chat model and a longer answer, so the chat wait would cut it off."""
+    monkeypatch.setattr(config, "EVAL_JUDGE_TIMEOUT", 321)
+    calls = judge_answers(DECLINED)
+
+    await call_judge_model(REFUSAL_PROMPT, "user turn", RefusalVerdict)
+
+    [call] = calls
+    assert call["timeout"] == 321
+    assert call["timeout"] != config.CHAT_TIMEOUT
 
 
 async def test_a_judge_call_spends_the_judges_own_token_cap(

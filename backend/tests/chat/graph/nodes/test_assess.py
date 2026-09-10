@@ -30,17 +30,14 @@ from tests.conftest import TOKEN_USAGE, USAGE, install_search, search_result
 pytestmark = pytest.mark.anyio
 
 
-def test_assess_is_built_on_its_own_model_rather_than_the_answer_model(monkeypatch):
-    """The two calls do different jobs and are measured against different things, so the
-    model reviewing the context is set apart from the one writing the answer."""
-    monkeypatch.setattr(config, "CHAT_MODEL", "anthropic/answer-model")
-    monkeypatch.setattr(config, "ASSESS_MODEL", "anthropic/assess-model")
-
+def test_assess_binds_its_tools_on_a_blocking_call():
+    """The loop reads the context in one blocking turn and answers with tool calls, so the
+    stream that suits the answer would leave it nothing to run."""
     binding = assess_model()
     assert isinstance(binding, RunnableBinding)
     model = binding.bound
     assert isinstance(model, ChatLiteLLM)
-    assert model.model == "anthropic/assess-model"
+    assert model.streaming is False
 
 
 class TestMergeSources:

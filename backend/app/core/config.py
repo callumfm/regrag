@@ -132,10 +132,19 @@ EMBED_DIMENSIONS = 1024
 """Width of the document_chunks.embedding column: not a setting, changing it needs a migration."""
 
 
+class ProviderConfig(BaseConfig):
+    """One key per provider a model may name, under litellm's own variable names so the env
+    file reads the same as it would for litellm itself. Empty is unset: the provider refuses
+    the call."""
+
+    ANTHROPIC_API_KEY: SecretStr = SecretStr("")
+    OPENAI_API_KEY: SecretStr = SecretStr("")
+    VOYAGE_API_KEY: SecretStr = SecretStr("")
+
+
 class EmbeddingConfig(BaseConfig):
     """Voyage embedding configuration."""
 
-    VOYAGE_API_KEY: SecretStr = SecretStr("")
     EMBED_MODEL: str = "voyage/voyage-4-lite"
     EMBED_TIMEOUT: int = 30
 
@@ -143,21 +152,19 @@ class EmbeddingConfig(BaseConfig):
 class ChatConfig(BaseConfig):
     """Chat model configuration for the chat graph.
 
+    CHAT_MODEL: the model every node calls, at whichever provider it names; only the judge
+        is set apart, so that a model does not grade its own habits.
+    CHAT_TIMEOUT: seconds to wait for one model call, whichever node makes it.
+    CHAT_MAX_TOKENS: the cap on one call's output.
     CHAT_SOURCES: search hits the answer draws on, each widened to its section.
-    CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt; a guardrail
-        against a run of long articles, not a target, so it should rarely bite.
-    CHAT_TEMPERATURE: how far the model may stray from its likeliest next token. At 0 it
-        takes the likeliest every time, which is what an answer quoting law back wants;
-        nothing here is served by sampling variety. Anthropic's frontier models reject the
-        parameter outright, so a move off Haiku means dropping this and reaching for
-        `output_config.effort` instead — which Haiku in turn does not accept.
+    CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt, a guardrail
+        against a run of long articles rather than a target.
+    CHAT_TEMPERATURE: at 0 the model takes its likeliest token every time, which is what an
+        answer quoting law back wants. A model that refuses the parameter drops it instead.
     CHAT_THREAD_TURNS: the most answered turns a thread may hold, and so the history every
-        model call on a follow-up sees; the next question on a full thread is rejected.
-        Five, because a thread here is a question and a few follow-ups, and five turns of
-        answers cost about a third of one turn's context blocks.
+        follow-up call sees. The next question on a full thread is rejected.
     """
 
-    ANTHROPIC_API_KEY: SecretStr = SecretStr("")
     CHAT_MODEL: str = "anthropic/claude-haiku-4-5"
     CHAT_TIMEOUT: int = 60
     CHAT_MAX_TOKENS: int = 2048
@@ -170,31 +177,24 @@ class ChatConfig(BaseConfig):
 class AssessConfig(BaseConfig):
     """The assess ⇄ assess_tools loop, which grows the retrieved context before the answer.
 
-    ASSESS_ENABLED: the loop's off switch; off, the graph answers from retrieval alone.
-        On by default: over the 40-case golden dataset (RRG-98) it lifted expanded recall
-        0.84 to 0.93 and cited references 0.76 to 0.82, both clear of the cite metric's
-        ±0.07 noise, repairing 7 cases and regressing 2, for 2.1x the latency and 2.9x the
-        input tokens. The gain sits in the multi-hop cases, which is what the loop is for.
-    ASSESS_MODEL: which model reviews the context and asks for the tool calls, separate from
-        the one that writes the answer: the two jobs are tuned against different measures.
-    ASSESS_MAX_ROUNDS: times assess may ask for tool calls before the answer is written.
-        One round reaches everything the context can address, because a block's `cites`
-        line carries the address of what it points at; a second round only pays again.
+    ASSESS_ENABLED: the loop's off switch; off, the graph answers from retrieval alone. On
+        by default: it lifted expanded recall 0.84 to 0.93 and cited references 0.76 to 0.82
+        for 2.1x the latency, the gain sitting in the multi-hop cases (RRG-98).
+    ASSESS_MAX_ROUNDS: times assess may ask for tool calls before the answer is written. One
+        reaches everything the context can address, since a block's `cites` line carries the
+        address of what it points at.
     ASSESS_MAX_CALLS: the most tool calls one round may run; the rest are dropped.
     ASSESS_SEARCH_LIMIT: hits one search tool call brings back.
     ASSESS_FOLLOW_LIMIT: chunks one follow_reference call brings back, so a long division
         cannot spend the whole budget in a single call.
-    ASSESS_EXTRA_CHUNKS: the most chunks the loop may add on top of the context retrieve
-        produced, whatever its size; at 0 the loop reads the context but never grows it.
-    ASSESS_MAY_REFUSE: whether assess is offered the refuse tool; off, a question nothing in
-        the context bears on reaches synthesize and is declined in the model's own words
-        rather than the fixed refusal. On by default: over the 40-case golden dataset
-        (RRG-103) it refused 2 of the 6 out-of-corpus cases that clear the gate, no
-        in-corpus case, and cost no extra call.
+    ASSESS_EXTRA_CHUNKS: the most chunks the loop may add on top of retrieve's context; at 0
+        it reads the context but never grows it.
+    ASSESS_MAY_REFUSE: whether assess is offered the refuse tool; off, a question nothing
+        bears on is declined by synthesize in its own words. On by default: it refused 2 of
+        the 6 out-of-corpus cases that clear the gate and no in-corpus case (RRG-103).
     """
 
     ASSESS_ENABLED: bool = True
-    ASSESS_MODEL: str = "anthropic/claude-haiku-4-5"
     ASSESS_MAX_ROUNDS: int = Field(default=1, ge=1)
     ASSESS_MAX_CALLS: int = Field(default=4, ge=1)
     ASSESS_SEARCH_LIMIT: int = Field(default=5, ge=1)
@@ -206,40 +206,22 @@ class AssessConfig(BaseConfig):
 class DecomposeConfig(BaseConfig):
     """The decompose node, which splits a multi-part question into one search per part.
 
-    DECOMPOSE_ENABLED: the node's off switch; off, retrieve searches the question as asked
-        and the run records no decompose step. Off by default: over the 40-case golden
-        dataset (RRG-73) it moved multi_part recall 0.885 to 0.910, inside the ±0.07 noise,
-        and wrongly split 2 single-part cases, for 1.2x the latency and input tokens.
-    DECOMPOSE_MODEL: which model splits the question, separate from the answer's and
-        assess's on the one-setting-per-role rule.
-    DECOMPOSE_MAX_PARTS: the most queries a question may split into; surplus parts are
-        dropped, not refused. Each part searches CHAT_SOURCES hits, so keep the product at
-        or under CHAT_CONTEXT_CHUNKS or expansion truncates the deepest hits.
+    DECOMPOSE_ENABLED: the node's off switch; off, retrieve searches the question as asked.
+        Off by default: it moved multi_part recall 0.885 to 0.910, inside the ±0.07 noise,
+        and wrongly split 2 single-part cases (RRG-73).
+    DECOMPOSE_MAX_PARTS: the most queries a question may split into, surplus parts dropped.
+        Each part searches CHAT_SOURCES hits, so keep the product under CHAT_CONTEXT_CHUNKS.
     """
 
     DECOMPOSE_ENABLED: bool = False
-    DECOMPOSE_MODEL: str = "anthropic/claude-haiku-4-5"
     DECOMPOSE_MAX_PARTS: int = Field(default=3, ge=2)
-
-
-class RewriteConfig(BaseConfig):
-    """The rewrite node, which restates a follow-up question so retrieval can search it
-    on its own.
-
-    REWRITE_MODEL: which model restates the question, separate from the answer's and
-        assess's on the one-setting-per-role rule. No switch: the node runs only on a
-        follow-up, and a follow-up searched as typed is what the gate refuses.
-    """
-
-    REWRITE_MODEL: str = "anthropic/claude-haiku-4-5"
 
 
 class IngestConfig(BaseConfig):
     """Ingestion tunables.
 
     TOPIC_BASE_ACTS: the act each topic is built from; its corpus is everything based on it.
-    CRAWL_DELAYS: seconds between requests per host; eur-lex publishes 10 in robots.txt,
-        the rest is courtesy.
+    CRAWL_DELAYS: seconds between requests per host; eur-lex publishes 10 in robots.txt.
     MAX_DROP_RATIO: fraction of the previous corpus that may vanish before discovery aborts.
     MIN_SUSPICIOUS_DROPS: dropped documents below this never abort, however small the corpus.
     MAX_CHARS: longest chunk emitted.
@@ -264,8 +246,8 @@ class RetrievalConfig(BaseConfig):
 
     SEARCH_CANDIDATES: per-leg candidate pool feeding Reciprocal Rank Fusion.
     SEARCH_DEFAULT_LIMIT: results returned when the caller does not say how many.
-    EF_SEARCH_PER_CANDIDATE: how far the HNSW walk looks per candidate wanted; pgvector
-        caps the product at 1000.
+    EF_SEARCH_PER_CANDIDATE: how far the HNSW walk looks per candidate; pgvector caps the
+        product at 1000.
     RRF_K: fusion damping; a result at some rank scores 1 / (RRF_K + rank).
     RERANK_ENABLED: the cross-encoder's off switch.
     RERANK_MODEL: which cross-encoder rescores the fused results.
@@ -273,9 +255,9 @@ class RetrievalConfig(BaseConfig):
     RERANK_POOL: fused results the cross-encoder rescores.
     EXPAND_SECTIONS: widens each hit to its whole section; off by default, as the tune
         showed it doubling context cost for no recall or citation gain.
-    MIN_COSINE_SIMILARITY / MIN_RERANKER_RELEVANCE: the refusal gate's bars, cleared by
-        the best hit per signal rather than by one hit on both. Set permissively: the
-        gate is for junk, and a false refusal costs more than a wasted call.
+    MIN_COSINE_SIMILARITY / MIN_RERANKER_RELEVANCE: the refusal gate's bars, cleared by the
+        best hit per signal rather than by one hit on both. Set permissively, since the gate
+        is for junk and a false refusal costs more than a wasted call.
     """
 
     SEARCH_CANDIDATES: int = Field(default=50, ge=1)
@@ -298,9 +280,8 @@ class EvalConfig(BaseConfig):
     """Eval tunables.
 
     EVAL_DATASET_PATH: the golden dataset, authored cases versioned as JSON in the repo.
-    EVAL_CACHE_DIR: where repeated runs replay their embed and rerank calls from. Here
-        rather than in RetrievalConfig, which a run records whole in its settings: a
-        cache hit answers exactly as a miss would, so it is not a setting a run compares on.
+    EVAL_CACHE_DIR: where repeated runs replay their embed and rerank calls from. Not in
+        RetrievalConfig, which a run records: a cache hit answers exactly as a miss would.
     """
 
     EVAL_DATASET_PATH: Path = BACKEND_ROOT / "app" / "evals" / "dataset" / "golden.json"
@@ -311,15 +292,16 @@ class JudgeConfig(BaseConfig):
     """The eval judge: the model that reads an answer and grades it.
 
     EVAL_JUDGE_MODEL: a model other than the one that wrote the answer, so a model does not
-        grade its own habits. Recorded on every run: two runs graded by different judges are
-        not comparable. The timeout is the chat value until each role has its own (RRG-99).
-    EVAL_JUDGE_MAX_TOKENS: the cap on one verdict. The verdict is critique first, and a judge
-        that thinks spends the cap on that too, so it sits well above the answer's cap: a
-        verdict cut short parses as nothing and leaves the case unjudged.
+        grade its own habits. Recorded on every run, since different judges do not compare.
+    EVAL_JUDGE_TIMEOUT: seconds for one verdict, above the chat wait: the judge sits a tier
+        up and writes a longer answer, so the chat value cuts it off.
+    EVAL_JUDGE_MAX_TOKENS: the cap on one verdict, well above the answer's, since a verdict
+        is critique first. One cut short parses as nothing and leaves the case unjudged.
     EVAL_JUDGE_CONCURRENCY: cases judged at once; llm_retry absorbs the rate limits.
     """
 
     EVAL_JUDGE_MODEL: str = "anthropic/claude-sonnet-5"
+    EVAL_JUDGE_TIMEOUT: int = 120
     EVAL_JUDGE_MAX_TOKENS: int = 8192
     EVAL_JUDGE_CONCURRENCY: int = 4
 
@@ -327,11 +309,11 @@ class JudgeConfig(BaseConfig):
 class Config(
     AppConfig,
     PostgresConfig,
+    ProviderConfig,
     EmbeddingConfig,
     ChatConfig,
     AssessConfig,
     DecomposeConfig,
-    RewriteConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,
@@ -347,11 +329,11 @@ config = Config()
 _CONFIG_SECTIONS = (
     AppConfig,
     PostgresConfig,
+    ProviderConfig,
     EmbeddingConfig,
     ChatConfig,
     AssessConfig,
     DecomposeConfig,
-    RewriteConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,

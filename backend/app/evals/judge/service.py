@@ -12,6 +12,7 @@ from app.chat.models import ChatState
 from app.core.concurrency import run_concurrently
 from app.core.config import config
 from app.core.llm.errors import LLMError, llm_retry, parse_model_answer, wrap_provider_errors
+from app.core.llm.keys import api_key_for
 from app.core.models import FrozenModel
 from app.evals.dataset.enums import EvalKind
 from app.evals.dataset.models import EvalCase
@@ -37,17 +38,15 @@ logger = logging.getLogger(__name__)
 @llm_retry
 @wrap_provider_errors("judge call")
 async def call_judge_model[T: FrozenModel](system: str, user: str, output: type[T]) -> T:
-    """One blocking judge turn answering in the verdict's own shape. A parameter the judge
-    model does not accept is dropped rather than sent, so one call serves every provider;
-    an answer off the schema is a failed call, not a verdict."""
+    """One blocking judge turn answering in the verdict's own shape, with the key of whichever
+    provider the judge names; an answer off the schema is a failed call, not a verdict."""
     response = await litellm.acompletion(
         model=config.EVAL_JUDGE_MODEL,
+        api_key=api_key_for(config.EVAL_JUDGE_MODEL),
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format=output,
-        api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
         max_tokens=config.EVAL_JUDGE_MAX_TOKENS,
-        timeout=config.CHAT_TIMEOUT,
-        drop_params=True,
+        timeout=config.EVAL_JUDGE_TIMEOUT,
     )
     choice = response.choices[0]
     return parse_model_answer(

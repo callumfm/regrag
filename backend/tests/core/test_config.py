@@ -15,8 +15,8 @@ from app.core.config import (
     Environment,
     IngestConfig,
     JudgeConfig,
+    ProviderConfig,
     RetrievalConfig,
-    RewriteConfig,
     StorageBackend,
     StorageConfig,
     config,
@@ -64,8 +64,7 @@ def test_base_config_is_a_settings_class():
     assert issubclass(BaseConfig, BaseSettings)
 
 
-def test_embedding_defaults_match_voyage_4_lite(monkeypatch):
-    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+def test_embedding_defaults_match_voyage_4_lite():
     embedding = EmbeddingConfig()
 
     assert embedding.EMBED_MODEL == "voyage/voyage-4-lite"
@@ -114,6 +113,13 @@ def test_the_env_file_is_absolute_so_the_working_directory_cannot_change_it(env,
 
     assert env_file == BACKEND_ROOT / filename
     assert env_file.is_absolute()
+
+
+def test_every_provider_key_is_a_secret_that_defaults_to_unset():
+    """Empty is unset: the provider refuses the call, and no test can reach one by accident."""
+    for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "VOYAGE_API_KEY"):
+        assert ProviderConfig.model_fields[name].annotation is SecretStr
+        assert getattr(ProviderConfig(), name).get_secret_value() == ""
 
 
 def test_the_suite_runs_against_a_database_of_its_own():
@@ -178,12 +184,6 @@ def test_chat_defaults():
     assert chat.CHAT_SOURCES == 5
     assert chat.CHAT_CONTEXT_CHUNKS == 15
     assert chat.CHAT_THREAD_TURNS == 5
-    assert chat.ANTHROPIC_API_KEY.get_secret_value() == ""
-
-
-def test_rewrite_defaults_and_the_combined_config_carries_them():
-    assert RewriteConfig().REWRITE_MODEL == "anthropic/claude-haiku-4-5"
-    assert "REWRITE_MODEL" in Config.model_fields
 
 
 def test_config_includes_chat_settings():
@@ -193,7 +193,6 @@ def test_config_includes_chat_settings():
 def test_assess_defaults():
     assess = AssessConfig()
     assert assess.ASSESS_ENABLED is True
-    assert assess.ASSESS_MODEL == "anthropic/claude-haiku-4-5"
     assert assess.ASSESS_MAX_ROUNDS == 1
     assert assess.ASSESS_MAX_CALLS == 4
     assert assess.ASSESS_SEARCH_LIMIT == 5
@@ -208,6 +207,14 @@ def test_the_judge_is_a_different_model_from_the_one_that_answers():
     assert JudgeConfig().EVAL_JUDGE_MODEL != ChatConfig().CHAT_MODEL
     assert JudgeConfig().EVAL_JUDGE_CONCURRENCY == 4
     assert "EVAL_JUDGE_MODEL" in get_config_snapshot(EVAL_CONFIG_SECTIONS)
+
+
+def test_the_judge_waits_its_own_timeout_rather_than_the_chat_one():
+    """It sits a tier above the chat model and writes a longer answer, so the wait that
+    suits a Haiku turn cuts its verdict short and leaves the case unjudged."""
+    assert JudgeConfig().EVAL_JUDGE_TIMEOUT == 120
+    assert JudgeConfig().EVAL_JUDGE_TIMEOUT != ChatConfig().CHAT_TIMEOUT
+    assert "EVAL_JUDGE_TIMEOUT" in get_config_snapshot(EVAL_CONFIG_SECTIONS)
 
 
 def test_the_loop_needs_at_least_one_round_when_it_is_on():
@@ -228,13 +235,13 @@ def test_a_snapshot_records_the_requested_sections_whole(monkeypatch):
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
 
     expected = {name for section in EVAL_CONFIG_SECTIONS for name in section.model_fields}
-    assert set(settings) == expected - {"VOYAGE_API_KEY", "ANTHROPIC_API_KEY"}
+    assert set(settings) == expected
     assert settings["CHAT_CONTEXT_CHUNKS"] == 7
     assert settings["RERANK_POOL"] == config.RERANK_POOL
 
 
 def test_a_snapshot_leaves_out_the_secrets(monkeypatch):
-    """The snapshot is printed and pasted around; a key is not a knob a run reproduces."""
+    """The snapshot is printed and pasted around; a secret is not a knob a run reproduces."""
     monkeypatch.setattr(config, "ANTHROPIC_API_KEY", SecretStr("sk-never-recorded"))
 
     snapshot = get_config_snapshot()
@@ -259,5 +266,4 @@ def test_the_eval_stamp_carries_the_decompose_settings():
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
 
     assert settings["DECOMPOSE_ENABLED"] is False
-    assert settings["DECOMPOSE_MODEL"] == "anthropic/claude-haiku-4-5"
     assert settings["DECOMPOSE_MAX_PARTS"] == 3

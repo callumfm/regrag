@@ -10,7 +10,6 @@ from langchain_core.runnables import Runnable
 from app.chat.enums import ChatNode
 from app.chat.graph.node import chat_model, traced
 from app.chat.models import ChatState, ChatTurn
-from app.core.config import config
 from app.core.llm.errors import LLMError, llm_retry, parse_model_answer, wrap_provider_errors
 from app.core.models import FrozenModel
 
@@ -43,9 +42,7 @@ class StandaloneQuestion(FrozenModel):
 def rewrite_model() -> Runnable:
     """The rewrite model as rewrite calls it: one blocking turn, answering in the
     StandaloneQuestion shape."""
-    return chat_model(config.REWRITE_MODEL, streaming=False).bind(
-        response_format=StandaloneQuestion
-    )
+    return chat_model(streaming=False).bind(response_format=StandaloneQuestion)
 
 
 @llm_retry

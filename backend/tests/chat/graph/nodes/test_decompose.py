@@ -192,17 +192,13 @@ class TestDecompose:
         assert step.usage == TOKEN_USAGE
 
 
-def test_decompose_is_built_on_its_own_model_with_the_output_format_bound(monkeypatch):
-    """The split is asked for in the DecomposedQuestion shape, on a model set apart from
-    the answer's and assess's, as one setting per role requires."""
-    monkeypatch.setattr(config, "CHAT_MODEL", "anthropic/answer-model")
-    monkeypatch.setattr(config, "DECOMPOSE_MODEL", "anthropic/decompose-model")
-
+def test_decompose_binds_the_output_format_on_a_blocking_call():
+    """The split is asked for in the DecomposedQuestion shape, on the one model every node
+    of the graph calls."""
     binding = decompose_model()
     assert isinstance(binding, RunnableBinding)
     model = binding.bound
     assert isinstance(model, ChatLiteLLM)
-    assert model.model == "anthropic/decompose-model"
     assert model.streaming is False
     assert binding.kwargs["response_format"] is DecomposedQuestion
 

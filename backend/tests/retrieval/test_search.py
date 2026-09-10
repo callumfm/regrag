@@ -23,6 +23,7 @@ from tests.retrieval.conftest import toy_embed
 
 pytestmark = pytest.mark.anyio
 
+
 NO_FILTERS = SearchFilters()
 SUPERSEDED = 300
 """Dead vectors hugging the query: enough to exhaust hnsw.ef_search, whose default is 40."""
