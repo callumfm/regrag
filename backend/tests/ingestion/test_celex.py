@@ -118,6 +118,8 @@ def test_legislation_ids_are_recognised(celex_id: str) -> None:
         "32015X0757",
         "3201",
         "392L0043",
+        "3201XR0757",
+        "32015R075A",
     ],
 )
 def test_non_legislation_ids_are_rejected(celex_id: str) -> None:
@@ -148,6 +150,8 @@ def test_act_names_read_as_the_act_is_cited(celex_id: str, expected: str) -> Non
     assert celex.format_act_name(celex_id) == expected
 
 
-@pytest.mark.parametrize("celex_id", ["32008R0765", "31992L0043", "02015R0757-20250101", "3201"])
+@pytest.mark.parametrize(
+    "celex_id", ["32008R0765", "31992L0043", "02015R0757-20250101", "3201", "3201XR0757"]
+)
 def test_act_names_fall_back_to_the_id_outside_the_year_first_scheme(celex_id: str) -> None:
     assert celex.format_act_name(celex_id) == celex_id

@@ -24,6 +24,7 @@ function CopyAnswerButton({ text }: { text: string }) {
 		} catch {
 			return
 		}
+		if (clearing.current !== null) clearTimeout(clearing.current)
 		setCopied(true)
 		clearing.current = setTimeout(() => setCopied(false), COPIED_MS)
 	}

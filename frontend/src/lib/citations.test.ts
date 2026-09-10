@@ -316,6 +316,27 @@ describe("renumberCitations", () => {
 		expect(renumberCitations("claim [9].", sources)).toBe("claim [9].")
 	})
 
+	it("gives back an answer it has nothing to rewrite, exactly", () => {
+		const answer =
+			"A limit.\n\n```ts\nconst x = 1\n```\n\n- a `span` and text\n"
+		expect(renumberCitations(answer, sources)).toBe(answer)
+	})
+
+	it("leaves markers inside inline code exactly as they were", () => {
+		expect(
+			renumberCitations("read `values[7][12]` then cite [7].", sources),
+		).toBe("read `values[7][12]` then cite [1].")
+	})
+
+	it("leaves markers inside a fenced block alone", () => {
+		expect(
+			renumberCitations(
+				"cite [7].\n```ts\nconst x = values[7][12]\n```",
+				sources,
+			),
+		).toBe("cite [1].\n```ts\nconst x = values[7][12]\n```")
+	})
+
 	it("drops the runs the answer does not show", () => {
 		expect(renumberCitations("claim [7]. All of it [7][12].", sources)).toBe(
 			"claim [1]. All of it.",

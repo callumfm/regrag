@@ -66,25 +66,60 @@ export function splitCitationMarkers(
 	return segments
 }
 
-/**
- * Drops fenced blocks and inline spans, so markers inside code are not read as
- * citations. Mirrors the `code` parent that `rehypeCitationMarkers` skips.
- */
-function removeMarkdownCode(markdown: string): string {
-	const outside: string[] = []
-	let fence: string | null = null
-	for (const line of markdown.split("\n")) {
-		const delimiter = line.match(FENCE_LINE)?.[1]
-		if (fence === null) {
-			if (delimiter) fence = delimiter
-			else outside.push(line)
-			continue
+type MarkdownSegment = { code: boolean; value: string }
+
+function splitInlineCode(value: string): MarkdownSegment[] {
+	const segments: MarkdownSegment[] = []
+	let cursor = 0
+	for (const match of value.matchAll(INLINE_CODE)) {
+		if (match.index > cursor) {
+			segments.push({ code: false, value: value.slice(cursor, match.index) })
 		}
-		const closes =
-			delimiter?.[0] === fence[0] && delimiter.length >= fence.length
-		if (closes) fence = null
+		segments.push({ code: true, value: match[0] })
+		cursor = match.index + match[0].length
 	}
-	return outside.join("\n").replace(INLINE_CODE, "")
+	if (cursor < value.length) {
+		segments.push({ code: false, value: value.slice(cursor) })
+	}
+	return segments
+}
+
+/**
+ * The answer split into its code — fenced blocks and inline spans — and the prose around it,
+ * so markers inside code are neither read as citations nor rewritten. Mirrors the `code`
+ * parent that `rehypeCitationMarkers` skips, and rejoins to exactly what it was given.
+ */
+function splitMarkdownCode(markdown: string): MarkdownSegment[] {
+	const segments: MarkdownSegment[] = []
+	const lines = markdown.split("\n")
+	let prose = ""
+	let fence: string | null = null
+	lines.forEach((line, index) => {
+		const value = index === lines.length - 1 ? line : `${line}\n`
+		const delimiter = line.match(FENCE_LINE)?.[1]
+		if (fence !== null) {
+			segments.push({ code: true, value })
+			if (delimiter?.[0] === fence[0] && delimiter.length >= fence.length) {
+				fence = null
+			}
+			return
+		}
+		if (delimiter === undefined) {
+			prose += value
+			return
+		}
+		segments.push(...splitInlineCode(prose), { code: true, value })
+		prose = ""
+		fence = delimiter
+	})
+	return [...segments, ...splitInlineCode(prose)]
+}
+
+function removeMarkdownCode(markdown: string): string {
+	return splitMarkdownCode(markdown)
+		.filter((segment) => !segment.code)
+		.map((segment) => segment.value)
+		.join("")
 }
 
 /** Markers the answer cites, once each, in order of first appearance. */
@@ -165,11 +200,17 @@ export function renumberCitations(
 ): string {
 	const known = new Set(sources.map((source) => source.marker))
 	const numbers = numberCitations(answer, known)
-	return dropCitationRuns(answer, known).replace(
-		MARKER_PATTERN,
-		(whole: string, marker: string) => {
-			const label = numbers.get(Number(marker))
-			return label === undefined ? whole : `[${label}]`
-		},
-	)
+	return splitMarkdownCode(answer)
+		.map((segment) =>
+			segment.code
+				? segment.value
+				: dropCitationRuns(segment.value, known).replace(
+						MARKER_PATTERN,
+						(whole: string, marker: string) => {
+							const label = numbers.get(Number(marker))
+							return label === undefined ? whole : `[${label}]`
+						},
+					),
+		)
+		.join("")
 }

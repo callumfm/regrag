@@ -51,9 +51,13 @@ def build(kind: str, year: str, number: str) -> str:
 
 
 def is_legislation(celex: str) -> bool:
-    """Whether an id names a regulation, directive or decision."""
+    """Whether an id names a regulation, directive or decision: sector, year, kind, number."""
     return (
-        celex.startswith(LEGISLATION) and len(celex) == LENGTH and celex[5] in KIND_LETTERS.values()
+        celex.startswith(LEGISLATION)
+        and len(celex) == LENGTH
+        and celex[1:5].isdigit()
+        and celex[5] in KIND_LETTERS.values()
+        and celex[6:].isdigit()
     )
 
 
