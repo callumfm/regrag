@@ -12,7 +12,6 @@ from app.chat.models import ChatState
 from app.core.concurrency import run_concurrently
 from app.core.config import config
 from app.core.llm.errors import LLMError, llm_retry, parse_model_answer, wrap_provider_errors
-from app.core.llm.settings import ModelSettings
 from app.core.models import FrozenModel
 from app.evals.dataset.enums import EvalKind
 from app.evals.dataset.models import EvalCase
@@ -41,18 +40,12 @@ async def call_judge_model[T: FrozenModel](system: str, user: str, output: type[
     """One blocking judge turn answering in the verdict's own shape. No key is passed, so the
     judge can sit at a provider the answer's model does not; an answer off the schema is a
     failed call, not a verdict."""
-    settings = ModelSettings(
-        model=config.EVAL_JUDGE_MODEL,
-        timeout=config.EVAL_JUDGE_TIMEOUT,
-        max_tokens=config.EVAL_JUDGE_MAX_TOKENS,
-    )
     response = await litellm.acompletion(
-        model=settings.model,
+        model=config.EVAL_JUDGE_MODEL,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format=output,
-        max_tokens=settings.max_tokens,
-        temperature=settings.temperature,
-        timeout=settings.timeout,
+        max_tokens=config.EVAL_JUDGE_MAX_TOKENS,
+        timeout=config.EVAL_JUDGE_TIMEOUT,
     )
     choice = response.choices[0]
     return parse_model_answer(

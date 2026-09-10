@@ -155,6 +155,12 @@ class EmbeddingConfig(BaseConfig):
 class ChatConfig(BaseConfig):
     """Chat model configuration for the chat graph.
 
+    CHAT_MODEL: the model every node of the graph calls — the answer, the assess loop and
+        its tools, the rewrite, the split. One setting, because the roles are steps of one
+        answer rather than jobs tuned apart; the judge is the one that must differ, so that
+        a model does not grade its own habits. Any provider litellm names: no key is passed
+        from config, and a parameter the model refuses is dropped rather than branched on.
+
     CHAT_SOURCES: search hits the answer draws on, each widened to its section.
     CHAT_CONTEXT_CHUNKS: the most chunks the widening may put in the prompt; a guardrail
         against a run of long articles, not a target, so it should rarely bite.
@@ -186,8 +192,6 @@ class AssessConfig(BaseConfig):
         0.84 to 0.93 and cited references 0.76 to 0.82, both clear of the cite metric's
         ±0.07 noise, repairing 7 cases and regressing 2, for 2.1x the latency and 2.9x the
         input tokens. The gain sits in the multi-hop cases, which is what the loop is for.
-    ASSESS_MODEL: which model reviews the context and asks for the tool calls, separate from
-        the one that writes the answer: the two jobs are tuned against different measures.
     ASSESS_MAX_ROUNDS: times assess may ask for tool calls before the answer is written.
         One round reaches everything the context can address, because a block's `cites`
         line carries the address of what it points at; a second round only pays again.
@@ -205,7 +209,6 @@ class AssessConfig(BaseConfig):
     """
 
     ASSESS_ENABLED: bool = True
-    ASSESS_MODEL: str = "anthropic/claude-haiku-4-5"
     ASSESS_MAX_ROUNDS: int = Field(default=1, ge=1)
     ASSESS_MAX_CALLS: int = Field(default=4, ge=1)
     ASSESS_SEARCH_LIMIT: int = Field(default=5, ge=1)
@@ -221,28 +224,13 @@ class DecomposeConfig(BaseConfig):
         and the run records no decompose step. Off by default: over the 40-case golden
         dataset (RRG-73) it moved multi_part recall 0.885 to 0.910, inside the ±0.07 noise,
         and wrongly split 2 single-part cases, for 1.2x the latency and input tokens.
-    DECOMPOSE_MODEL: which model splits the question, separate from the answer's and
-        assess's on the one-setting-per-role rule.
     DECOMPOSE_MAX_PARTS: the most queries a question may split into; surplus parts are
         dropped, not refused. Each part searches CHAT_SOURCES hits, so keep the product at
         or under CHAT_CONTEXT_CHUNKS or expansion truncates the deepest hits.
     """
 
     DECOMPOSE_ENABLED: bool = False
-    DECOMPOSE_MODEL: str = "anthropic/claude-haiku-4-5"
     DECOMPOSE_MAX_PARTS: int = Field(default=3, ge=2)
-
-
-class RewriteConfig(BaseConfig):
-    """The rewrite node, which restates a follow-up question so retrieval can search it
-    on its own.
-
-    REWRITE_MODEL: which model restates the question, separate from the answer's and
-        assess's on the one-setting-per-role rule. No switch: the node runs only on a
-        follow-up, and a follow-up searched as typed is what the gate refuses.
-    """
-
-    REWRITE_MODEL: str = "anthropic/claude-haiku-4-5"
 
 
 class IngestConfig(BaseConfig):
@@ -346,7 +334,6 @@ class Config(
     ChatConfig,
     AssessConfig,
     DecomposeConfig,
-    RewriteConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,
@@ -359,6 +346,13 @@ class Config(
 config = Config()
 
 
+def configured_models() -> tuple[str, ...]:
+    """Every model the app is set up to call, read off the settings whose name says so, so
+    that a role added later is checked without anyone editing a list."""
+    names = sorted(name for name in Config.model_fields if name.endswith("_MODEL"))
+    return tuple(dict.fromkeys(getattr(config, name) for name in names))
+
+
 _CONFIG_SECTIONS = (
     AppConfig,
     PostgresConfig,
@@ -366,7 +360,6 @@ _CONFIG_SECTIONS = (
     ChatConfig,
     AssessConfig,
     DecomposeConfig,
-    RewriteConfig,
     IngestConfig,
     RetrievalConfig,
     StorageConfig,

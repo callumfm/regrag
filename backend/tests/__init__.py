@@ -14,9 +14,3 @@ and still buys nothing but a 401."""
 
 os.environ.setdefault("ANTHROPIC_API_KEY", PLACEHOLDER_KEY)
 os.environ.setdefault("VOYAGE_API_KEY", PLACEHOLDER_KEY)
-
-
-def has_provider_key(name: str) -> bool:
-    """Whether a key beyond the placeholder is set, which is what a test reaching a real
-    provider needs; the rest of the suite is happy with the placeholder."""
-    return os.environ.get(name, PLACEHOLDER_KEY) != PLACEHOLDER_KEY

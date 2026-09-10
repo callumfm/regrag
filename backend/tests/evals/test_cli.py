@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
-from app.core.llm.settings import MissingModelKeyError
+from app.core.llm.keys import MissingModelKeyError
 from app.evals import cli
 from app.evals.cli import main
 from app.evals.dataset.enums import DriftKind
@@ -187,33 +187,12 @@ def test_run_reports_the_corpus_and_the_stale_cases_it_read_before_scoring(
     assert "  amended" in out
 
 
-def test_a_run_stops_before_scoring_when_the_judge_has_no_key(fake_run, monkeypatch):
-    """The only command that grades an answer, so the only one that needs the judge's key —
-    and a run that scores every case before failing to grade them has wasted them."""
+def test_a_run_stops_before_scoring_when_a_model_has_no_key(fake_run, monkeypatch):
+    """A run that scores every case before failing on a key has wasted them."""
     monkeypatch.setattr(config, "EVAL_JUDGE_MODEL", "openai/gpt-5")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    with pytest.raises(MissingModelKeyError, match="openai/gpt-5.*OPENAI_API_KEY"):
+    with pytest.raises(MissingModelKeyError, match="OPENAI_API_KEY for openai/gpt-5"):
         main(["run"])
 
     assert fake_run == []
-
-
-def test_a_run_told_not_to_judge_does_not_need_the_judges_key(fake_run, monkeypatch):
-    monkeypatch.setattr(config, "EVAL_JUDGE_MODEL", "openai/gpt-5")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    assert main(["run", "--no-judge"]) == 0
-
-
-@pytest.mark.parametrize("command", ["check", "stamp"])
-def test_the_dataset_commands_need_no_provider_key_at_all(command, monkeypatch, capsys):
-    """They read the corpus and the dataset file, so they must run with every model pointed
-    at a provider that has no key; the command returning at all is the assertion."""
-    for name in ("CHAT_MODEL", "EMBED_MODEL", "EVAL_JUDGE_MODEL"):
-        monkeypatch.setattr(config, name, "openai/gpt-5")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    main([command])
-
-    assert "OPENAI_API_KEY" not in capsys.readouterr().out

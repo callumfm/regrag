@@ -17,6 +17,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic>=2.13",
     "pydantic-settings>=2.15.0",
+    "python-dotenv>=1.0",
     "python-json-logger>=3.3",
     "selectolax>=0.4.11",
     "sqlalchemy[asyncio]>=2.0",

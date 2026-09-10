@@ -18,7 +18,6 @@ from app.core.config import (
     IngestConfig,
     JudgeConfig,
     RetrievalConfig,
-    RewriteConfig,
     StorageBackend,
     StorageConfig,
     config,
@@ -67,8 +66,7 @@ def test_base_config_is_a_settings_class():
     assert issubclass(BaseConfig, BaseSettings)
 
 
-def test_embedding_defaults_match_voyage_4_lite(monkeypatch):
-    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+def test_embedding_defaults_match_voyage_4_lite():
     embedding = EmbeddingConfig()
 
     assert embedding.EMBED_MODEL == "voyage/voyage-4-lite"
@@ -222,11 +220,6 @@ def test_chat_defaults():
     assert chat.CHAT_THREAD_TURNS == 5
 
 
-def test_rewrite_defaults_and_the_combined_config_carries_them():
-    assert RewriteConfig().REWRITE_MODEL == "anthropic/claude-haiku-4-5"
-    assert "REWRITE_MODEL" in Config.model_fields
-
-
 def test_config_includes_chat_settings():
     assert "CHAT_MODEL" in Config.model_fields
 
@@ -234,7 +227,6 @@ def test_config_includes_chat_settings():
 def test_assess_defaults():
     assess = AssessConfig()
     assert assess.ASSESS_ENABLED is True
-    assert assess.ASSESS_MODEL == "anthropic/claude-haiku-4-5"
     assert assess.ASSESS_MAX_ROUNDS == 1
     assert assess.ASSESS_MAX_CALLS == 4
     assert assess.ASSESS_SEARCH_LIMIT == 5
@@ -308,5 +300,4 @@ def test_the_eval_stamp_carries_the_decompose_settings():
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
 
     assert settings["DECOMPOSE_ENABLED"] is False
-    assert settings["DECOMPOSE_MODEL"] == "anthropic/claude-haiku-4-5"
     assert settings["DECOMPOSE_MAX_PARTS"] == 3

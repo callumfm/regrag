@@ -34,17 +34,13 @@ RESTATED = "What penalties does FuelEU Maritime impose?"
 HISTORY = (ChatTurn(question="What is FuelEU Maritime?", answer="A regulation on fuel."),)
 
 
-def test_rewrite_is_built_on_its_own_model_with_the_output_format_bound(monkeypatch):
-    """The restatement is asked for in the StandaloneQuestion shape, on a model set apart
-    from the answer's and assess's, as one setting per role requires."""
-    monkeypatch.setattr(config, "CHAT_MODEL", "anthropic/answer-model")
-    monkeypatch.setattr(config, "REWRITE_MODEL", "anthropic/rewrite-model")
-
+def test_rewrite_binds_the_output_format_on_a_blocking_call():
+    """The restatement is asked for in the StandaloneQuestion shape, on the one model every
+    node of the graph calls."""
     binding = rewrite_model()
     assert isinstance(binding, RunnableBinding)
     model = binding.bound
     assert isinstance(model, ChatLiteLLM)
-    assert model.model == "anthropic/rewrite-model"
     assert model.streaming is False
     assert binding.kwargs["response_format"] is StandaloneQuestion
 

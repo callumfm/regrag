@@ -36,9 +36,7 @@ class DecomposedQuestion(FrozenModel):
 def decompose_model() -> Runnable:
     """The decompose model as decompose calls it: one blocking turn, answering in the
     DecomposedQuestion shape."""
-    return chat_model(config.DECOMPOSE_MODEL, streaming=False).bind(
-        response_format=DecomposedQuestion
-    )
+    return chat_model(streaming=False).bind(response_format=DecomposedQuestion)
 
 
 @llm_retry

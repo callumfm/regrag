@@ -16,14 +16,6 @@ EF_SEARCH_MAX = 1000
 """pgvector refuses a larger walk, so a pool that would ask for one is clamped, not rejected."""
 
 
-def search_models() -> tuple[str, ...]:
-    """The models one search calls, for the key check its callers run at startup. The
-    cross-encoder is only among them when it is switched on."""
-    if not config.RERANK_ENABLED:
-        return (config.EMBED_MODEL,)
-    return (config.EMBED_MODEL, config.RERANK_MODEL)
-
-
 @llm_retry
 async def _embed_query(query: str) -> list[float]:
     """Embed one query, retrying transient provider failures."""

@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.http import http_client
-from app.core.llm.settings import check_model_keys
+from app.core.llm.keys import check_model_keys
 from app.core.logger import setup_logging
 from app.core.storage import StorageError, get_object_store
 from app.ingestion.exceptions import DiscoveryError
@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         known = ", ".join(sorted(config.TOPIC_BASE_ACTS))
         parser.error(f"unknown topics: {', '.join(unknown)} (known: {known})")
     setup_logging()
-    check_model_keys(config.EMBED_MODEL)
+    check_model_keys()
     try:
         report = asyncio.run(_ingest(topics))
     except (DiscoveryError, StorageError, httpx.HTTPError, ValidationError) as exc:

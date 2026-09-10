@@ -88,7 +88,7 @@ def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> st
 
 def assess_model() -> Runnable:
     """The assess model as assess calls it: one blocking turn, the tool surface bound."""
-    return chat_model(config.ASSESS_MODEL, streaming=False).bind_tools(tool_definitions())
+    return chat_model(streaming=False).bind_tools(tool_definitions())
 
 
 @llm_retry

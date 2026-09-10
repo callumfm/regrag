@@ -4,10 +4,9 @@ import argparse
 import asyncio
 from typing import Any
 
-from app.chat.graph.node import graph_models
 from app.core.config import config
 from app.core.llm.cache import enable_call_cache
-from app.core.llm.settings import check_model_keys
+from app.core.llm.keys import check_model_keys
 from app.core.logger import setup_logging
 from app.evals.dataset.check import check_against_corpus, stale_case_ids
 from app.evals.dataset.cli import (
@@ -22,7 +21,6 @@ from app.evals.dataset.models import CaseSelection, EvalDataset
 from app.evals.report import format_case_lines
 from app.evals.service import evaluate_all_cases
 from app.evals.tune.cli import register_tune_command, run_tune
-from app.retrieval.search import search_models
 
 
 def register_run_command(commands: Any) -> None:
@@ -61,8 +59,6 @@ def run_evals(
     selection: CaseSelection, verbose: bool = False, cached: bool = True, judge: bool = True
 ) -> int:
     """Score the dataset and print what it measured, the cases first when asked for."""
-    graded = (config.EVAL_JUDGE_MODEL,) if judge else ()
-    check_model_keys(*graph_models(), *search_models(), *graded)
     dataset = EvalDataset.load(selection=selection)
     drifted, corpus_version = asyncio.run(check_against_corpus(dataset))
 
@@ -82,6 +78,7 @@ def run_evals(
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging()
+    check_model_keys()
 
     try:
         if args.command == "run":

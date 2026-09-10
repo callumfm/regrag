@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.core.config import config
-from app.core.llm.settings import MissingModelKeyError
+from app.core.llm.keys import MissingModelKeyError
 from app.ingestion import cli
 from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.cli import main
@@ -142,13 +142,3 @@ def test_a_missing_embedding_key_stops_the_run_before_any_download(fake_ingest, 
         main([])
 
     assert calls == []
-
-
-def test_ingest_never_asks_for_a_key_it_will_not_use(fake_ingest, monkeypatch):
-    """It embeds and never answers, so a chat model at a provider with no key is its business
-    to ignore — the point of checking per entry point rather than once for everything."""
-    monkeypatch.setattr(config, "CHAT_MODEL", "openai/gpt-5")
-    monkeypatch.setattr(config, "EVAL_JUDGE_MODEL", "openai/gpt-5")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    assert main([]) == 0
