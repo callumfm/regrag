@@ -238,6 +238,24 @@ async def test_retrieve_is_running_before_the_sources_it_finds_arrive(two_result
     assert step_frames(events)[0] == (ChatNode.RETRIEVE, ChatStepStatus.RUNNING, None)
 
 
+async def test_retrieve_is_reported_finished_before_the_sources_it_found_arrive(
+    two_results, answer_model
+):
+    """A node's finished frame is read off its task result, the sources off the state
+    snapshot the superstep ends with; were that order to flip, the sources would land while
+    the trail still said retrieve was running."""
+    events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
+
+    finished = next(
+        i
+        for i, event in enumerate(events)
+        if isinstance(event, StepEvent)
+        and (event.data.step, event.data.status) == (ChatNode.RETRIEVE, ChatStepStatus.COMPLETED)
+    )
+    sources = next(i for i, event in enumerate(events) if isinstance(event, SourcesEvent))
+    assert finished < sources
+
+
 async def test_a_running_step_reports_no_timing_and_the_ledger_never_sees_one(
     two_results, answer_model, recorded_requests
 ):
