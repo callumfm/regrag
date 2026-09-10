@@ -10,7 +10,7 @@ import {
 	MessageScrollerViewport,
 } from "@/components/ui/message-scroller"
 import { useChatStream } from "@/hooks/use-chat-stream"
-import { numberCitations } from "@/lib/citations"
+import { citedSources } from "@/lib/citations"
 import { ChatTurn } from "./chat-turn"
 import { PromptForm } from "./prompt-form"
 import { SourcePanel } from "./source-panel"
@@ -49,16 +49,12 @@ export function ChatPage() {
 	}
 
 	const openTurn = turns.find((turn) => turn.id === openMarker?.turnId)
-	const openSource =
-		openTurn?.sources.find((source) => source.marker === openMarker?.marker) ??
-		null
-	const openLabel =
-		openTurn && openSource
-			? (numberCitations(
-					openTurn.answer,
-					new Set(openTurn.sources.map((source) => source.marker)),
-				).get(openSource.marker) ?? null)
-			: null
+	const opened =
+		openTurn === undefined
+			? undefined
+			: citedSources(openTurn.answer, openTurn.sources).find(
+					(cited) => cited.source.marker === openMarker?.marker,
+				)
 
 	const isEmpty = turns.length === 0
 
@@ -116,8 +112,8 @@ export function ChatPage() {
 			</div>
 			{isEmpty && <div className="flex-1" />}
 			<SourcePanel
-				source={openSource}
-				label={openLabel}
+				source={opened?.source ?? null}
+				label={opened?.label ?? null}
 				onClose={() => setOpenMarker(null)}
 			/>
 		</main>

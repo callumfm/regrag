@@ -40,7 +40,7 @@ export function SourcePanel({
 						{shown?.source.citation}
 					</DrawerTitle>
 					<DrawerDescription>
-						{shown?.source.celex}
+						{shown?.source.act}
 						{shown?.source.title ? ` · ${shown.source.title}` : ""}
 					</DrawerDescription>
 				</DrawerHeader>

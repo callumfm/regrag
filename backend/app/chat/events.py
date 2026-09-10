@@ -8,6 +8,7 @@ from pydantic import ConfigDict, Field
 from app.chat.enums import ChatEventName
 from app.chat.models import ChatStepResult
 from app.core.models import ErrorResponse, FrozenModel
+from app.ingestion import celex
 from app.retrieval.models import RetrievedChunk
 
 
@@ -17,6 +18,7 @@ class ChatSource(FrozenModel):
     marker: int
     chunk_id: int
     celex: str
+    act: str
     citation: str
     title: str | None
     text: str
@@ -28,6 +30,7 @@ class ChatSource(FrozenModel):
             marker=marker,
             chunk_id=result.id,
             celex=result.celex,
+            act=celex.format_act_name(result.celex),
             citation=result.citation,
             title=result.title,
             text=result.text,

@@ -1,10 +1,14 @@
 import type { Element, Root } from "hast"
 import { describe, expect, it } from "vitest"
+import type { ChatSource } from "@/api/types"
 import {
+	citedSources,
+	dropCitationRuns,
 	extractCitedMarkers,
 	moveMarkersAfterPunctuation,
 	numberCitations,
 	rehypeCitationMarkers,
+	renumberCitations,
 	splitCitationMarkers,
 } from "./citations"
 
@@ -60,17 +64,15 @@ describe("splitCitationMarkers", () => {
 		])
 	})
 
-	it("emits adjacent markers as separate segments", () => {
-		expect(splitCitationMarkers("claim [1][2].", known)).toEqual([
-			{ kind: "text", value: "claim." },
-			{ kind: "marker", marker: 1 },
-			{ kind: "marker", marker: 2 },
-		])
-	})
-
 	it("leaves unknown markers as literal text", () => {
 		expect(splitCitationMarkers("a [9] b", known)).toEqual([
 			{ kind: "text", value: "a [9] b" },
+		])
+	})
+
+	it("leaves no marker segment where a run stood", () => {
+		expect(splitCitationMarkers("claim [1][2].", known)).toEqual([
+			{ kind: "text", value: "claim." },
 		])
 	})
 
@@ -182,6 +184,14 @@ describe("rehypeCitationMarkers", () => {
 		])
 	})
 
+	it("takes away a run even where no marker survives it", () => {
+		const tree = paragraph("claim [1][2].")
+		rehypeCitationMarkers(known)()(tree)
+		expect(firstChild(tree).children).toEqual([
+			{ type: "text", value: "claim." },
+		])
+	})
+
 	it("leaves text without known markers untouched", () => {
 		const tree = paragraph("claim [9].")
 		rehypeCitationMarkers(known)()(tree)
@@ -216,5 +226,120 @@ describe("rehypeCitationMarkers", () => {
 				(child) => child.type === "element" && child.tagName === "cite-marker",
 			),
 		).toHaveLength(2)
+	})
+})
+
+function source(
+	marker: number,
+	overrides: Partial<ChatSource> = {},
+): ChatSource {
+	return {
+		marker,
+		chunk_id: marker,
+		celex: "32023R1805",
+		act: "Regulation (EU) 2023/1805",
+		citation: "Article 4(1)",
+		title: "Greenhouse gas intensity limit",
+		text: "The limit applies from 2025.",
+		...overrides,
+	}
+}
+
+describe("dropCitationRuns", () => {
+	it("drops a run of markers", () => {
+		expect(dropCitationRuns("Exemptions expire in 2029.[1][2][7]", known)).toBe(
+			"Exemptions expire in 2029.",
+		)
+	})
+
+	it("keeps a marker that stands alone", () => {
+		expect(dropCitationRuns("Island routes are exempt.[2]", known)).toBe(
+			"Island routes are exempt.[2]",
+		)
+	})
+
+	it("takes the space a run was separated by", () => {
+		expect(dropCitationRuns("a claim [1][2] and more", known)).toBe(
+			"a claim and more",
+		)
+	})
+
+	it("leaves a run alone when any marker is unknown", () => {
+		expect(dropCitationRuns("claim [1][9]", known)).toBe("claim [1][9]")
+	})
+})
+
+describe("citedSources", () => {
+	const sources = [source(1), source(7), source(12)]
+
+	it("returns the cited sources with the number the answer shows", () => {
+		expect(citedSources("claim [7] and [12].", sources)).toEqual([
+			{ source: sources[1], label: 1 },
+			{ source: sources[2], label: 2 },
+		])
+	})
+
+	it("leaves out a retrieved source the answer never cites", () => {
+		expect(citedSources("claim [7].", sources)).toEqual([
+			{ source: sources[1], label: 1 },
+		])
+	})
+
+	it("is empty when the answer cites nothing", () => {
+		expect(citedSources("claim.", sources)).toEqual([])
+	})
+
+	it("keeps a source the answer only cites inside a run", () => {
+		expect(citedSources("claim [7]. All of it [7][12].", sources)).toEqual([
+			{ source: sources[1], label: 1 },
+			{ source: sources[2], label: 2 },
+		])
+	})
+})
+
+describe("renumberCitations", () => {
+	const sources = [source(1), source(7), source(12)]
+
+	it("rewrites markers as the numbers the reader saw", () => {
+		expect(renumberCitations("claim [7] and [12].", sources)).toBe(
+			"claim [1] and [2].",
+		)
+	})
+
+	it("gives a repeated marker the same number each time", () => {
+		expect(renumberCitations("claim [7], again [7].", sources)).toBe(
+			"claim [1], again [1].",
+		)
+	})
+
+	it("leaves a marker that was never retrieved alone", () => {
+		expect(renumberCitations("claim [9].", sources)).toBe("claim [9].")
+	})
+
+	it("gives back an answer it has nothing to rewrite, exactly", () => {
+		const answer =
+			"A limit.\n\n```ts\nconst x = 1\n```\n\n- a `span` and text\n"
+		expect(renumberCitations(answer, sources)).toBe(answer)
+	})
+
+	it("leaves markers inside inline code exactly as they were", () => {
+		expect(
+			renumberCitations("read `values[7][12]` then cite [7].", sources),
+		).toBe("read `values[7][12]` then cite [1].")
+	})
+
+	it("leaves markers inside a fenced block alone", () => {
+		expect(
+			renumberCitations(
+				"cite [7].\n```ts\nconst x = values[7][12]\n```",
+				sources,
+			),
+		).toBe("cite [1].\n```ts\nconst x = values[7][12]\n```")
+	})
+
+	it("drops the runs the answer does not show", () => {
+		expect(renumberCitations("claim [7]. All of it [7][12].", sources)).toBe(
+			"claim [1]. All of it.",
+		)
 	})
 })

@@ -74,6 +74,8 @@ export interface components {
             chunk_id: number;
             /** Celex */
             celex: string;
+            /** Act */
+            act: string;
             /** Citation */
             citation: string;
             /** Title */

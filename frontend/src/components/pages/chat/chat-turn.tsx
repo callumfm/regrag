@@ -9,7 +9,7 @@ import {
 	type ChatTurn as Turn,
 } from "@/lib/chat-turns"
 import { Answer } from "./answer"
-import { CitedSourcesLine } from "./cited-sources-line"
+import { AnswerActions } from "./answer-actions"
 import { RunSteps } from "./run-steps"
 
 export const ChatTurn = memo(function ChatTurn({
@@ -61,7 +61,11 @@ export const ChatTurn = memo(function ChatTurn({
 								onOpenMarker={onOpenMarker}
 							/>
 							{turn.status === "settled" && (
-								<CitedSourcesLine answer={turn.answer} sources={turn.sources} />
+								<AnswerActions
+									answer={turn.answer}
+									sources={turn.sources}
+									onOpenSource={onOpenMarker}
+								/>
 							)}
 						</>
 					)}
