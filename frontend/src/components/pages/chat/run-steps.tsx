@@ -60,7 +60,7 @@ export const RunSteps = memo(function RunSteps({
 				<span
 					role="status"
 					className={cn(
-						"font-medium text-sm whitespace-nowrap",
+						"text-xs whitespace-nowrap",
 						isRunning
 							? "shimmer-text"
 							: "fade-in animate-in text-muted-foreground duration-300",
