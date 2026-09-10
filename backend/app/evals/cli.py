@@ -6,7 +6,6 @@ from typing import Any
 
 from app.core.config import config
 from app.core.llm.cache import enable_call_cache
-from app.core.llm.keys import check_model_keys
 from app.core.logger import setup_logging
 from app.evals.dataset.check import check_against_corpus, stale_case_ids
 from app.evals.dataset.cli import (
@@ -78,7 +77,6 @@ def run_evals(
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging()
-    check_model_keys()
 
     try:
         if args.command == "run":

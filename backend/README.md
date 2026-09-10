@@ -89,6 +89,6 @@ uv run evals tune              # sweep retrieval settings against the same cases
 Each is an argparse entry point that self-documents: `--help` prints what it
 does and every flag it takes.
 
-Each refuses to start unless every configured model's provider key is in the
-environment, and re-running `ingest` is cheap — unchanged documents are neither
-downloaded nor re-embedded.
+`ingest` needs `VOYAGE_API_KEY`, `evals run` also needs `ANTHROPIC_API_KEY`, and
+re-running `ingest` is cheap — unchanged documents are neither downloaded nor
+re-embedded.

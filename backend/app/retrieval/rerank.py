@@ -7,6 +7,7 @@ from litellm.types.rerank import RerankResponseResult
 
 from app.core.config import config
 from app.core.llm.errors import LLMError, llm_retry, wrap_provider_errors
+from app.core.llm.keys import api_key_for
 from app.retrieval.models import SearchResult
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ async def _rerank(query: str, documents: list[str]) -> list[RerankResponseResult
         model=config.RERANK_MODEL,
         query=query,
         documents=documents,
+        api_key=api_key_for(config.RERANK_MODEL),
         timeout=config.RERANK_TIMEOUT,
     )
     return response.results or []

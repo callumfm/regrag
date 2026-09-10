@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
-from app.core.llm.keys import MissingModelKeyError
 from app.evals import cli
 from app.evals.cli import main
 from app.evals.dataset.enums import DriftKind
@@ -185,14 +184,3 @@ def test_run_reports_the_corpus_and_the_stale_cases_it_read_before_scoring(
     assert '"corpus_version": "2026-08-01-a3f1c2"' in out
     assert "1 case cites text that changed since authoring:" in out
     assert "  amended" in out
-
-
-def test_a_run_stops_before_scoring_when_a_model_has_no_key(fake_run, monkeypatch):
-    """A run that scores every case before failing on a key has wasted them."""
-    monkeypatch.setattr(config, "EVAL_JUDGE_MODEL", "openai/gpt-5")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    with pytest.raises(MissingModelKeyError, match="OPENAI_API_KEY for openai/gpt-5"):
-        main(["run"])
-
-    assert fake_run == []

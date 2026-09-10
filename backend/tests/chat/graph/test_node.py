@@ -1,5 +1,7 @@
 """The client every chat node calls through."""
 
+from pydantic import SecretStr
+
 from app.chat.graph.node import chat_model
 from app.core.config import config
 
@@ -18,12 +20,13 @@ def test_the_client_carries_the_chat_settings(monkeypatch):
     assert client.streaming is False
 
 
-def test_the_client_passes_no_key_so_the_provider_reads_its_own(monkeypatch):
-    """A model at another provider must work as a setting; a key from config would pin
-    every node to the one provider whose variable config happened to name."""
-    monkeypatch.setattr(config, "CHAT_MODEL", "gemini/gemini-2.5-pro")
+def test_the_client_carries_the_key_of_the_provider_the_model_names(monkeypatch):
+    """A model at another provider must work as a setting, so the key is looked up from the
+    model rather than pinned to one provider's variable."""
+    monkeypatch.setattr(config, "CHAT_MODEL", "openai/gpt-5")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", SecretStr("sk-openai"))
 
-    assert chat_model().api_key is None
+    assert chat_model().api_key == "sk-openai"
 
 
 def test_the_answer_streams_and_asks_for_its_usage():

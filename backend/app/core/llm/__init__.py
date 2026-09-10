@@ -1,6 +1,6 @@
-"""Model provider calls through LiteLLM: the boot check that each configured provider can
-be reached, the error contract every call shares, what a call spends, the embedding call,
-and the cache that replays a call from disk."""
+"""Model provider calls through LiteLLM: which key a call is made with, the error contract
+every call shares, what a call spends, the embedding call, and the cache that replays a
+call from disk."""
 
 import litellm
 

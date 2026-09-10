@@ -1,7 +1,5 @@
 """Settings classes: inherited config and per-vendor defaults."""
 
-import os
-
 import pytest
 from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings
@@ -17,11 +15,11 @@ from app.core.config import (
     Environment,
     IngestConfig,
     JudgeConfig,
+    ProviderConfig,
     RetrievalConfig,
     StorageBackend,
     StorageConfig,
     config,
-    export_env_file,
     get_config_snapshot,
     get_env_file,
     load_environment,
@@ -117,43 +115,11 @@ def test_the_env_file_is_absolute_so_the_working_directory_cannot_change_it(env,
     assert env_file.is_absolute()
 
 
-# The env file reaching the process environment, which is where a provider SDK reads its key
-
-
-def test_the_env_file_reaches_the_process_environment(monkeypatch, tmp_path):
-    """litellm reads each provider's own variable off os.environ, and pydantic reading the
-    same file into a settings object would leave that empty."""
-    monkeypatch.delenv("SOME_PROVIDER_KEY", raising=False)
-    env_file = tmp_path / ".env.sample"
-    env_file.write_text("SOME_PROVIDER_KEY=sk-from-the-file\n")
-
-    export_env_file(env_file)
-
-    assert os.environ["SOME_PROVIDER_KEY"] == "sk-from-the-file"
-
-
-def test_an_exported_value_beats_the_file(monkeypatch, tmp_path):
-    """The deployed process sets its own secrets; the file is the fallback, as it is for
-    the settings classes reading it."""
-    monkeypatch.setenv("SOME_PROVIDER_KEY", "sk-from-the-host")
-    env_file = tmp_path / ".env.sample"
-    env_file.write_text("SOME_PROVIDER_KEY=sk-from-the-file\n")
-
-    export_env_file(env_file)
-
-    assert os.environ["SOME_PROVIDER_KEY"] == "sk-from-the-host"
-
-
-def test_an_empty_value_is_left_unset(monkeypatch, tmp_path):
-    """.env.example names every key with no value, and an empty key reaches a provider as a
-    401 rather than the boot failure naming the model. env_ignore_empty reads it the same way."""
-    monkeypatch.delenv("SOME_PROVIDER_KEY", raising=False)
-    env_file = tmp_path / ".env.sample"
-    env_file.write_text("SOME_PROVIDER_KEY=\n")
-
-    export_env_file(env_file)
-
-    assert "SOME_PROVIDER_KEY" not in os.environ
+def test_every_provider_key_is_a_secret_that_defaults_to_unset():
+    """Empty is unset: the provider refuses the call, and no test can reach one by accident."""
+    for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "VOYAGE_API_KEY"):
+        assert ProviderConfig.model_fields[name].annotation is SecretStr
+        assert getattr(ProviderConfig(), name).get_secret_value() == ""
 
 
 def test_the_suite_runs_against_a_database_of_its_own():
@@ -276,13 +242,13 @@ def test_a_snapshot_records_the_requested_sections_whole(monkeypatch):
 
 def test_a_snapshot_leaves_out_the_secrets(monkeypatch):
     """The snapshot is printed and pasted around; a secret is not a knob a run reproduces."""
-    monkeypatch.setattr(config, "DB_PASS", SecretStr("never-recorded"))
+    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", SecretStr("sk-never-recorded"))
 
     snapshot = get_config_snapshot()
 
-    assert "never-recorded" not in str(snapshot.values())
-    assert "DB_PASS" not in snapshot
+    assert "sk-never-recorded" not in str(snapshot.values())
     assert not any("API_KEY" in name for name in snapshot)
+    assert "DB_PASS" not in snapshot
 
 
 def test_assignment_is_validated_and_coerced_by_the_field():

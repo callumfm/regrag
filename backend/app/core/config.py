@@ -5,7 +5,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from dotenv import dotenv_values
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,17 +38,6 @@ def get_env_file(env: Environment = ENVIRONMENT) -> Path:
     """Absolute, so the file is found whatever directory the process was started from."""
     name = ".env.example" if env == Environment.TEST else f".env.{env.value}"
     return BACKEND_ROOT / name
-
-
-def export_env_file(path: Path) -> None:
-    """Put the env file in the process environment, where a provider SDK reads its own key.
-    An exported value wins; an empty one is left unset, as the settings classes read it."""
-    for name, value in dotenv_values(path).items():
-        if value:
-            os.environ.setdefault(name, value)
-
-
-export_env_file(get_env_file())
 
 
 class BaseConfig(BaseSettings):
@@ -142,6 +130,16 @@ class PostgresConfig(BaseConfig):
 
 EMBED_DIMENSIONS = 1024
 """Width of the document_chunks.embedding column: not a setting, changing it needs a migration."""
+
+
+class ProviderConfig(BaseConfig):
+    """One key per provider a model may name, under litellm's own variable names so the env
+    file reads the same as it would for litellm itself. Empty is unset: the provider refuses
+    the call."""
+
+    ANTHROPIC_API_KEY: SecretStr = SecretStr("")
+    OPENAI_API_KEY: SecretStr = SecretStr("")
+    VOYAGE_API_KEY: SecretStr = SecretStr("")
 
 
 class EmbeddingConfig(BaseConfig):
@@ -311,6 +309,7 @@ class JudgeConfig(BaseConfig):
 class Config(
     AppConfig,
     PostgresConfig,
+    ProviderConfig,
     EmbeddingConfig,
     ChatConfig,
     AssessConfig,
@@ -327,15 +326,10 @@ class Config(
 config = Config()
 
 
-def configured_models() -> tuple[str, ...]:
-    """Every model the app is set up to call, read off the settings whose name says so."""
-    names = sorted(name for name in Config.model_fields if name.endswith("_MODEL"))
-    return tuple(dict.fromkeys(getattr(config, name) for name in names))
-
-
 _CONFIG_SECTIONS = (
     AppConfig,
     PostgresConfig,
+    ProviderConfig,
     EmbeddingConfig,
     ChatConfig,
     AssessConfig,

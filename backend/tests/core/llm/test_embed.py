@@ -2,7 +2,6 @@
 the wrap point stamps on each failure."""
 
 import json
-import os
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -12,7 +11,7 @@ import litellm
 import openai
 import pytest
 
-from app.core.config import BACKEND_ROOT
+from app.core.config import BACKEND_ROOT, config
 from app.core.llm.embed import EmbedInput, embed
 from app.core.llm.errors import LLMError
 from tests.conftest import provider_error
@@ -98,8 +97,8 @@ async def test_embed_sends_configured_call_kwargs(monkeypatch):
     call = calls[0]
     assert call["model"] == "voyage/voyage-4-lite"
     assert call["dimensions"] == 1024
+    assert call["api_key"] == config.VOYAGE_API_KEY.get_secret_value()
     assert call["timeout"] == 30
-    assert "api_key" not in call
     assert "num_retries" not in call
 
 
@@ -211,7 +210,9 @@ async def test_embed_sends_voyage_request_body_and_auth_header(monkeypatch):
     assert captured["body"]["output_dimension"] == 1024
     assert captured["body"]["input_type"] == "query"
     assert "num_retries" not in captured["body"]
-    assert captured["headers"]["authorization"] == f"Bearer {os.environ['VOYAGE_API_KEY']}"
+    assert (
+        captured["headers"]["authorization"] == f"Bearer {config.VOYAGE_API_KEY.get_secret_value()}"
+    )
 
     litellm.in_memory_llm_clients_cache.flush_cache()
 

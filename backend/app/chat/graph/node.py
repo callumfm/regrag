@@ -12,6 +12,7 @@ from app.chat.enums import ChatNode
 from app.chat.models import ChatState, ChatStepResult
 from app.core.clock import elapsed_ms
 from app.core.config import config
+from app.core.llm.keys import api_key_for
 
 
 class NodeFn(Protocol):
@@ -41,8 +42,8 @@ def traced(run: NodeFn) -> NodeFn:
 
 def chat_model(*, streaming: bool = True) -> ChatLiteLLM:
     """A chat client built per call, so config is read at call time like embed's. Every node
-    calls CHAT_MODEL — they are steps of one answer, not jobs tuned apart — at whichever
-    provider it names: no key is passed, so litellm reads the variable that provider wants.
+    calls CHAT_MODEL — they are steps of one answer, not jobs tuned apart — with the key of
+    whichever provider it names.
 
     Streaming is set for the answer, or litellm answers in one blocking call — even under
     the graph's messages stream — and the SSE stream carries the whole answer in a single
@@ -52,6 +53,7 @@ def chat_model(*, streaming: bool = True) -> ChatLiteLLM:
     """
     return ChatLiteLLM(
         model=config.CHAT_MODEL,
+        api_key=api_key_for(config.CHAT_MODEL),
         max_tokens=config.CHAT_MAX_TOKENS,
         temperature=config.CHAT_TEMPERATURE,
         request_timeout=config.CHAT_TIMEOUT,

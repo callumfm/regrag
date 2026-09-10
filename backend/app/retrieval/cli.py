@@ -7,7 +7,6 @@ import sys
 from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm.errors import LLMError
-from app.core.llm.keys import check_model_keys
 from app.core.logger import setup_logging
 from app.retrieval.models import SearchFilters, SearchRequest, SearchResult
 from app.retrieval.search import search
@@ -32,7 +31,6 @@ async def _search(request: SearchRequest) -> tuple[SearchResult, ...]:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging()
-    check_model_keys()
     request = SearchRequest(
         query=args.query,
         filters=SearchFilters(celex=args.celex, topic=args.topic),

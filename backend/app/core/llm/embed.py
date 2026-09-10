@@ -8,6 +8,7 @@ import litellm
 
 from app.core.config import EMBED_DIMENSIONS, config
 from app.core.llm.errors import LLMError, wrap_provider_errors
+from app.core.llm.keys import api_key_for
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ async def embed(texts: list[str], *, input_type: EmbedInput) -> list[list[float]
         input=texts,
         input_type=input_type.value,
         dimensions=EMBED_DIMENSIONS,
+        api_key=api_key_for(config.EMBED_MODEL),
         timeout=config.EMBED_TIMEOUT,
     )
     if len(response.data) != len(texts):

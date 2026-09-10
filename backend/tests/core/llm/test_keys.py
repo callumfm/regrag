@@ -1,12 +1,40 @@
-"""The parameters a provider is spared, and the boot check that its key is present."""
+"""Which key a model call is made with, and the parameters a provider is spared."""
 
 import litellm
 import pytest
 from litellm.utils import get_optional_params
+from pydantic import SecretStr
 
 import app.core.llm  # noqa: F401 — importing the package is what sets litellm's globals
-from app.core.config import config, configured_models
-from app.core.llm.keys import MissingModelKeyError, check_model_keys
+from app.core.config import config
+from app.core.llm.keys import api_key_for
+
+
+@pytest.mark.parametrize(
+    ("model", "setting"),
+    [
+        ("anthropic/claude-haiku-4-5", "ANTHROPIC_API_KEY"),
+        ("openai/gpt-5", "OPENAI_API_KEY"),
+        ("voyage/voyage-4-lite", "VOYAGE_API_KEY"),
+        ("voyage/rerank-2.5", "VOYAGE_API_KEY"),
+    ],
+)
+def test_a_model_is_called_with_the_key_of_the_provider_it_names(model, setting, monkeypatch):
+    """Which key follows from the model string, so a provider swap is a setting."""
+    monkeypatch.setattr(config, setting, SecretStr("sk-for-that-provider"))
+
+    assert api_key_for(model) == "sk-for-that-provider"
+
+
+def test_an_unset_key_is_passed_as_empty_and_left_for_the_provider_to_refuse(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", SecretStr(""))
+
+    assert api_key_for("openai/gpt-5") == ""
+
+
+def test_a_provider_with_no_setting_is_a_code_change_and_says_so():
+    with pytest.raises(AttributeError, match="GEMINI_API_KEY"):
+        api_key_for("gemini/gemini-2.5-pro")
 
 
 def test_a_parameter_the_model_refuses_is_dropped_rather_than_raised():
@@ -19,65 +47,3 @@ def test_a_parameter_the_model_refuses_is_dropped_rather_than_raised():
     )
 
     assert sent == {"max_tokens": 10}
-
-
-def test_every_model_setting_is_checked_without_naming_one(monkeypatch):
-    """Read off the settings whose name says model, so a role added later is covered."""
-    monkeypatch.setattr(config, "CHAT_MODEL", "openai/gpt-5")
-
-    assert set(configured_models()) == {
-        "openai/gpt-5",
-        config.EMBED_MODEL,
-        config.RERANK_MODEL,
-        config.EVAL_JUDGE_MODEL,
-    }
-
-
-def test_a_model_shared_by_two_settings_is_named_once():
-    """The chat model and the judge may name the same model; the check should not ask
-    after its key twice."""
-    assert len(configured_models()) == len(set(configured_models()))
-
-
-def test_a_configured_key_passes_the_check(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-present")
-
-    check_model_keys()
-
-
-def test_a_missing_key_names_the_variable_and_what_wants_it(monkeypatch):
-    """The failure has to say which variable to set and which model wants it, or a provider
-    swap debugs as a 401 on the first request."""
-    monkeypatch.setattr(config, "CHAT_MODEL", "openai/gpt-5")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    with pytest.raises(MissingModelKeyError, match="OPENAI_API_KEY for openai/gpt-5"):
-        check_model_keys()
-
-
-def test_the_check_reports_every_unset_variable_at_once(monkeypatch):
-    """One boot, one fix: a deployment missing two providers' keys should not need two
-    attempts to learn that."""
-    monkeypatch.setattr(config, "CHAT_MODEL", "openai/gpt-5")
-    monkeypatch.setattr(config, "EVAL_JUDGE_MODEL", "gemini/gemini-2.5-pro")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-
-    with pytest.raises(MissingModelKeyError) as failure:
-        check_model_keys()
-
-    assert "OPENAI_API_KEY" in str(failure.value)
-    assert "GEMINI_API_KEY" in str(failure.value)
-
-
-def test_one_variable_serving_two_models_is_asked_for_once(monkeypatch):
-    """Embed and rerank are both Voyage; the fix is one variable, so the failure should say
-    it once and name both models under it."""
-    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
-
-    with pytest.raises(MissingModelKeyError) as failure:
-        check_model_keys()
-
-    assert str(failure.value).count("VOYAGE_API_KEY") == 1
-    assert config.EMBED_MODEL in str(failure.value)
-    assert config.RERANK_MODEL in str(failure.value)

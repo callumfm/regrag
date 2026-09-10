@@ -6,7 +6,6 @@ import httpx
 import pytest
 
 from app.core.config import config
-from app.core.llm.keys import MissingModelKeyError
 from app.ingestion import cli
 from app.ingestion.chunk.models import ChunkCounts
 from app.ingestion.cli import main
@@ -130,15 +129,3 @@ async def test_ingest_hands_the_pipeline_a_paced_client(monkeypatch):
     (client,) = clients
     assert built["delays"] == config.CRAWL_DELAYS
     assert client.event_hooks["request"]
-
-
-def test_a_missing_embedding_key_stops_the_run_before_any_download(fake_ingest, monkeypatch):
-    """A corpus crawl is slow and polite; discovering the key at the embed stage wastes it."""
-    calls, _ = fake_ingest
-    monkeypatch.setattr(config, "EMBED_MODEL", "openai/text-embedding-3-small")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    with pytest.raises(MissingModelKeyError, match="OPENAI_API_KEY"):
-        main([])
-
-    assert calls == []
