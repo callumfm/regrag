@@ -59,27 +59,25 @@ def _starting_steps(entry: ChatState, node: ChatNode) -> list[ChatStepResult]:
 async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, None]:
     """The graph run as chat events. LangGraph provides three streams: 'tasks' - an event as
     each node starts and finishes, 'values' - a snapshot of the state after each node, and
-    'messages' - the tokens a node's model call produces."""
+    'messages' - the tokens a node's model call produces. Finished steps come from the
+    'tasks' event, which a cached node never sends. Nothing here is cached."""
     sources_sent = False
-    steps_sent = 0
     graph_stream: AsyncIterator[Any] = chat_graph.astream(
         state, stream_mode=["tasks", "values", "messages"]
     )
     async for mode, payload in graph_stream:
-        # Node starting, which only a task event carries: a finishing one has no input
+        # Starting carries the node's input, finished what it returned — nothing if it raised
         if mode == "tasks":
             if "input" in payload:
                 for step in _starting_steps(payload["input"], ChatNode(payload["name"])):
                     yield StepEvent(data=step)
+            else:
+                for step in payload["result"].get("steps", ()):
+                    yield StepEvent(data=step)
             continue
-        # Node completed
+        # The full state after each node
         if mode == "values":
             state.sync_from_snapshot(payload)
-
-            # Report the path walked since the last snapshot, which carries the whole of it
-            for step in state.steps[steps_sent:]:
-                yield StepEvent(data=step)
-            steps_sent = len(state.steps)
 
             if not sources_sent and state.context_settled:
                 sources_sent = True
