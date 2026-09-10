@@ -1,0 +1,175 @@
+"""assess ⇄ assess_tools: what the context still needs read, and the round that reads it."""
+
+import logging
+import time
+from collections.abc import Sequence
+from typing import Any
+
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import Runnable
+from pydantic import ValidationError
+
+from app.chat.graph.node import chat_model, traced
+from app.chat.models import ChatState, ChatStepResult
+from app.chat.prompts import format_context, system_prompt, thread_messages
+from app.chat.toolbox.models import ToolCall
+from app.chat.toolbox.service import (
+    already_in_context,
+    build_call_step,
+    is_refusal,
+    refusal_from,
+    run_tool_call,
+    tool_definitions,
+)
+from app.core.clock import elapsed_ms
+from app.core.config import config
+from app.core.llm.errors import LLMError, llm_retry, wrap_provider_errors
+from app.retrieval.models import ReferenceTarget, RetrievedChunk
+
+logger = logging.getLogger(__name__)
+
+ASSESS_SYSTEM_PROMPT = (
+    "You decide what RegRag, an assistant answering questions about EU maritime "
+    "regulation, still needs to read before answering. You are shown a question and "
+    "the numbered context blocks retrieved so far; each block may list what it cites. "
+    "If the context already answers the whole question, call no tools. Otherwise call "
+    "what fills the gap: follow_reference fetches the exact text a block cites — "
+    "prefer it whenever a block leans on a provision named in its cites line, passing "
+    "that line's document number and division; search runs a fresh corpus search — "
+    "use it when a needed concept is named without a citation, or a part of the "
+    "question has no context at all, narrowing with celex when the act is known. "
+    "Never re-fetch what the context already shows. You never answer the question "
+    "yourself: your output is tool calls, or nothing when the context suffices."
+)
+
+ASSESS_REFUSAL_INSTRUCTION = (
+    " If no block bears on the question and no search or fetch of this corpus of EU "
+    "maritime regulation could — it asks about another regime, about a named company, "
+    "ship or event, for a statistic or a figure no provision states, or about a topic "
+    "outside the corpus — call refuse, alone, saying why. Blocks on the "
+    "subject the question touches that do not answer it are not a part answer. Never call "
+    "it on a question the context answers in part, or one a search or fetch might yet "
+    "answer."
+)
+
+
+def build_assess_system_prompt(*, may_refuse: bool) -> str:
+    """The assess system prompt, telling the model when to refuse only when it is offered
+    the tool to do it with."""
+    return ASSESS_SYSTEM_PROMPT + (ASSESS_REFUSAL_INSTRUCTION if may_refuse else "")
+
+
+def reference_addresses(source: RetrievedChunk) -> list[str]:
+    """Each followable address once, as 'celex division': a reference naming no division is
+    skipped, on the same rule follow_reference's target enforces, and several points of one
+    article are the one address."""
+    addresses = []
+    for reference in source.references:
+        try:
+            target = ReferenceTarget.from_reference(reference, citing=source.celex)
+        except ValidationError:
+            continue
+        addresses.append(f"{target.celex} {target.citation}")
+    return list(dict.fromkeys(addresses))
+
+
+def cites_line(source: RetrievedChunk) -> str:
+    """What a block cites, as the line assess reads it off, or nothing when it cites no
+    address that can be followed."""
+    addresses = reference_addresses(source)
+    return f"cites: {', '.join(addresses)}" if addresses else ""
+
+
+def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> str:
+    """The full assess turn: the same numbered blocks synthesize will cite, each followed
+    by the addresses it cites so follow_reference can be pointed at one, then the question."""
+    return f"Context:\n\n{format_context(sources, cites_line)}\n\nQuestion: {question}"
+
+
+def assess_model() -> Runnable:
+    """The assess model as assess calls it: one blocking turn, the tool surface bound."""
+    return chat_model(config.ASSESS_MODEL, streaming=False).bind_tools(tool_definitions())
+
+
+@llm_retry
+@wrap_provider_errors("assess call")
+async def call_assess_model(state: ChatState) -> dict[str, Any]:
+    """One model turn asking what would fill the gaps in the context — or, called alone,
+    saying nothing bears on the question. That call beside a fetch is dropped, the fetch
+    being the model's own doubt; a fetch that would only re-fetch a division the context
+    already shows is dropped too, then the rest are capped to the calls a round may run —
+    none of the dropped reaches state or the ledger."""
+    messages = [
+        SystemMessage(
+            system_prompt(
+                build_assess_system_prompt(may_refuse=config.ASSESS_MAY_REFUSE), state.history
+            )
+        ),
+        *thread_messages(state.history),
+        HumanMessage(build_assess_message(state.question, state.sources)),
+    ]
+    response = await assess_model().ainvoke(messages)
+    asked = [ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls]
+    refusals = [call for call in asked if is_refusal(call)]
+    fetches = [call for call in asked if not is_refusal(call)]
+    if refusals and not fetches:
+        return {"pending_calls": (refusals[0],), "usage": response.usage_metadata}
+    if refusals:
+        logger.info("assess hedged its refusal with a fetch, so the fetch runs")
+    useful = [call for call in fetches if not already_in_context(call, state.sources)]
+    calls = tuple(useful[: config.ASSESS_MAX_CALLS])
+    return {"pending_calls": calls, "usage": response.usage_metadata}
+
+
+@traced
+async def assess(state: ChatState) -> dict[str, Any]:
+    """One review of the context: the calls that would fill what is missing, or none when
+    it suffices. A failing call settles for the context so far rather than failing the run."""
+    try:
+        return await call_assess_model(state)
+    except LLMError as exc:
+        logger.warning("assess call failed, settling for the context gathered so far: %s", exc)
+        return {"pending_calls": ()}
+
+
+def merge_sources(
+    sources: tuple[RetrievedChunk, ...], additions: Sequence[RetrievedChunk], *, cap: int
+) -> tuple[RetrievedChunk, ...]:
+    """The context grown by a tool round: new chunks appended in arrival order, a chunk
+    already present kept as it was, and nothing appended once the cap is reached. The cap
+    counts the whole context, so it is read against what retrieve produced, not this round."""
+    merged = list(sources)
+    seen = {chunk.id for chunk in merged}
+    for chunk in additions:
+        if len(merged) >= cap:
+            break
+        if chunk.id in seen:
+            continue
+        seen.add(chunk.id)
+        merged.append(chunk)
+    return tuple(merged)
+
+
+async def assess_tools(state: ChatState) -> dict[str, Any]:
+    """The round's calls run and folded into the context: dedup by chunk id, earlier context
+    kept, growth capped. Each call is timed as its own step, so the path says what it cost.
+    A refuse call fetches nothing and leaves its refusal on the state, which is what routes
+    the round to the refusal."""
+    fetched: list[RetrievedChunk] = []
+    steps: list[ChatStepResult] = []
+    refusal = state.refusal
+    for call in state.pending_calls:
+        start = time.perf_counter()
+        fetched.extend(await run_tool_call(call))
+        steps.append(build_call_step(call, ms=elapsed_ms(start)))
+        if refused := refusal_from(call):
+            refusal = refused
+            logger.info("assess refused for want of context: %s", refused.explanation)
+
+    cap = state.retrieved_sources + config.ASSESS_EXTRA_CHUNKS
+    return {
+        "sources": merge_sources(state.sources, fetched, cap=cap),
+        "pending_calls": (),
+        "refusal": refusal,
+        "steps": tuple(steps),
+    }

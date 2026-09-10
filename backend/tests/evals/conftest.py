@@ -5,8 +5,8 @@ from typing import Any
 import pytest
 
 from app.chat.enums import ChatNode, RefusalReason, ToolStep
+from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
 from app.chat.models import ChatState, ChatStepResult, Refusal
-from app.chat.prompts import REFUSAL_ANSWER
 from app.core.config import config
 from app.evals.dataset.enums import EvalKind
 from app.evals.dataset.models import CaseReference, CaseSelection, EvalCase, EvalDataset

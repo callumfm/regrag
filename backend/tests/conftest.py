@@ -1,8 +1,11 @@
 """Shared test fixtures."""
 
+import pkgutil
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from importlib import import_module
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import httpx
@@ -18,7 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlalchemy.pool import NullPool
 from tenacity import wait_none
 
-from app.chat.graph import synthesize
+from app.chat.graph import nodes
+from app.chat.graph.nodes.assess import call_assess_model
+from app.chat.graph.nodes.decompose import call_decompose_model
+from app.chat.graph.nodes.rewrite import call_rewrite_model
+from app.chat.graph.nodes.synthesize import synthesize
 from app.core.clock import utc_now
 from app.core.config import BACKEND_ROOT, EMBED_DIMENSIONS, R2Config, config
 from app.core.db.session import async_session_factory
@@ -44,6 +51,9 @@ RETRIED = (
     run_acts_by_topic_query,
     _download_version_html,
     embed_batch,
+    call_rewrite_model,
+    call_decompose_model,
+    call_assess_model,
     synthesize,
     call_judge_model,
 )
@@ -422,6 +432,30 @@ def provider_error(exc_type, status_code: int | None = None, *, message: str | N
     )
 
 
+def install_chat_model(monkeypatch: pytest.MonkeyPatch, model: BaseChatModel) -> None:
+    """Point every node that calls a model at one fake. Each node imports chat_model by
+    name, so the fake is set on each node module rather than on the one it came from; the
+    nodes are found rather than listed, so one added later is faked without a change here.
+    The fake takes the model and its keywords, since a node turning streaming off passes
+    one."""
+    for module in model_node_modules():
+        monkeypatch.setattr(f"{module.__name__}.chat_model", lambda *_, **__: model)
+
+
+def model_node_modules() -> list[ModuleType]:
+    """The node modules that call a model, read off the package rather than listed."""
+    return [
+        module
+        for info in pkgutil.iter_modules(nodes.__path__)
+        if hasattr(module := import_module(f"{nodes.__name__}.{info.name}"), "chat_model")
+    ]
+
+
+def install_search(monkeypatch: pytest.MonkeyPatch, fake_search: Callable[..., Any]) -> None:
+    """Point retrieve at a fake search; the node imports it by name, so it is set there."""
+    monkeypatch.setattr("app.chat.graph.nodes.retrieve.search", fake_search)
+
+
 def search_result(**overrides: Any) -> SearchResult:
     """A scored search hit with sane defaults, overridable per field."""
     defaults: dict[str, Any] = {
@@ -432,16 +466,6 @@ def search_result(**overrides: Any) -> SearchResult:
         "cosine_similarity": 0.8,
     }
     return SearchResult(**{**defaults, **overrides})
-
-
-def install_chat_model(monkeypatch: pytest.MonkeyPatch, model: BaseChatModel) -> None:
-    """Point every node that calls a model at one fake."""
-    monkeypatch.setattr("app.chat.graph.chat_model", lambda *_: model)
-
-
-def install_search(monkeypatch: pytest.MonkeyPatch, fake_search: Callable[..., Any]) -> None:
-    """Point retrieve at a fake search; the graph imports it by name, so it is set there."""
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
 
 
 def junk_result(**overrides: Any) -> SearchResult:

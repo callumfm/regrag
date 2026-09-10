@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from app.chat.graph import retrieve
+from app.chat.graph.nodes.retrieve import retrieve
 from app.chat.models import ChatState
 from app.core.config import EVAL_CONFIG_SECTIONS, config, get_config_snapshot
 from app.core.llm.cache import call_cache_enabled

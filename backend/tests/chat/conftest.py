@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import openai
 import pytest
 from langchain_core.language_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
@@ -12,11 +13,19 @@ from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from pydantic import Field
 
+from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
 from app.chat.toolbox.models import ToolCall
 from app.core.config import config
-from app.retrieval.models import RetrievedChunk, SearchRequest
-from tests.conftest import USAGE, search_result
+from app.retrieval.models import RetrievedChunk, SearchRequest, SearchResult
+from tests.conftest import (
+    USAGE,
+    install_chat_model,
+    install_search,
+    junk_result,
+    provider_error,
+    search_result,
+)
 
 
 class RecordingChatModel(GenericFakeChatModel):
@@ -78,25 +87,38 @@ def reasoning_chat_model() -> ReasoningChatModel:
     return ReasoningChatModel(messages=iter([AIMessage(content="unused")]))
 
 
+def recording_search(monkeypatch: pytest.MonkeyPatch, *hits: SearchResult) -> list[SearchRequest]:
+    """Install a search answering every query with the same hits, and hand back the list
+    the requests it receives accumulate in."""
+    requests: list[SearchRequest] = []
+
+    async def fake_search(session, request):
+        requests.append(request)
+        return hits
+
+    install_search(monkeypatch, fake_search)
+    return requests
+
+
 @pytest.fixture
 def one_result(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
     """Search finds one chunk; the returned list collects what it was asked for."""
-    calls: list[SearchRequest] = []
-
-    async def fake_search(session, request):
-        calls.append(request)
-        return (search_result(),)
-
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
-    return calls
+    return recording_search(monkeypatch, search_result())
 
 
 @pytest.fixture
-def two_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_search(session, request):
-        return (search_result(), search_result(id=2, citation="Article 5(1)"))
+def two_results(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
+    """Search finds two chunks; the returned list collects what it was asked for."""
+    return recording_search(
+        monkeypatch, search_result(), search_result(id=2, citation="Article 5(1)")
+    )
 
-    monkeypatch.setattr("app.chat.graph.search", fake_search)
+
+@pytest.fixture
+def one_junk_result(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
+    """Search finds one chunk below the bar, so nothing clears the gate; the returned list
+    collects what it was asked for."""
+    return recording_search(monkeypatch, junk_result())
 
 
 @pytest.fixture(autouse=True)
@@ -142,7 +164,7 @@ def assess_turns(
 
     def install(*turns: AIMessage) -> RecordingChatModel:
         model = RecordingChatModel(messages=iter(turns), usage=USAGE)
-        monkeypatch.setattr("app.chat.graph.assess_model", lambda: model)
+        monkeypatch.setattr("app.chat.graph.nodes.assess.assess_model", lambda: model)
         return model
 
     return install
@@ -157,7 +179,7 @@ def decompose_turns(
 
     def install(*turns: AIMessage) -> RecordingChatModel:
         model = RecordingChatModel(messages=iter(turns), usage=USAGE)
-        monkeypatch.setattr("app.chat.graph.decompose_model", lambda: model)
+        monkeypatch.setattr("app.chat.graph.nodes.decompose.decompose_model", lambda: model)
         return model
 
     return install
@@ -177,7 +199,7 @@ def rewrite_turns(
 
     def install(*turns: AIMessage) -> RecordingChatModel:
         model = RecordingChatModel(messages=iter(turns), usage=USAGE)
-        monkeypatch.setattr("app.chat.graph.rewrite_model", lambda: model)
+        monkeypatch.setattr("app.chat.graph.nodes.rewrite.rewrite_model", lambda: model)
         return model
 
     return install
@@ -200,7 +222,7 @@ def tool_results(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[ToolCall
             calls.append(call)
             return found
 
-        monkeypatch.setattr("app.chat.graph.run_tool_call", fake_run_tool_call)
+        monkeypatch.setattr("app.chat.graph.nodes.assess.run_tool_call", fake_run_tool_call)
         return calls
 
     return install
@@ -235,3 +257,46 @@ def recorded_requests(monkeypatch: pytest.MonkeyPatch) -> list[ChatState]:
     monkeypatch.setattr("app.chat.stream.get_session", no_session)
     monkeypatch.setattr("app.chat.stream.create_chat_request", fake_create_chat_request)
     return states
+
+
+QUESTION = "What is the GHG intensity limit?"
+
+
+class FailingModel(RecordingChatModel):
+    """Refuses the first `failures` prompts as a rate limit, then answers."""
+
+    failures: int = 1
+
+    def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> ChatResult:
+        if len(self.received) < self.failures:
+            self.received.append(list(messages))
+            raise provider_error(openai.RateLimitError, 429)
+        return super()._generate(messages, *args, **kwargs)
+
+
+@pytest.fixture
+def answer_model(monkeypatch):
+    model = fake_chat_model("Answered [1].")
+    install_chat_model(monkeypatch, model)
+    return model
+
+
+async def run_graph(state: ChatState | None = None) -> ChatState:
+    """The graph run, folded back onto the state it started from; the plain question when
+    the caller has no state of its own to run."""
+    state = state or ChatState(question=QUESTION)
+    state.sync_from_snapshot(await chat_graph.ainvoke(state))
+    return state
+
+
+def hits_for(monkeypatch: pytest.MonkeyPatch, **per_query: tuple) -> list[SearchRequest]:
+    """Install a search answering each query with its own hits, and hand back the list the
+    requests it receives accumulate in."""
+    requests: list[SearchRequest] = []
+
+    async def fake_search(session, request):
+        requests.append(request)
+        return per_query[request.query]
+
+    install_search(monkeypatch, fake_search)
+    return requests

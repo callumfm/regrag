@@ -2,7 +2,6 @@
 
 from app.chat.enums import ChatNode
 from app.chat.models import ChatStepResult
-from app.chat.prompts import REFUSAL_ANSWER
 from app.core.llm.models import TokenUsage
 from app.evals.judge.enums import JudgeVerdict
 from app.evals.judge.models import CaseJudgement, CorrectnessVerdict
@@ -26,8 +25,6 @@ from app.evals.metrics import (
     count_false_refusals,
     count_judged,
     count_refusals_of_a_found_reference,
-    find_cited_markers,
-    find_cited_sources,
     score_citation_validity,
     score_reference_citation_rate,
     score_reference_recall,
@@ -106,14 +103,6 @@ def test_recall_is_zero_when_nothing_was_retrieved() -> None:
     assert score_reference_recall((ARTICLE_4,), ()) == 0.0
 
 
-def test_markers_are_read_in_first_cited_order_without_repeats() -> None:
-    assert find_cited_markers("A [2] B [1][2] C [10]") == (2, 1, 10)
-
-
-def test_no_markers_when_the_answer_cites_nothing() -> None:
-    assert find_cited_markers(REFUSAL_ANSWER) == ()
-
-
 def test_every_authored_reference_cited_scores_one() -> None:
     sources = (retrieved_chunk(),)
 
@@ -142,14 +131,6 @@ def test_an_answer_citing_none_of_the_authored_references_scores_zero() -> None:
 
 def test_the_reference_citation_rate_is_unmeasured_when_a_case_names_no_reference() -> None:
     assert score_reference_citation_rate("Anything [1].", (retrieved_chunk(),), ()) is None
-
-
-def test_cited_sources_pair_each_marker_with_its_block_in_cited_order() -> None:
-    sources = (retrieved_chunk(id=1), retrieved_chunk(id=2), retrieved_chunk(id=3))
-
-    cited = find_cited_sources("So [3], then [1] and [7].", sources)
-
-    assert cited == ((3, sources[2]), (1, sources[0]))
 
 
 def test_validity_is_one_when_every_marker_addresses_a_given_block() -> None:

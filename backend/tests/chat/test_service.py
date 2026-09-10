@@ -17,8 +17,7 @@ from app.chat.toolbox.models import ToolCall
 from app.chat.toolbox.service import build_call_step
 from app.core.config import config
 from app.core.logger import request_id_var
-from tests.chat.conftest import USAGE
-from tests.conftest import retrieved_chunk
+from tests.conftest import USAGE, retrieved_chunk
 
 pytestmark = pytest.mark.anyio
 
