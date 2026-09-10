@@ -4,6 +4,7 @@ import type { ChatSource } from "@/api/types"
 
 const MARKER_PATTERN = /\[(\d+)\]/g
 const MARKER_RUN_BEFORE_PUNCTUATION = / ?((?:\[\d+\])+)([.,;:])/g
+const MARKER_RUN = / ?(?:\[\d+\]){2,}/g
 const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})/
 const INLINE_CODE = /(`+)(?:[\s\S]*?\1|[\s\S]*$)/g
 
@@ -23,6 +24,22 @@ export function moveMarkersAfterPunctuation(
 	)
 }
 
+/**
+ * A run of markers names the whole source list rather than the claim it follows, which the
+ * list below the answer says better. Only markers standing on their own are shown.
+ */
+export function dropCitationRuns(
+	value: string,
+	known: ReadonlySet<number>,
+): string {
+	return value.replace(MARKER_RUN, (run: string) => {
+		const allKnown = [...run.matchAll(MARKER_PATTERN)].every((match) =>
+			known.has(Number(match[1])),
+		)
+		return allKnown ? "" : run
+	})
+}
+
 export type CitationSegment =
 	| { kind: "text"; value: string }
 	| { kind: "marker"; marker: number }
@@ -31,7 +48,7 @@ export function splitCitationMarkers(
 	raw: string,
 	known: ReadonlySet<number>,
 ): CitationSegment[] {
-	const value = moveMarkersAfterPunctuation(raw, known)
+	const value = dropCitationRuns(moveMarkersAfterPunctuation(raw, known), known)
 	const segments: CitationSegment[] = []
 	let cursor = 0
 	for (const match of value.matchAll(MARKER_PATTERN)) {
@@ -105,13 +122,21 @@ function toHastNode(segment: CitationSegment): Text | Element {
 	}
 }
 
+/** Whether splitting changed the text, by marking a citation or by taking a run away. */
+function isRewritten(segments: CitationSegment[], value: string): boolean {
+	const text = segments
+		.map((segment) => (segment.kind === "text" ? segment.value : ""))
+		.join("")
+	return segments.some((segment) => segment.kind === "marker") || text !== value
+}
+
 export function rehypeCitationMarkers(known: ReadonlySet<number>) {
 	return () => (tree: Root) => {
 		visit(tree, "text", (node: Text, index, parent) => {
 			if (parent === undefined || index === undefined) return
 			if (parent.type === "element" && parent.tagName === "code") return
 			const segments = splitCitationMarkers(node.value, known)
-			if (!segments.some((segment) => segment.kind === "marker")) return
+			if (!isRewritten(segments, node.value)) return
 			parent.children.splice(index, 1, ...segments.map(toHastNode))
 			return index + segments.length
 		})
@@ -140,8 +165,11 @@ export function renumberCitations(
 ): string {
 	const known = new Set(sources.map((source) => source.marker))
 	const numbers = numberCitations(answer, known)
-	return answer.replace(MARKER_PATTERN, (whole: string, marker: string) => {
-		const label = numbers.get(Number(marker))
-		return label === undefined ? whole : `[${label}]`
-	})
+	return dropCitationRuns(answer, known).replace(
+		MARKER_PATTERN,
+		(whole: string, marker: string) => {
+			const label = numbers.get(Number(marker))
+			return label === undefined ? whole : `[${label}]`
+		},
+	)
 }

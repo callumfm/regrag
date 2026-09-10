@@ -1,9 +1,8 @@
 import { Collapsible } from "@base-ui/react/collapsible"
-import { CheckIcon, CopyIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, CopyIcon } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { ChatSource } from "@/api/types"
 import { citedSources, renumberCitations } from "@/lib/citations"
-import { cn } from "@/lib/utils"
 import { CITATION_BADGE } from "./citation-chip"
 
 const COPIED_MS = 2000
@@ -63,20 +62,13 @@ export function AnswerActions({
 			<div className="-mx-1 flex items-center gap-0.5">
 				<CopyAnswerButton text={copyText} />
 				{cited.length > 0 && (
-					<Collapsible.Trigger className="ml-1 flex items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-muted">
-						<span className="flex -space-x-1">
-							{cited.slice(0, 3).map(({ source, label }) => (
-								<span
-									key={source.marker}
-									className={cn(CITATION_BADGE, "ring-2 ring-background")}
-								>
-									{label}
-								</span>
-							))}
-						</span>
-						<span className="text-muted-foreground text-xs">
-							{cited.length} {cited.length === 1 ? "source" : "sources"}
-						</span>
+					<Collapsible.Trigger className="group ml-1 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground">
+						{cited.length} {cited.length === 1 ? "source" : "sources"}
+						<ChevronDownIcon
+							size={14}
+							className="transition-transform duration-300 group-data-panel-open:rotate-180"
+							aria-hidden
+						/>
 					</Collapsible.Trigger>
 				)}
 			</div>
