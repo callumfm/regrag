@@ -18,7 +18,6 @@ from app.chat.graph.nodes.decompose import (
     decompose_model,
 )
 from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
-from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
 from app.core.config import config
 from app.core.llm.models import TokenUsage
@@ -92,7 +91,7 @@ class TestDecomposeInTheGraph:
         )
 
         state = ChatState(question="What are A and B?")
-        state.sync_from_snapshot(await chat_graph.ainvoke(state))
+        state = await run_graph(state)
 
         assert [r.step for r in state.steps] == [
             ChatNode.DECOMPOSE,
@@ -127,9 +126,9 @@ class TestDecomposeInTheGraph:
         decompose_turns(split_message("pizza", "pasta"))
         hits_for(monkeypatch, pizza=(junk_result(),), pasta=(junk_result(),))
 
-        state = await chat_graph.ainvoke(ChatState(question="Best pizza and pasta?"))
+        state = await run_graph(ChatState(question="Best pizza and pasta?"))
 
-        assert state["answer"] == REFUSAL_ANSWER
+        assert state.answer == REFUSAL_ANSWER
         assert answer_model.received == []
 
 

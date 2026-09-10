@@ -14,7 +14,6 @@ from app.chat.graph.nodes.rewrite import (
     rewrite_model,
 )
 from app.chat.graph.nodes.synthesize import SYSTEM_PROMPT
-from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState, ChatTurn
 from app.chat.prompts import THREAD_NOTE, system_prompt
 from app.core.config import config
@@ -69,7 +68,7 @@ class TestRewriteInTheGraph:
         requests = hits_for(monkeypatch, **{RESTATED: (search_result(),)})
 
         state = ChatState(question=FOLLOW_UP, history=HISTORY)
-        state.sync_from_snapshot(await chat_graph.ainvoke(state))
+        state = await run_graph(state)
 
         assert [r.step for r in state.steps] == [
             ChatNode.REWRITE,
@@ -126,7 +125,7 @@ class TestRewriteInTheGraph:
         decompose = decompose_turns(split_message(RESTATED))
 
         state = ChatState(question=FOLLOW_UP, history=HISTORY)
-        state.sync_from_snapshot(await chat_graph.ainvoke(state))
+        state = await run_graph(state)
 
         assert [r.step for r in state.steps][:3] == [
             ChatNode.REWRITE,
@@ -144,7 +143,7 @@ class TestRewriteInTheGraph:
         assess = assess_turns(AIMessage(content=""))
 
         state = ChatState(question=FOLLOW_UP, history=HISTORY)
-        state.sync_from_snapshot(await chat_graph.ainvoke(state))
+        state = await run_graph(state)
 
         [messages] = assess.received
         assert [type(m) for m in messages] == [SystemMessage, HumanMessage, AIMessage, HumanMessage]

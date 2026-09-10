@@ -8,10 +8,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
 
 from app.chat.enums import ChatNode
-from app.chat.graph.node import LLMResponse, chat_model, traced
+from app.chat.graph.node import chat_model, traced
 from app.chat.models import ChatState, ChatTurn
 from app.core.config import config
-from app.core.llm.errors import LLMError, llm_retry, wrap_provider_errors
+from app.core.llm.errors import LLMError, llm_retry, parse_model_answer, wrap_provider_errors
+from app.core.models import FrozenModel
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,9 @@ def build_rewrite_message(question: str, history: Sequence[ChatTurn]) -> str:
     return f"Conversation so far:\n\n{transcript}\n\nLatest question: {question}"
 
 
-class StandaloneQuestion(LLMResponse):
+class StandaloneQuestion(FrozenModel):
     """What rewrite makes of a follow-up: the question restated so that it can be
     searched on its own, naming what the thread's pronouns and shorthand referred to."""
-
-    node = ChatNode.REWRITE
 
     question: str
 
@@ -59,7 +58,7 @@ async def call_rewrite_model(state: ChatState) -> dict[str, Any]:
         HumanMessage(build_rewrite_message(state.question, state.history)),
     ]
     response = await rewrite_model().ainvoke(messages)
-    restated = StandaloneQuestion.from_response(response)
+    restated = parse_model_answer(StandaloneQuestion, response.text, label=ChatNode.REWRITE)
     return {"standalone_question": restated.question, "usage": response.usage_metadata}
 
 

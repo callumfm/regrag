@@ -17,7 +17,7 @@ from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
 from app.chat.toolbox.models import ToolCall
 from app.core.config import config
-from app.retrieval.models import RetrievedChunk, SearchRequest
+from app.retrieval.models import RetrievedChunk, SearchRequest, SearchResult
 from tests.conftest import (
     USAGE,
     install_chat_model,
@@ -87,39 +87,38 @@ def reasoning_chat_model() -> ReasoningChatModel:
     return ReasoningChatModel(messages=iter([AIMessage(content="unused")]))
 
 
+def recording_search(monkeypatch: pytest.MonkeyPatch, *hits: SearchResult) -> list[SearchRequest]:
+    """Install a search answering every query with the same hits, and hand back the list
+    the requests it receives accumulate in."""
+    requests: list[SearchRequest] = []
+
+    async def fake_search(session, request):
+        requests.append(request)
+        return hits
+
+    install_search(monkeypatch, fake_search)
+    return requests
+
+
 @pytest.fixture
 def one_result(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
     """Search finds one chunk; the returned list collects what it was asked for."""
-    calls: list[SearchRequest] = []
-
-    async def fake_search(session, request):
-        calls.append(request)
-        return (search_result(),)
-
-    install_search(monkeypatch, fake_search)
-    return calls
+    return recording_search(monkeypatch, search_result())
 
 
 @pytest.fixture
-def two_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_search(session, request):
-        return (search_result(), search_result(id=2, citation="Article 5(1)"))
-
-    install_search(monkeypatch, fake_search)
+def two_results(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
+    """Search finds two chunks; the returned list collects what it was asked for."""
+    return recording_search(
+        monkeypatch, search_result(), search_result(id=2, citation="Article 5(1)")
+    )
 
 
 @pytest.fixture
 def one_junk_result(monkeypatch: pytest.MonkeyPatch) -> list[SearchRequest]:
     """Search finds one chunk below the bar, so nothing clears the gate; the returned list
     collects what it was asked for."""
-    calls: list[SearchRequest] = []
-
-    async def fake_search(session, request):
-        calls.append(request)
-        return (junk_result(),)
-
-    install_search(monkeypatch, fake_search)
-    return calls
+    return recording_search(monkeypatch, junk_result())
 
 
 @pytest.fixture(autouse=True)
@@ -282,9 +281,10 @@ def answer_model(monkeypatch):
     return model
 
 
-async def run_graph() -> ChatState:
-    """The graph run, folded back onto the state it started from."""
-    state = ChatState(question=QUESTION)
+async def run_graph(state: ChatState | None = None) -> ChatState:
+    """The graph run, folded back onto the state it started from; the plain question when
+    the caller has no state of its own to run."""
+    state = state or ChatState(question=QUESTION)
     state.sync_from_snapshot(await chat_graph.ainvoke(state))
     return state
 

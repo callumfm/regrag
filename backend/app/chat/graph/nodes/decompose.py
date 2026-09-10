@@ -7,10 +7,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
 
 from app.chat.enums import ChatNode
-from app.chat.graph.node import LLMResponse, chat_model, traced
+from app.chat.graph.node import chat_model, traced
 from app.chat.models import ChatState
 from app.core.config import config
-from app.core.llm.errors import LLMError, llm_retry, wrap_provider_errors
+from app.core.llm.errors import LLMError, llm_retry, parse_model_answer, wrap_provider_errors
+from app.core.models import FrozenModel
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,9 @@ DECOMPOSE_SYSTEM_PROMPT = (
 )
 
 
-class DecomposedQuestion(LLMResponse):
+class DecomposedQuestion(FrozenModel):
     """What decompose splits a question into: one search query per thing it asks, in the
     order asked. One query means the question asked one thing."""
-
-    node = ChatNode.DECOMPOSE
 
     queries: tuple[str, ...]
 
@@ -50,7 +49,7 @@ async def call_decompose_model(state: ChatState) -> dict[str, Any]:
     so retrieve searches the question as asked; an answer off the schema is a failed call."""
     messages = [SystemMessage(DECOMPOSE_SYSTEM_PROMPT), HumanMessage(state.retrieval_question)]
     response = await decompose_model().ainvoke(messages)
-    split = DecomposedQuestion.from_response(response)
+    split = parse_model_answer(DecomposedQuestion, response.text, label=ChatNode.DECOMPOSE)
     queries = split.queries[: config.DECOMPOSE_MAX_PARTS]
     return {"queries": queries if len(queries) > 1 else (), "usage": response.usage_metadata}
 

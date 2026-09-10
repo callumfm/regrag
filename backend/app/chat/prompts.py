@@ -1,7 +1,7 @@
 """The wording more than one node shares: the thread note, and the numbered-context
 formatting a citation marker refers to."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
@@ -26,11 +26,19 @@ def format_context_block(marker: int, source: RetrievedChunk) -> str:
     return f"[{marker}] ({source.celex}, {source.citation})\n{source.text}"
 
 
-def format_context(sources: Sequence[RetrievedChunk]) -> str:
-    """The retrieved chunks as the numbered blocks the citation markers refer to."""
-    return "\n\n".join(
-        format_context_block(marker, source) for marker, source in enumerate(sources, start=1)
-    )
+def format_context(
+    sources: Sequence[RetrievedChunk], footer: Callable[[RetrievedChunk], str] | None = None
+) -> str:
+    """The retrieved chunks as the numbered blocks the citation markers refer to, each
+    block followed by what the caller's footer adds to it. One loop, so every node that
+    shows the context numbers it the same way."""
+    blocks = []
+    for marker, source in enumerate(sources, start=1):
+        block = format_context_block(marker, source)
+        if footer and (line := footer(source)):
+            block += f"\n{line}"
+        blocks.append(block)
+    return "\n\n".join(blocks)
 
 
 def thread_messages(history: Sequence[ChatTurn]) -> list[BaseMessage]:

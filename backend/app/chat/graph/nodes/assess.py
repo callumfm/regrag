@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from app.chat.graph.node import chat_model, traced
 from app.chat.models import ChatState, ChatStepResult
-from app.chat.prompts import format_context_block, system_prompt, thread_messages
+from app.chat.prompts import format_context, system_prompt, thread_messages
 from app.chat.toolbox.models import ToolCall
 from app.chat.toolbox.service import (
     already_in_context,
@@ -73,21 +73,17 @@ def reference_addresses(source: RetrievedChunk) -> list[str]:
     return list(dict.fromkeys(addresses))
 
 
-def format_context_with_cites(sources: Sequence[RetrievedChunk]) -> str:
-    """The same numbered blocks synthesize will cite, each followed by the addresses it
-    cites, so follow_reference can be pointed at one."""
-    blocks = []
-    for marker, source in enumerate(sources, start=1):
-        block = format_context_block(marker, source)
-        if addresses := reference_addresses(source):
-            block += f"\ncites: {', '.join(addresses)}"
-        blocks.append(block)
-    return "\n\n".join(blocks)
+def cites_line(source: RetrievedChunk) -> str:
+    """What a block cites, as the line assess reads it off, or nothing when it cites no
+    address that can be followed."""
+    addresses = reference_addresses(source)
+    return f"cites: {', '.join(addresses)}" if addresses else ""
 
 
 def build_assess_message(question: str, sources: Sequence[RetrievedChunk]) -> str:
-    """The full assess turn: the context with its cites lines, then the question."""
-    return f"Context:\n\n{format_context_with_cites(sources)}\n\nQuestion: {question}"
+    """The full assess turn: the same numbered blocks synthesize will cite, each followed
+    by the addresses it cites so follow_reference can be pointed at one, then the question."""
+    return f"Context:\n\n{format_context(sources, cites_line)}\n\nQuestion: {question}"
 
 
 def assess_model() -> Runnable:

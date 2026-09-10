@@ -3,11 +3,10 @@
 import pytest
 
 from app.chat.graph.nodes.retrieve import interleave_by_rank, retrieve
-from app.chat.graph.service import chat_graph
 from app.chat.models import ChatState
 from app.core.config import config
 from app.retrieval.models import SearchRequest
-from tests.chat.conftest import QUESTION, hits_for
+from tests.chat.conftest import QUESTION, hits_for, run_graph
 from tests.conftest import junk_result, search_result
 
 pytestmark = pytest.mark.anyio
@@ -27,10 +26,10 @@ async def test_retrieve_widens_what_search_found_to_whole_sections(
     monkeypatch.setattr(config, "EXPAND_SECTIONS", True)
     monkeypatch.setattr("app.chat.graph.nodes.retrieve.expand_sections", fake_expand)
 
-    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
+    state = await run_graph()
 
-    assert state["sources"] == widened
-    assert state["hits"] == (search_result(),)
+    assert state.sources == widened
+    assert state.hits == (search_result(),)
 
 
 async def test_retrieve_leaves_search_alone_when_expansion_is_off(
@@ -43,9 +42,9 @@ async def test_retrieve_leaves_search_alone_when_expansion_is_off(
 
     monkeypatch.setattr("app.chat.graph.nodes.retrieve.expand_sections", refuse)
 
-    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
+    state = await run_graph()
 
-    assert state["sources"] == (search_result(),)
+    assert state.sources == (search_result(),)
 
 
 class TestInterleaveByRank:

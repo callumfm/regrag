@@ -18,6 +18,7 @@ from tests.chat.conftest import (
     THINKING,
     FailingModel,
     fake_chat_model,
+    run_graph,
 )
 from tests.conftest import (
     TOKEN_USAGE,
@@ -66,7 +67,7 @@ async def test_model_receives_system_prompt_and_numbered_context(monkeypatch):
     install_search(monkeypatch, fake_search)
     install_chat_model(monkeypatch, model)
 
-    await chat_graph.ainvoke(ChatState(question=QUESTION))
+    await run_graph()
 
     (prompt,) = model.received
     assert isinstance(prompt[0], SystemMessage)
@@ -78,9 +79,9 @@ async def test_a_transient_provider_failure_is_retried(one_result, monkeypatch):
     model = FailingModel(messages=iter(["Second time lucky [1]."]), failures=1)
     install_chat_model(monkeypatch, model)
 
-    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
+    state = await run_graph()
 
-    assert state["answer"] == "Second time lucky [1]."
+    assert state.answer == "Second time lucky [1]."
     assert len(model.received) == 2
 
 
@@ -89,7 +90,7 @@ async def test_a_persistent_provider_failure_becomes_a_transient_llm_error(one_r
     install_chat_model(monkeypatch, model)
 
     with pytest.raises(LLMError) as exc_info:
-        await chat_graph.ainvoke(ChatState(question=QUESTION))
+        await run_graph()
 
     assert exc_info.value.transient is True
     assert str(exc_info.value) == "chat call failed"
@@ -127,7 +128,7 @@ async def test_the_chat_client_asks_litellm_for_usage_and_the_node_records_it(
         usage={"prompt_tokens": 1500, "completion_tokens": 40, "total_tokens": 1540},
     )
 
-    state = ChatState.model_validate(await chat_graph.ainvoke(ChatState(question=QUESTION)))
+    state = await run_graph()
 
     assert calls[0]["stream_options"] == {"include_usage": True}
     [_retrieve, synthesize] = state.steps
@@ -145,9 +146,9 @@ async def test_the_chat_client_answers_with_the_text_of_a_reasoning_response(
         {"content": ANSWER},
     )
 
-    state = await chat_graph.ainvoke(ChatState(question=QUESTION))
+    state = await run_graph()
 
-    assert state["answer"] == ANSWER
+    assert state.answer == ANSWER
 
 
 def test_user_message_puts_context_before_the_question():
