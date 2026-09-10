@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk
 from sqlalchemy.exc import OperationalError
 
+from app.chat import stream
 from app.chat.enums import ChatNode, ChatOutcome, ChatStepStatus, RefusalReason, ToolStep
 from app.chat.events import DoneEvent, ErrorEvent, SourcesEvent, StepEvent, TextEvent
 from app.chat.graph.nodes.refuse import REFUSAL_ANSWER
@@ -115,7 +116,9 @@ async def test_failed_write_is_logged_not_raised(two_results, monkeypatch, caplo
     events = [event async for event in stream_chat_events(ChatQuery(question="q"))]
 
     assert isinstance(events[-1], DoneEvent)
-    [error] = [r for r in caplog.records if r.levelno == logging.ERROR]
+    [error] = [
+        r for r in caplog.records if r.name == stream.logger.name and r.levelno == logging.ERROR
+    ]
     assert error.getMessage() == "chat request not recorded"
     assert error.exc_info is not None
 
