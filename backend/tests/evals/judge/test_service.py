@@ -22,6 +22,7 @@ from app.evals.judge.models import (
 )
 from app.evals.judge.prompts import CORRECTNESS_PROMPT, REFUSAL_PROMPT, build_refusal_message
 from app.evals.judge.service import call_judge_model, judge_case, judge_results
+from tests import has_provider_key
 from tests.conftest import provider_error
 from tests.evals.conftest import eval_case, eval_result, out_of_corpus_case, refused_result
 
@@ -83,11 +84,25 @@ async def test_a_judge_call_asks_for_the_verdicts_shape_and_drops_what_the_model
     [call] = calls
     assert call["model"] == "anthropic/claude-sonnet-5"
     assert call["response_format"] is RefusalVerdict
-    assert call["drop_params"] is True
+    assert "api_key" not in call
     assert call["messages"] == [
         {"role": "system", "content": REFUSAL_PROMPT},
         {"role": "user", "content": "user turn"},
     ]
+
+
+async def test_a_judge_call_waits_the_judges_own_timeout(
+    judge_answers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tier above the chat model and a longer answer, so the chat wait would cut it off."""
+    monkeypatch.setattr(config, "EVAL_JUDGE_TIMEOUT", 321)
+    calls = judge_answers(DECLINED)
+
+    await call_judge_model(REFUSAL_PROMPT, "user turn", RefusalVerdict)
+
+    [call] = calls
+    assert call["timeout"] == 321
+    assert call["timeout"] != config.CHAT_TIMEOUT
 
 
 async def test_a_judge_call_spends_the_judges_own_token_cap(
@@ -248,7 +263,7 @@ async def test_a_run_is_judged_case_by_case_a_few_at_a_time(
 # The real seam, run only with a key in the environment
 
 
-@pytest.mark.skipif(not config.ANTHROPIC_API_KEY.get_secret_value(), reason="needs a provider key")
+@pytest.mark.skipif(not has_provider_key("ANTHROPIC_API_KEY"), reason="needs a provider key")
 async def test_the_judge_model_returns_a_verdict_in_the_asked_shape() -> None:
     message = build_refusal_message(
         "How many ETS allowances must a company surrender for 2025?",

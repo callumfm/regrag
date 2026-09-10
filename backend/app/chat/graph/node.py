@@ -12,6 +12,7 @@ from app.chat.enums import ChatNode
 from app.chat.models import ChatState, ChatStepResult
 from app.core.clock import elapsed_ms
 from app.core.config import config
+from app.core.llm.settings import ModelSettings
 
 
 class NodeFn(Protocol):
@@ -39,9 +40,17 @@ def traced(run: NodeFn) -> NodeFn:
     return traced_run
 
 
+def graph_models() -> tuple[str, ...]:
+    """The models the graph's four roles call, for the key check its callers run at startup.
+    Named whether or not their node is switched on: a switch is flipped without a restart."""
+    return (config.CHAT_MODEL, config.ASSESS_MODEL, config.DECOMPOSE_MODEL, config.REWRITE_MODEL)
+
+
 def chat_model(model: str, *, streaming: bool = True) -> ChatLiteLLM:
     """A chat client built per call, so config is read at call time like embed's. The model
-    is the caller's, so assess and the answer can be pointed at different ones.
+    is the caller's, so assess and the answer can be pointed at different ones — at different
+    providers too: no key is passed, so litellm reads whichever variable the provider wants.
+    The four graph roles differ in which model answers, not in the limits it answers under.
 
     Streaming is set for the answer, or litellm answers in one blocking call — even under
     the graph's messages stream — and the SSE stream carries the whole answer in a single
@@ -49,12 +58,17 @@ def chat_model(model: str, *, streaming: bool = True) -> ChatLiteLLM:
     Usage is asked for, or litellm strips it from every streamed chunk and the run's
     tokens are never reported for a non-OpenAI model; it is read on the streamed path only.
     """
-    return ChatLiteLLM(
+    settings = ModelSettings(
         model=model,
-        api_key=config.ANTHROPIC_API_KEY.get_secret_value(),
+        timeout=config.CHAT_TIMEOUT,
         max_tokens=config.CHAT_MAX_TOKENS,
         temperature=config.CHAT_TEMPERATURE,
-        request_timeout=config.CHAT_TIMEOUT,
+    )
+    return ChatLiteLLM(
+        model=settings.model,
+        max_tokens=settings.max_tokens,
+        temperature=settings.temperature,
+        request_timeout=settings.timeout,
         streaming=streaming,
         stream_options={"include_usage": True},
     )

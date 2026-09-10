@@ -1,5 +1,7 @@
 """Settings classes: inherited config and per-vendor defaults."""
 
+import os
+
 import pytest
 from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings
@@ -20,6 +22,7 @@ from app.core.config import (
     StorageBackend,
     StorageConfig,
     config,
+    export_env_file,
     get_config_snapshot,
     get_env_file,
     load_environment,
@@ -116,6 +119,45 @@ def test_the_env_file_is_absolute_so_the_working_directory_cannot_change_it(env,
     assert env_file.is_absolute()
 
 
+# The env file reaching the process environment, which is where a provider SDK reads its key
+
+
+def test_the_env_file_reaches_the_process_environment(monkeypatch, tmp_path):
+    """litellm reads each provider's own variable off os.environ, and pydantic reading the
+    same file into a settings object would leave that empty."""
+    monkeypatch.delenv("SOME_PROVIDER_KEY", raising=False)
+    env_file = tmp_path / ".env.sample"
+    env_file.write_text("SOME_PROVIDER_KEY=sk-from-the-file\n")
+
+    export_env_file(env_file)
+
+    assert os.environ["SOME_PROVIDER_KEY"] == "sk-from-the-file"
+
+
+def test_an_exported_value_beats_the_file(monkeypatch, tmp_path):
+    """The deployed process sets its own secrets; the file is the fallback, as it is for
+    the settings classes reading it."""
+    monkeypatch.setenv("SOME_PROVIDER_KEY", "sk-from-the-host")
+    env_file = tmp_path / ".env.sample"
+    env_file.write_text("SOME_PROVIDER_KEY=sk-from-the-file\n")
+
+    export_env_file(env_file)
+
+    assert os.environ["SOME_PROVIDER_KEY"] == "sk-from-the-host"
+
+
+def test_an_empty_value_is_left_unset(monkeypatch, tmp_path):
+    """.env.example names every key with no value, and an empty key reaches a provider as a
+    401 rather than the boot failure naming the model. env_ignore_empty reads it the same way."""
+    monkeypatch.delenv("SOME_PROVIDER_KEY", raising=False)
+    env_file = tmp_path / ".env.sample"
+    env_file.write_text("SOME_PROVIDER_KEY=\n")
+
+    export_env_file(env_file)
+
+    assert "SOME_PROVIDER_KEY" not in os.environ
+
+
 def test_the_suite_runs_against_a_database_of_its_own():
     """Tests commit destructive deletes, so reaching the dev database would cost a corpus."""
     assert Config().DB_NAME == "regrag_test"
@@ -178,7 +220,6 @@ def test_chat_defaults():
     assert chat.CHAT_SOURCES == 5
     assert chat.CHAT_CONTEXT_CHUNKS == 15
     assert chat.CHAT_THREAD_TURNS == 5
-    assert chat.ANTHROPIC_API_KEY.get_secret_value() == ""
 
 
 def test_rewrite_defaults_and_the_combined_config_carries_them():
@@ -210,6 +251,14 @@ def test_the_judge_is_a_different_model_from_the_one_that_answers():
     assert "EVAL_JUDGE_MODEL" in get_config_snapshot(EVAL_CONFIG_SECTIONS)
 
 
+def test_the_judge_waits_its_own_timeout_rather_than_the_chat_one():
+    """It sits a tier above the chat model and writes a longer answer, so the wait that
+    suits a Haiku turn cuts its verdict short and leaves the case unjudged."""
+    assert JudgeConfig().EVAL_JUDGE_TIMEOUT == 120
+    assert JudgeConfig().EVAL_JUDGE_TIMEOUT != ChatConfig().CHAT_TIMEOUT
+    assert "EVAL_JUDGE_TIMEOUT" in get_config_snapshot(EVAL_CONFIG_SECTIONS)
+
+
 def test_the_loop_needs_at_least_one_round_when_it_is_on():
     """ASSESS_ENABLED is the off switch, so a round budget of zero is a misconfiguration
     rather than a second way to say off."""
@@ -228,20 +277,20 @@ def test_a_snapshot_records_the_requested_sections_whole(monkeypatch):
     settings = get_config_snapshot(EVAL_CONFIG_SECTIONS)
 
     expected = {name for section in EVAL_CONFIG_SECTIONS for name in section.model_fields}
-    assert set(settings) == expected - {"VOYAGE_API_KEY", "ANTHROPIC_API_KEY"}
+    assert set(settings) == expected
     assert settings["CHAT_CONTEXT_CHUNKS"] == 7
     assert settings["RERANK_POOL"] == config.RERANK_POOL
 
 
 def test_a_snapshot_leaves_out_the_secrets(monkeypatch):
-    """The snapshot is printed and pasted around; a key is not a knob a run reproduces."""
-    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", SecretStr("sk-never-recorded"))
+    """The snapshot is printed and pasted around; a secret is not a knob a run reproduces."""
+    monkeypatch.setattr(config, "DB_PASS", SecretStr("never-recorded"))
 
     snapshot = get_config_snapshot()
 
-    assert "sk-never-recorded" not in str(snapshot.values())
-    assert not any("API_KEY" in name for name in snapshot)
+    assert "never-recorded" not in str(snapshot.values())
     assert "DB_PASS" not in snapshot
+    assert not any("API_KEY" in name for name in snapshot)
 
 
 def test_assignment_is_validated_and_coerced_by_the_field():

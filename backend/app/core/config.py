@@ -5,6 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from dotenv import dotenv_values
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -38,6 +39,18 @@ def get_env_file(env: Environment = ENVIRONMENT) -> Path:
     """Absolute, so the file is found whatever directory the process was started from."""
     name = ".env.example" if env == Environment.TEST else f".env.{env.value}"
     return BACKEND_ROOT / name
+
+
+def export_env_file(path: Path) -> None:
+    """Put the env file's settings in the process environment, so a provider SDK reading its
+    own key variable sees what pydantic reads. An exported value wins and an empty one is
+    left unset, matching how the settings classes read the same file."""
+    for name, value in dotenv_values(path).items():
+        if value:
+            os.environ.setdefault(name, value)
+
+
+export_env_file(get_env_file())
 
 
 class BaseConfig(BaseSettings):
@@ -135,7 +148,6 @@ EMBED_DIMENSIONS = 1024
 class EmbeddingConfig(BaseConfig):
     """Voyage embedding configuration."""
 
-    VOYAGE_API_KEY: SecretStr = SecretStr("")
     EMBED_MODEL: str = "voyage/voyage-4-lite"
     EMBED_TIMEOUT: int = 30
 
@@ -148,16 +160,15 @@ class ChatConfig(BaseConfig):
         against a run of long articles, not a target, so it should rarely bite.
     CHAT_TEMPERATURE: how far the model may stray from its likeliest next token. At 0 it
         takes the likeliest every time, which is what an answer quoting law back wants;
-        nothing here is served by sampling variety. Anthropic's frontier models reject the
-        parameter outright, so a move off Haiku means dropping this and reaching for
-        `output_config.effort` instead — which Haiku in turn does not accept.
+        nothing here is served by sampling variety. A model that refuses the parameter —
+        Anthropic's frontier tiers accept only 1 — drops it instead, so the setting stays
+        put across a model swap.
     CHAT_THREAD_TURNS: the most answered turns a thread may hold, and so the history every
         model call on a follow-up sees; the next question on a full thread is rejected.
         Five, because a thread here is a question and a few follow-ups, and five turns of
         answers cost about a third of one turn's context blocks.
     """
 
-    ANTHROPIC_API_KEY: SecretStr = SecretStr("")
     CHAT_MODEL: str = "anthropic/claude-haiku-4-5"
     CHAT_TIMEOUT: int = 60
     CHAT_MAX_TOKENS: int = 2048
@@ -312,7 +323,10 @@ class JudgeConfig(BaseConfig):
 
     EVAL_JUDGE_MODEL: a model other than the one that wrote the answer, so a model does not
         grade its own habits. Recorded on every run: two runs graded by different judges are
-        not comparable. The timeout is the chat value until each role has its own (RRG-99).
+        not comparable.
+    EVAL_JUDGE_TIMEOUT: seconds to wait for one verdict, its own rather than the chat value:
+        the judge is a tier above the chat model and writes a longer answer, so the wait that
+        suits a Haiku turn cuts it off.
     EVAL_JUDGE_MAX_TOKENS: the cap on one verdict. The verdict is critique first, and a judge
         that thinks spends the cap on that too, so it sits well above the answer's cap: a
         verdict cut short parses as nothing and leaves the case unjudged.
@@ -320,6 +334,7 @@ class JudgeConfig(BaseConfig):
     """
 
     EVAL_JUDGE_MODEL: str = "anthropic/claude-sonnet-5"
+    EVAL_JUDGE_TIMEOUT: int = 120
     EVAL_JUDGE_MAX_TOKENS: int = 8192
     EVAL_JUDGE_CONCURRENCY: int = 4
 

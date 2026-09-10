@@ -18,10 +18,23 @@ from app.retrieval.search import (
     _vector_candidates,
     hybrid_search,
     search,
+    search_models,
 )
 from tests.retrieval.conftest import toy_embed
 
 pytestmark = pytest.mark.anyio
+
+
+def test_a_search_names_the_models_it_calls():
+    assert search_models() == (config.EMBED_MODEL, config.RERANK_MODEL)
+
+
+def test_a_switched_off_cross_encoder_is_not_a_model_a_search_needs(monkeypatch):
+    """Its key is never read when it is off, so a boot check must not demand one."""
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    assert search_models() == (config.EMBED_MODEL,)
+
 
 NO_FILTERS = SearchFilters()
 SUPERSEDED = 300

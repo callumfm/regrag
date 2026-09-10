@@ -3,13 +3,16 @@
 import asyncio
 from typing import Any
 
+from app.chat.graph.node import graph_models
 from app.core.config import config
 from app.core.llm.cache import enable_call_cache
+from app.core.llm.settings import check_model_keys
 from app.evals.dataset.cli import add_selection_arguments
 from app.evals.dataset.models import CaseSelection, EvalDataset
 from app.evals.tune.params import TUNABLE_PARAMS
 from app.evals.tune.report import format_tune_table
 from app.evals.tune.service import tune
+from app.retrieval.search import search_models
 
 
 def register_tune_command(commands: Any) -> None:
@@ -31,6 +34,7 @@ def register_tune_command(commands: Any) -> None:
 
 def run_tune(selection: CaseSelection, cached: bool = True) -> int:
     """Sweep the curated grid and print the ranked table."""
+    check_model_keys(*graph_models(), *search_models())
     dataset = EvalDataset.load(selection=selection)
 
     if cached:

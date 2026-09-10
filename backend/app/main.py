@@ -6,20 +6,26 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import __version__
+from app.chat.graph.node import graph_models
 from app.chat.router import router as chat_router
 from app.core.config import config
 from app.core.db.session import async_engine
 from app.core.exceptions import register_exception_handlers
 from app.core.health import router as health_router
+from app.core.llm.settings import check_model_keys
 from app.core.logger import setup_logging
 from app.core.middleware import register_middleware
+from app.retrieval.search import search_models
 
 setup_logging()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Manage application lifecycle - teardown of shared resources."""
+    """Manage application lifecycle - the boot check that every model a request may reach
+    has its provider key, and teardown of shared resources. The judge is not among them:
+    only an eval run grades an answer."""
+    check_model_keys(*graph_models(), *search_models())
     try:
         yield
     finally:
