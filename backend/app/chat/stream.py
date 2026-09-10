@@ -59,16 +59,14 @@ def _starting_steps(entry: ChatState, node: ChatNode) -> list[ChatStepResult]:
 async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, None]:
     """The graph run as chat events. LangGraph provides three streams: 'tasks' - an event as
     each node starts and finishes, 'values' - a snapshot of the state after each node, and
-    'messages' - the tokens a node's model call produces. A finished node's steps are read
-    off its task event, which LangGraph skips for a task served from its cache; nothing in
-    this graph is cached, and turning node caching on would cost those frames."""
+    'messages' - the tokens a node's model call produces. Finished steps come from the
+    'tasks' event, which a cached node never sends. Nothing here is cached."""
     sources_sent = False
     graph_stream: AsyncIterator[Any] = chat_graph.astream(
         state, stream_mode=["tasks", "values", "messages"]
     )
     async for mode, payload in graph_stream:
-        # Node starting or finished, the two task events: what it was handed, then what it
-        # wrote — nothing, for a node that raised, since the run fails on the raise
+        # Starting carries the node's input, finished what it returned — nothing if it raised
         if mode == "tasks":
             if "input" in payload:
                 for step in _starting_steps(payload["input"], ChatNode(payload["name"])):
@@ -77,7 +75,7 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
                 for step in payload["result"].get("steps", ()):
                     yield StepEvent(data=step)
             continue
-        # State after a node, which arrives once the whole superstep has written
+        # The full state after each node
         if mode == "values":
             state.sync_from_snapshot(payload)
 
