@@ -44,8 +44,12 @@ def tool_definitions() -> list[dict]:
 
 def describe_call(call: ToolCall) -> str | None:
     """What a call was for, as the trail shows it: the arguments it was given, in the order
-    the model gave them — a query, or a citation's address — and nothing when it gave none."""
-    given = [str(value) for value in call.args.values() if value]
+    the model gave them, a list joined by commas, and nothing when it gave none."""
+    given = [
+        ", ".join(map(str, value)) if isinstance(value, list) else str(value)
+        for value in call.args.values()
+        if value
+    ]
     return " · ".join(given) or None
 
 
