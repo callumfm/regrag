@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from app.chat.blocks import ContextBlock
 from app.chat.graph.node import chat_model, traced
 from app.chat.models import ChatState, ChatStepResult
-from app.chat.prompts import format_context, system_prompt, thread_messages
+from app.chat.prompts import format_context, format_named, system_prompt, thread_messages
 from app.chat.toolbox.models import ToolCall
 from app.chat.toolbox.service import (
     already_in_context,
@@ -42,8 +42,8 @@ ASSESS_SYSTEM_PROMPT = (
     "use it when a needed concept is named without a citation, or a part of the "
     "question has no context at all, narrowing with celex when the act is known. "
     "mrv_query reads one reporting period of the THETIS-MRV public dataset: how many emissions "
-    "reports were filed and their CO2 totals, for the whole fleet or narrowed to a company or "
-    "ship named in the question, summed per report type (Full, Partial) or per company or ship "
+    "reports were filed and their CO2 totals, for the whole fleet or narrowed to companies or "
+    "ships by IMO number, summed per report type (Full, Partial) or per company or ship "
     "to rank them or list a company's ships, and how the ETS figure compares with the ETS scope "
     "split — use it whenever the answer needs one of those figures or one worked out from "
     "them, such as a share, a change between periods, a company's exposure or an amount to "
@@ -52,7 +52,16 @@ ASSESS_SYSTEM_PROMPT = (
     "question about the dataset needs mrv_query even when the blocks state the rule. An "
     "amount to surrender or a company's exposure needs both mrv_query and, unless the context "
     "shows it, follow_reference to Article 3gb of Directive 2003/87/EC (32003L0087), the "
-    "phase-in. You get one round, so call every tool the question needs together. "
+    "phase-in. "
+    "A name the question gives is listed with every company or ship in THETIS-MRV it could "
+    "mean, each with its IMO number and the years it reported; mrv_query takes them by those "
+    "numbers, never by name. When a name could mean one, query it. When it could mean two or "
+    "three and the question does not say which, query them together in one call, so the "
+    "answer gives each its own figures. When it could mean more than three, or the question "
+    "needs just one of them, such as what one company surrenders, call clarify alone instead. "
+    "Never query a candidate for a year it did not report: when it is the only one, query a "
+    "year it reported instead. "
+    "You get one round, so call every tool the question needs together. "
     "Never re-fetch what the context already shows. You never answer the question "
     "yourself: your output is tool calls, or nothing when the context suffices."
 )
@@ -112,7 +121,7 @@ def build_assess_message(
         else "Context: no corpus passage matched. The question matches what these tools hold: "
         f"{', '.join(matched_tools)}."
     )
-    named = f"\n\nThe question names {'; '.join(entities)}." if entities else ""
+    named = format_named(entities)
     return f"{context}{named}\n\nQuestion: {question}"
 
 
