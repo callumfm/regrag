@@ -18,6 +18,7 @@ from app.chat.events import (
     ChatStep,
     DoneEvent,
     ErrorEvent,
+    OptionsEvent,
     SourcesEvent,
     StepEvent,
     TextEvent,
@@ -87,8 +88,10 @@ async def _stream_graph_events(state: ChatState) -> AsyncGenerator[ChatEvent, No
                 sources_sent = True
                 yield SourcesEvent.from_results(state.sources)
 
-            if state.last_step is ChatNode.REFUSE:
+            if state.last_step in (ChatNode.REFUSE, ChatNode.CLARIFY):
                 yield TextEvent(data=state.answer)
+            if state.last_step is ChatNode.CLARIFY and state.clarification:
+                yield OptionsEvent(data=list(state.clarification.options))
         # Answer tokens
         else:
             chunk, metadata = payload

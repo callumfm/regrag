@@ -11,6 +11,11 @@ from app.chat.blocks import ContextBlock
 from app.chat.enums import ChatStepStatus, ToolStep
 from app.chat.models import ChatStepResult
 from app.chat.toolbox.models import ToolCall
+from app.chat.toolbox.tools.clarify import (  # noqa: F401
+    CLARIFY,
+    clarification_from,
+    is_clarification,
+)
 from app.chat.toolbox.tools.follow_reference import (  # noqa: F401
     FOLLOW_REFERENCE,
     already_in_context,
@@ -25,7 +30,7 @@ from app.core.llm.errors import LLMError
 
 logger = logging.getLogger(__name__)
 
-TOOLS = {spec.name: spec for spec in (SEARCH, FOLLOW_REFERENCE, MRV_QUERY, REFUSE)}
+TOOLS = {spec.name: spec for spec in (SEARCH, FOLLOW_REFERENCE, MRV_QUERY, CLARIFY, REFUSE)}
 """Every tool the surface has, whether or not this run offers it to the model."""
 
 TOOL_CARD_EMBEDDINGS: dict[str, list[float]] = {}
@@ -40,6 +45,11 @@ def tool_definitions() -> list[dict]:
         for spec in TOOLS.values()
         if spec is not REFUSE or config.ASSESS_MAY_REFUSE
     ]
+
+
+def ends_the_run(call: ToolCall) -> bool:
+    """Whether the call ends the question without an answer, in a refusal or a question back."""
+    return is_refusal(call) or is_clarification(call)
 
 
 def describe_call(call: ToolCall) -> str | None:
