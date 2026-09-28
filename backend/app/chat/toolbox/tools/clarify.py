@@ -32,10 +32,9 @@ CLARIFY = ToolSpec(
     args_model=ClarifyArgs,
     run=run_clarification,
     description="Ask the reader which company or ship they mean, when a name in the question "
-    "could be more than three in THETIS-MRV, or the answer needs just one of them, and the "
-    "question does not settle which. Give a short question, and one option per candidate with "
-    "its name and IMO number exactly as the question's candidates give them. Call it alone, "
-    "never beside another tool.",
+    "could be more than three in THETIS-MRV and the question does not settle which. Give a "
+    "short question, and one option per candidate with its name and IMO number exactly as "
+    "the question's candidates give them. Call it alone, never beside another tool.",
 )
 
 

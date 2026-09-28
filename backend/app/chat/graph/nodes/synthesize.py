@@ -38,7 +38,8 @@ UNCOVERED = (
 
 TABLES = (
     "When you give more than a couple of rows from a passage's table, give them as a "
-    "markdown table and cite it in the sentence that introduces it. "
+    "markdown table and cite it in the sentence that introduces it. Figures for several "
+    "companies or ships go in one table, a row each, never summed. "
 )
 
 UNUSED = (
