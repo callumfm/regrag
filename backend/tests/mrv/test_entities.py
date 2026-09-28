@@ -4,32 +4,33 @@ import re
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import make_transient
 
 from app.mrv.entities import find_entities
+from app.mrv.schemas import MrvReport
 from tests.mrv.conftest import company_report
 
 pytestmark = pytest.mark.anyio
 
 
-FLEET = [
-    company_report("SCORPIO KAIUN LTD.", "6349424"),
-    company_report("SCORPIO KAIUN LTD.", "6349424", period=2025),
-    company_report("SCORPIO CARRIERS, ltd.", "1575593"),
-    company_report("Scorpio Marine Management (India) Private Limited", "5562457", period=2025),
-    company_report("DFDS A/S", "0310102"),
-    company_report("DFDS DENIZCILIK VE TASIMACILIK A.S.", "1568628"),
-    company_report("Carras (Hellas) S.A.", "5123456"),
-    company_report("Hellas Confidence Shipmanagement S.A.", "5999999"),
-    company_report("Maersk A/S", "1234567", imo="9321483", ship_name="EMMA MAERSK"),
-]
+def build_fleet() -> list[MrvReport]:
+    return [
+        company_report("SCORPIO KAIUN LTD.", "6349424"),
+        company_report("SCORPIO KAIUN LTD.", "6349424", period=2025),
+        company_report("SCORPIO CARRIERS, ltd.", "1575593"),
+        company_report("Scorpio Marine Management (India) Private Limited", "5562457", period=2025),
+        company_report("DFDS A/S", "0310102"),
+        company_report("DFDS DENIZCILIK VE TASIMACILIK A.S.", "1568628"),
+        company_report("Carras (Hellas) S.A.", "5123456"),
+        company_report("Hellas Confidence Shipmanagement S.A.", "5999999"),
+        company_report("Maersk A/S", "1234567", imo="9321483", ship_name="EMMA MAERSK"),
+        company_report("ADNOC L&S", "7777777", period=2024),
+        company_report("ADNOC Logistics & Services", "7777777", period=2025),
+    ]
 
 
 @pytest.fixture
 async def fleet(db_session: AsyncSession) -> AsyncSession:
-    for row in FLEET:
-        make_transient(row)
-    db_session.add_all(FLEET)
+    db_session.add_all(build_fleet())
     await db_session.flush()
     return db_session
 
@@ -72,6 +73,12 @@ async def fleet(db_session: AsyncSession) -> AsyncSession:
             [["6349424"]],
             "reports for 2024 and 2025)",
             id="an option sent back resolves to its one company",
+        ),
+        pytest.param(
+            "check the exposure of ADNOC Logistics & Services in 2024",
+            [["7777777"]],
+            "reports for 2024 and 2025)",
+            id="a company reported under two spellings is one candidate over both years",
         ),
     ],
 )

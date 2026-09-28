@@ -5,7 +5,7 @@ import re
 from collections.abc import Callable, Sequence
 from typing import Any, NamedTuple
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -36,18 +36,21 @@ class NameRun(NamedTuple):
 
 
 class Candidate(NamedTuple):
-    """One company or ship a name could mean: its name, IMO number, stored key, the periods it
-    reported in, and how many reports it filed."""
+    """One company or ship a name could mean, one row per IMO number: its name, every key its
+    rows are stored under, the periods it reported in, how many reports it filed, and, for a
+    ship, its type."""
 
     name: str
     imo: str
-    key: str
+    keys: list[str]
     periods: list[int]
     reports: int
+    detail: str | None = None
 
 
 class EntityKind(NamedTuple):
-    """Companies or ships: how they are called, numbered, and stored."""
+    """Companies or ships: how they are called, numbered, stored, and, for a ship, the detail
+    its label adds."""
 
     noun: str
     plural: str
@@ -56,6 +59,7 @@ class EntityKind(NamedTuple):
     imo: InstrumentedAttribute[Any]
     key: InstrumentedAttribute[Any]
     to_key: Callable[[str], str]
+    detail: InstrumentedAttribute[Any] | None = None
 
 
 COMPANY = EntityKind(
@@ -68,7 +72,14 @@ COMPANY = EntityKind(
     company_key,
 )
 SHIP = EntityKind(
-    "ship", "ships", "IMO", MrvReport.ship_name, MrvReport.imo, MrvReport.ship_key, name_key
+    "ship",
+    "ships",
+    "IMO",
+    MrvReport.ship_name,
+    MrvReport.imo,
+    MrvReport.ship_key,
+    name_key,
+    MrvReport.ship_type,
 )
 
 
@@ -90,17 +101,22 @@ def word_runs(words: Sequence[str]) -> list[NameRun]:
 
 
 def describe_years(periods: Sequence[int]) -> str:
-    """'2024 and 2025', or '2018 to 2025' for a longer unbroken span."""
+    """'2024 and 2025'; '2018, 2019 and 2022' for a broken span of 3 or more; '2018 to 2025'
+    for an unbroken one."""
     years = sorted(periods)
     if len(years) > 2 and years == list(range(years[0], years[-1] + 1)):
         return f"{years[0]} to {years[-1]}"
-    return " and ".join(str(year) for year in years)
+    labels = [str(year) for year in years]
+    if len(labels) < 2:
+        return labels[0] if labels else ""
+    return ", ".join(labels[:-1]) + f" and {labels[-1]}"
 
 
 def describe_candidate(kind: EntityKind, candidate: Candidate) -> str:
+    detail = f"{candidate.detail}, " if candidate.detail else ""
     return (
         f"{candidate.name} ({kind.number} {candidate.imo}, "
-        f"reports for {describe_years(candidate.periods)})"
+        f"{detail}reports for {describe_years(candidate.periods)})"
     )
 
 
@@ -122,11 +138,12 @@ def describe_match(match: NameMatch) -> str:
 
 
 def run_matches(kind: EntityKind, run: NameRun, candidate: Candidate, *, probed: bool) -> bool:
-    """Whether the run names the candidate by number or in full, or, probed, starts its name."""
+    """Whether the run names the candidate by number or, under any of its stored spellings, in
+    full or, probed, as a prefix."""
     return (
         candidate.imo == run.text
-        or candidate.key == kind.to_key(run.text)
-        or (probed and candidate.key.startswith(f"{name_key(run.text)} "))
+        or kind.to_key(run.text) in candidate.keys
+        or (probed and any(key.startswith(f"{name_key(run.text)} ") for key in candidate.keys))
     )
 
 
@@ -134,30 +151,37 @@ async def find_candidates(
     session: AsyncSession, kind: EntityKind, named: list[NameRun], probed: list[NameRun]
 ) -> list[NameMatch]:
     """Each run's candidates of one kind: those it names in full or by number, and for a probed
-    run those whose name it starts."""
+    run those whose name it starts. A candidate is one IMO number, aggregated over every row it
+    appears under in the dataset however its name is spelled there."""
     if not named:
         return []
     starts = {name_key(run.text) for run in probed}
+    numbered = {run.text for run in named if IMO_NUMBER.fullmatch(run.text)}
+    matched_imos = select(kind.imo).where(
+        kind.imo.is_not(None),
+        or_(
+            kind.key.in_({kind.to_key(run.text) for run in named}),
+            kind.imo.in_(numbered),
+            *(kind.key.startswith(f"{start} ") for start in starts),
+        ),
+    )
+    detail_column = (func.max(kind.detail) if kind.detail is not None else literal(None)).label(
+        "detail"
+    )
     stmt = (
         select(
             func.max(kind.name).label("name"),
             kind.imo.label("imo"),
-            kind.key.label("key"),
+            func.array_agg(kind.key.distinct()).label("keys"),
             func.array_agg(MrvReport.period.distinct()).label("periods"),
             func.count().label("reports"),
+            detail_column,
         )
-        .where(
-            kind.imo.is_not(None),
-            or_(
-                kind.key.in_({kind.to_key(run.text) for run in named}),
-                kind.imo.in_({run.text for run in named}),
-                *(kind.key.startswith(f"{start} ") for start in starts),
-            ),
-        )
-        .group_by(kind.key, kind.imo)
+        .where(kind.imo.in_(matched_imos))
+        .group_by(kind.imo)
         .order_by(func.count().desc(), func.max(kind.name))
     )
-    rows = [Candidate(*row) for row in await session.execute(stmt)]
+    rows = [Candidate(**row._mapping) for row in await session.execute(stmt)]
     matches = []
     for run in named:
         probe = run in probed
@@ -169,8 +193,7 @@ async def find_candidates(
 
 async def find_entities(session: AsyncSession, question: str) -> tuple[str, ...]:
     """The dataset itself, and for each name the question gives every company or ship it could
-    mean, each with its IMO number and reporting years; a name inside a longer name that
-    matched is not looked up on its own."""
+    mean, each with its IMO number and reporting years."""
     words = name_words(question)
     runs = word_runs(words)
     single = {word for word in words if len(word) >= 3}
