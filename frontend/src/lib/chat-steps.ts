@@ -20,8 +20,8 @@ const LABELS: Record<ChatStep["step"], { running: string; done: string }> = {
 		done: "Found nothing that bears on the question",
 	},
 	tool_clarify: {
-		running: "Finding several it could mean",
-		done: "Found several it could mean",
+		running: "Finding several companies or ships it could mean",
+		done: "Found several companies or ships it could mean",
 	},
 	tool_unknown: {
 		running: "Asking for a tool it does not have",
