@@ -36,55 +36,65 @@ async def fleet(db_session: AsyncSession) -> AsyncSession:
 
 
 @pytest.mark.parametrize(
-    ("question", "candidates", "years"),
+    ("question", "candidates", "years", "most_candidates"),
     [
         pytest.param(
             "check the exposure of scorpio",
             [["6349424", "1575593", "5562457"]],
             "reports for 2025)",
+            3,
             id="a lower-case name brings every company it starts, most reports first",
         ),
         pytest.param(
             "What was DFDS A/S's exposure in 2024",
             [["0310102"]],
             "reports for 2024)",
+            1,
             id="a name given in full with its corporate ending settles the company",
         ),
         pytest.param(
             "What was DFDS's exposure in 2024",
             [["0310102", "1568628"]],
             None,
+            2,
             id="a bare name brings its full match and the companies it starts",
         ),
         pytest.param(
             "What was the Carras Hellas exposure?",
             [["5123456"]],
             None,
+            1,
             id="a word inside a name matched in full is not looked up again",
         ),
         pytest.param(
             "How much did Emma Maersk emit?",
             [["9321483"]],
             None,
+            1,
             id="a ship's name keeps its company's word from being looked up",
         ),
         pytest.param(
             "SCORPIO KAIUN LTD. (IMO company number 6349424)",
             [["6349424"]],
             "reports for 2024 and 2025)",
+            1,
             id="an option sent back resolves to its one company",
         ),
         pytest.param(
             "check the exposure of ADNOC Logistics & Services in 2024",
             [["7777777"]],
             "reports for 2024 and 2025)",
+            1,
             id="a company reported under two spellings is one candidate over both years",
         ),
     ],
 )
-async def test_each_name_lists_every_candidate_it_could_mean(fleet, question, candidates, years):
-    lines = await find_entities(fleet, question)
+async def test_each_name_lists_every_candidate_it_could_mean(
+    fleet, question, candidates, years, most_candidates
+):
+    found = await find_entities(fleet, question)
 
-    assert [re.findall(r"\b\d{7}\b", line) for line in lines] == candidates
+    assert [re.findall(r"\b\d{7}\b", line) for line in found.lines] == candidates
+    assert found.most_candidates == most_candidates
     if years:
-        assert years in lines[0]
+        assert years in found.lines[0]

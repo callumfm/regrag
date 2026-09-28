@@ -60,8 +60,7 @@ ASSESS_SYSTEM_PROMPT = (
     "candidate only when the question asks about that company or ship, and ignore the rest. "
     "When a name could mean one, query it. When it could mean two or "
     "three and the question does not say which, query them together in one call, so the "
-    "answer gives each its own figures. When it could mean more than three, call clarify "
-    "alone instead. "
+    "answer gives each its own figures. "
     "Never query a candidate for a year it did not report: when it is the only one, query a "
     "year it reported instead. "
     "You get one round, so call every tool the question needs together. "
@@ -79,11 +78,16 @@ ASSESS_REFUSAL_INSTRUCTION = (
     "answer."
 )
 
+ASSESS_CLARIFY_INSTRUCTION = " When it could mean more than three, call clarify alone instead."
 
-def build_assess_system_prompt(*, may_refuse: bool) -> str:
-    """The assess system prompt, telling the model when to refuse only when it is offered
-    the tool to do it with."""
-    return ASSESS_SYSTEM_PROMPT + (ASSESS_REFUSAL_INSTRUCTION if may_refuse else "")
+
+def build_assess_system_prompt(*, may_refuse: bool, may_clarify: bool) -> str:
+    """The assess system prompt, telling the model when to refuse or ask back only when it
+    is offered the tool to do it with."""
+    prompt = ASSESS_SYSTEM_PROMPT
+    prompt += ASSESS_REFUSAL_INSTRUCTION if may_refuse else ""
+    prompt += ASSESS_CLARIFY_INSTRUCTION if may_clarify else ""
+    return prompt
 
 
 def reference_addresses(source: RetrievedChunk) -> list[str]:
@@ -128,9 +132,9 @@ def build_assess_message(
     return f"{context}{named}\n\nQuestion: {question}"
 
 
-def assess_model() -> Runnable:
+def assess_model(*, may_clarify: bool) -> Runnable:
     """The assess model as assess calls it: one blocking turn, the tool surface bound."""
-    return chat_model(streaming=False).bind_tools(tool_definitions())
+    return chat_model(streaming=False).bind_tools(tool_definitions(may_clarify=may_clarify))
 
 
 @llm_retry
@@ -144,7 +148,10 @@ async def call_assess_model(state: ChatState) -> dict[str, Any]:
     messages = [
         SystemMessage(
             system_prompt(
-                build_assess_system_prompt(may_refuse=config.ASSESS_MAY_REFUSE), state.history
+                build_assess_system_prompt(
+                    may_refuse=config.ASSESS_MAY_REFUSE, may_clarify=state.may_clarify
+                ),
+                state.history,
             )
         ),
         *thread_messages(state.history),
@@ -152,7 +159,7 @@ async def call_assess_model(state: ChatState) -> dict[str, Any]:
             build_assess_message(state.question, state.sources, state.matched_tools, state.entities)
         ),
     ]
-    response = await assess_model().ainvoke(messages)
+    response = await assess_model(may_clarify=state.may_clarify).ainvoke(messages)
     asked = [ToolCall(name=c["name"], args=c["args"]) for c in response.tool_calls]
     endings = [call for call in asked if ends_the_run(call)]
     fetches = [call for call in asked if not ends_the_run(call)]

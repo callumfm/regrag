@@ -27,6 +27,7 @@ from app.core.config import config
 from app.core.db.session import get_session
 from app.core.llm.embed import EmbedInput, cosine_similarity, embed, embed_query
 from app.core.llm.errors import LLMError
+from app.core.models import NamedEntities
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +38,13 @@ TOOL_CARD_EMBEDDINGS: dict[str, list[float]] = {}
 """Each tool card's embedding by tool name, computed once per process: cards are fixed text."""
 
 
-def tool_definitions() -> list[dict]:
-    """The surface as assess is shown it: the fetch tools, and refuse while refusing is
-    allowed."""
+def tool_definitions(*, may_clarify: bool) -> list[dict]:
+    """The surface as assess is shown it: the fetch tools, refuse while refusing is allowed,
+    and clarify only when a name in the question could mean more than three."""
     return [
         spec.definition()
         for spec in TOOLS.values()
-        if spec is not REFUSE or config.ASSESS_MAY_REFUSE
+        if (spec is not REFUSE or config.ASSESS_MAY_REFUSE) and (spec is not CLARIFY or may_clarify)
     ]
 
 
@@ -101,7 +102,7 @@ async def run_tool_call(call: ToolCall) -> tuple[ContextBlock, ...]:
         return ()
 
 
-async def find_tool_entities(question: str) -> dict[str, tuple[str, ...]]:
+async def find_tool_entities(question: str) -> dict[str, NamedEntities]:
     """What the question names in each dataset tool's data, by tool; empty when it names
     nothing or the lookup fails."""
     try:
@@ -114,7 +115,7 @@ async def find_tool_entities(question: str) -> dict[str, tuple[str, ...]]:
     except SQLAlchemyError as exc:
         logger.warning("tool entity lookup failed: %s", exc)
         return {}
-    return {name: entities for name, entities in found.items() if entities}
+    return {name: entities for name, entities in found.items() if entities.lines}
 
 
 async def embed_tool_cards() -> dict[str, list[float]]:

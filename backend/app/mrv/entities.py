@@ -9,6 +9,7 @@ from sqlalchemy import func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
+from app.core.models import NamedEntities
 from app.mrv.names import company_key, name_key, name_words
 from app.mrv.schemas import MrvReport
 from app.retrieval.search import words_in_corpus
@@ -191,9 +192,10 @@ async def find_candidates(
     return matches
 
 
-async def find_entities(session: AsyncSession, question: str) -> tuple[str, ...]:
+async def find_entities(session: AsyncSession, question: str) -> NamedEntities:
     """The dataset itself, and for each name the question gives every company or ship it could
-    mean, each with its IMO number and reporting years."""
+    mean, each with its IMO number and reporting years, plus the most candidates any one kept
+    name matched."""
     words = name_words(question)
     runs = word_runs(words)
     single = {word for word in words if len(word) >= 3}
@@ -213,4 +215,7 @@ async def find_entities(session: AsyncSession, question: str) -> tuple[str, ...]
     ]
     dataset = ["THETIS-MRV, the dataset mrv_query reads"] if "thetis" in single else []
     lines = [*dataset, *(describe_match(match) for match in kept)]
-    return tuple(dict.fromkeys(lines))[:ENTITY_LIMIT]
+    most_candidates = max((len(match.candidates) for match in kept), default=0)
+    return NamedEntities(
+        lines=tuple(dict.fromkeys(lines))[:ENTITY_LIMIT], most_candidates=most_candidates
+    )

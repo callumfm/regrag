@@ -16,6 +16,10 @@ from app.core.llm.models import Usage
 from app.core.models import AppModel, FrozenModel
 from app.retrieval.models import SearchResult
 
+MAX_ANSWERED_CANDIDATES = 3
+"""The most candidates one name may have and still be answered side by side; more are asked
+about."""
+
 
 class ChatQuery(AppModel):
     """The question a caller asks, and the thread it continues — none on a first question,
@@ -121,6 +125,8 @@ class ChatState(AppModel):
     entities: what the question names in a dataset tool's data, like 'Carras (Hellas) S.A.
         (IMO company number 5123456), a company in THETIS-MRV', for assess to read beside the
         context.
+    most_candidates: the most companies or ships any one name in the question could mean;
+        above MAX_ANSWERED_CANDIDATES assess may ask which.
     pending_calls: the tool calls assess asked for, not yet executed. Only a tool round
         starts holding any, since each round clears the calls it ran; the stream reads a
         round off that.
@@ -148,6 +154,7 @@ class ChatState(AppModel):
     retrieved_sources: int = 0
     matched_tools: tuple[str, ...] = ()
     entities: tuple[str, ...] = ()
+    most_candidates: int = 0
     pending_calls: tuple[ToolCall, ...] = ()
 
     # The path
@@ -160,6 +167,12 @@ class ChatState(AppModel):
     total_ms: int | None = None
     error: str | None = None
     cached: bool = False
+
+    @property
+    def may_clarify(self) -> bool:
+        """Whether some name in the question could mean more than MAX_ANSWERED_CANDIDATES
+        companies or ships, so assess is offered clarify."""
+        return self.most_candidates > MAX_ANSWERED_CANDIDATES
 
     @property
     def last_step(self) -> ChatNode | ToolStep | None:
