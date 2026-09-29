@@ -9,7 +9,7 @@ from selectolax.parser import HTMLParser, Node
 
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.html.dialect import Dialect
-from app.ingestion.parse.html.equations import equation_text
+from app.ingestion.parse.html.equation_tables import equation_text
 from app.ingestion.parse.html.paragraphs import CELL, Line, collect_lines, detach_texts
 from app.ingestion.parse.html.text import ANNEX_NUMBER_RE, clean_text, heading_number
 from app.ingestion.parse.models import Section

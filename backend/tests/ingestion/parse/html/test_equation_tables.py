@@ -75,7 +75,7 @@ def one_row_table(*cells: str) -> str:
             '<td class="oj-table"><p>the balance</p></td></tr>'
             "</tbody></table>",
             (RFNBO_EXPRESSION,),
-            [(SectionKind.TABLE, "CB = | $$0.02 \\times \\sum_{i}M_{i}$$\nWhere | the balance")],
+            [(SectionKind.TABLE, f"CB = | {RFNBO_EXPRESSION}\nWhere | the balance")],
             id="a table of several rows stays a table",
         ),
     ],
