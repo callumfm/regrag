@@ -348,8 +348,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "x-client-id"?: string | null;
                 "cf-turnstile-response"?: string | null;
+                "x-client-id"?: string | null;
             };
             path?: never;
             cookie?: never;

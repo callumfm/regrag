@@ -1,6 +1,6 @@
 import { createParser, type EventSourceMessage } from "eventsource-parser"
 import { readClientId } from "@/lib/client-id"
-import { prepareToken, takeToken } from "@/lib/turnstile"
+import { mintToken } from "@/lib/turnstile"
 import type {
 	ChatQuery,
 	ChatStreamEvent,
@@ -76,20 +76,36 @@ function toStreamEvent(message: EventSourceMessage): ChatStreamEvent | null {
 	}
 }
 
+/** Posts the question, proving the browser with a Turnstile token only once the backend has stopped trusting this client id. */
+async function postQuestion(
+	body: ChatQuery,
+	signal: AbortSignal,
+): Promise<Response> {
+	const post = (headers: Record<string, string>) =>
+		apiFetch("/chat", {
+			method: "POST",
+			headers,
+			body: JSON.stringify(body),
+			signal,
+		})
+	try {
+		return await post({})
+	} catch (error) {
+		const unverified =
+			error instanceof ApiError && error.body.error === "TurnstileFailedError"
+		if (!unverified || signal.aborted) throw error
+		const token = await mintToken()
+		if (token === null) throw error
+		return post({ "CF-Turnstile-Response": token })
+	}
+}
+
 /** Yields the backend's typed SSE events as they arrive. */
 export async function* streamChat(
 	body: ChatQuery,
 	signal: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
-	const token = await takeToken(signal)
-	const response = await apiFetch("/chat", {
-		method: "POST",
-		headers: token === null ? {} : { "CF-Turnstile-Response": token },
-		body: JSON.stringify(body),
-		signal,
-	}).finally(() => {
-		if (!signal.aborted) prepareToken()
-	})
+	const response = await postQuestion(body, signal)
 	if (response.body === null) {
 		throw new Error("Chat response had no body to stream")
 	}

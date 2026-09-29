@@ -230,11 +230,13 @@ class TurnstileConfig(BaseConfig):
     TURNSTILE_ENABLED: the check's off switch, off so dev, tests and evals need no token.
     TURNSTILE_SECRET_KEY: the widget's secret half. Empty lets every request through.
     TURNSTILE_TIMEOUT: seconds to wait for siteverify before letting the request through.
+    TURNSTILE_TRUST_SECONDS: how long a client id that passed a check goes unchallenged.
     """
 
     TURNSTILE_ENABLED: bool = False
     TURNSTILE_SECRET_KEY: SecretStr = SecretStr("")
     TURNSTILE_TIMEOUT: float = Field(default=5.0, gt=0.0)
+    TURNSTILE_TRUST_SECONDS: int = Field(default=86_400, ge=1)
 
 
 EMBED_DIMENSIONS = 1024
