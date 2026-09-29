@@ -9,6 +9,7 @@ from selectolax.parser import HTMLParser, Node
 
 from app.ingestion.enums import SectionKind
 from app.ingestion.parse.html.dialect import Dialect
+from app.ingestion.parse.html.equations import equation_text
 from app.ingestion.parse.html.paragraphs import CELL, Line, collect_lines, detach_texts
 from app.ingestion.parse.html.text import ANNEX_NUMBER_RE, clean_text, heading_number
 from app.ingestion.parse.models import Section
@@ -31,17 +32,23 @@ def _table_rows(node: Node) -> tuple[tuple[str, ...], ...]:
 
 
 def _mark_data_tables(node: Node, selector: str) -> list[Section]:
-    """Data tables as TABLE sections, each swapped in the tree for a mark naming it, so its
-    cells are not re-read and the line stream can put it back where it stood."""
+    """Data tables as TABLE sections, or as a paragraph where the table is one equation, each
+    swapped in the tree for a mark naming it, so its cells are not re-read and the line
+    stream can put it back where it stood."""
     sections: list[Section] = []
     for table in node.css(selector):
         rows = _table_rows(table)
         if not rows:
             table.replace_with("")
             continue
+        equation = equation_text(table)
         mark = f"<p>{TABLE_MARK}{len(sections)}{TABLE_MARK}</p>"
         table.replace_with(HTMLParser(mark).css_first("p"))  # ty: ignore[invalid-argument-type]
-        sections.append(Section(kind=SectionKind.TABLE, rows=rows))
+        sections.append(
+            Section(kind=SectionKind.PARAGRAPH, text=equation)
+            if equation
+            else Section(kind=SectionKind.TABLE, rows=rows)
+        )
     return sections
 
 
