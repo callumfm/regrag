@@ -6,11 +6,15 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import Header, Request
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 from app.core.config import config
 from app.core.exceptions import TurnstileFailedError
 from app.core.http import http_client
 from app.core.middleware import client_ip
+from app.core.ratelimit import ClientIdHeader
+from app.core.redis import RedisDep
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +51,40 @@ def is_from_chat_page(verdict: dict[str, Any]) -> bool:
     )
 
 
-async def verify_turnstile(request: Request, cf_turnstile_response: TurnstileHeader = None) -> None:
-    """Refuse the request unless Cloudflare vouches for its token, action and page. A check
-    that cannot be made lets it through: the rate limit and spend cap are the backstops."""
+async def is_trusted(redis: Redis, key: str) -> bool:
+    """Whether the client id passed a check inside the trust window. Redis unreachable counts
+    as trusted, as the limiter lets calls through then too."""
+    try:
+        return bool(await redis.exists(key))
+    except RedisError as exc:
+        logger.warning("turnstile trust check failed, letting the request through: %s", exc)
+        return True
+
+
+async def trust_client(redis: Redis, key: str) -> None:
+    """Spare the client id another check until the trust window closes."""
+    try:
+        await redis.set(key, 1, ex=config.TURNSTILE_TRUST_SECONDS)
+    except RedisError as exc:
+        logger.warning("turnstile trust not recorded: %s", exc)
+
+
+async def verify_turnstile(
+    request: Request,
+    redis: RedisDep,
+    cf_turnstile_response: TurnstileHeader = None,
+    x_client_id: ClientIdHeader = None,
+) -> None:
+    """Refuse the request unless its client id passed a check inside the trust window, or
+    Cloudflare vouches for its token, action and page. A check that cannot be made lets it
+    through: the rate limit and spend cap are the backstops."""
     if not config.TURNSTILE_ENABLED:
         return
     if not config.TURNSTILE_SECRET_KEY.get_secret_value():
         logger.error("TURNSTILE_ENABLED is set with no secret key, so requests go unchecked")
+        return
+    trust_key = f"turnstile:trusted:{x_client_id}" if x_client_id else None
+    if trust_key and await is_trusted(redis, trust_key):
         return
     if not cf_turnstile_response:
         raise TurnstileFailedError()
@@ -68,3 +99,5 @@ async def verify_turnstile(request: Request, cf_turnstile_response: TurnstileHea
             verdict.get("hostname"),
         )
         raise TurnstileFailedError()
+    if trust_key:
+        await trust_client(redis, trust_key)

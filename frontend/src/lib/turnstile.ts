@@ -15,6 +15,7 @@ type TurnstileOptions = {
 	action: string
 	execution: "execute"
 	appearance: "interaction-only"
+	"refresh-expired": "never"
 	callback: (token: string) => void
 	"error-callback": () => void
 	"expired-callback": () => void
@@ -26,8 +27,6 @@ type TurnstileApi = {
 	render: (container: HTMLElement, options: TurnstileOptions) => string
 	execute: (widgetId: string) => void
 	reset: (widgetId: string) => void
-	getResponse: (widgetId: string) => string | undefined
-	isExpired: (widgetId: string) => boolean
 }
 
 declare global {
@@ -40,13 +39,11 @@ type Widget = {
 	execute: () => void
 	reset: () => void
 	hide: () => void
-	currentToken: () => string | null
 }
 
 type DeliverToken = (token: string | null) => void
 
 let reportedMissingSitekey = false
-let prepared: Promise<string | null> | null = null
 let pending: DeliverToken | null = null
 let mintTimer: ReturnType<typeof setTimeout> | undefined
 let widget: Promise<Widget> | null = null
@@ -99,6 +96,7 @@ async function openWidget(sitekey: string): Promise<Widget> {
 		action: ACTION,
 		execution: "execute",
 		appearance: "interaction-only",
+		"refresh-expired": "never",
 		callback: deliverToken,
 		"error-callback": () => deliverToken(null),
 		"expired-callback": () => deliverToken(null),
@@ -109,8 +107,6 @@ async function openWidget(sitekey: string): Promise<Widget> {
 		execute: () => turnstile.execute(id),
 		reset: () => turnstile.reset(id),
 		hide: () => container.classList.add(HIDDEN_CLASS),
-		currentToken: () =>
-			turnstile.isExpired(id) ? null : (turnstile.getResponse(id) ?? null),
 	}
 }
 
@@ -132,7 +128,8 @@ function awaitToken(rendered: Widget): Promise<string | null> {
 	})
 }
 
-async function mintToken(): Promise<string | null> {
+/** A fresh token for one question, or null when none could be minted. */
+export async function mintToken(): Promise<string | null> {
 	const sitekey = import.meta.env.VITE_TURNSTILE_SITE_KEY
 	if (!sitekey) {
 		reportMissingSitekey()
@@ -145,20 +142,4 @@ async function mintToken(): Promise<string | null> {
 		widget = null
 		return null
 	}
-}
-
-/** Starts minting the next question's token, so sending it does not wait on the challenge. */
-export function prepareToken(): void {
-	prepared ??= mintToken()
-}
-
-/** A token for one question: the prepared one, as Turnstile has kept it refreshed, else a fresh mint, or null when none could be minted. A question given up while it waited mints nothing, so it cannot supersede the next question's mint. */
-export async function takeToken(signal: AbortSignal): Promise<string | null> {
-	const taking = prepared
-	prepared = null
-	if (taking !== null && (await taking) !== null) {
-		const current = (await widget)?.currentToken()
-		if (current) return current
-	}
-	return signal.aborted ? null : mintToken()
 }

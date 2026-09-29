@@ -32,7 +32,7 @@ FastAPI files under the same media type."""
     "/chat",
     response_class=EventSourceResponse,
     responses=CHAT_RESPONSES,
-    dependencies=[Depends(rate_limit("question")), Depends(verify_turnstile)],
+    dependencies=[Depends(verify_turnstile), Depends(rate_limit("question"))],
 )
 async def chat(query: ChatQuery) -> AsyncIterator[ServerSentEvent]:
     """Stream a cited answer to the question over SSE: steps, sources, tokens, done with the
